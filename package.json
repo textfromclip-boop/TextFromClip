@@ -1,0 +1,37 @@
+{
+  "name": "textfromclip",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "deploy": "wrangler deploy",
+    "d1:migrate:local": "wrangler d1 execute textfromclip-db --local --file=./migrations/0001_initial_schema.sql",
+    "d1:migrate:prod": "wrangler d1 execute textfromclip-db --remote --file=./migrations/0001_initial_schema.sql"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "hono": "^4.7.2",
+    "lucide-react": "^1.16.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.0.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250224.0",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^6.2.0",
+    "vitest": "^3.0.7",
+    "wrangler": "^3.111.0"
+  }
+}
