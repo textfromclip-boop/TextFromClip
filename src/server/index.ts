@@ -227,22 +227,43 @@ app.get('/sitemap.xml', (c) => {
 `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://textfromclip.com/</loc>
-    <changefreq>daily</changefreq>
+    <loc>https://textfromclip.com/youtube</loc>
+    <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://textfromclip.com/youtube-transcript</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://textfromclip.com/tiktok</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://textfromclip.com/video-to-text</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
+    <loc>https://textfromclip.com/instagram</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://textfromclip.com/guide</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://textfromclip.com/about</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.4</priority>
   </url>
 </urlset>`
   );
 });
 
+// SPA fallback: page routes (/youtube, /guide, ...) are handled client-side,
+// so a hard refresh or shared link must receive index.html instead of a 404.
+app.get('*', async (c) => {
+  if (c.req.path.startsWith('/api/') || !c.env.ASSETS) {
+    return c.text('Not found', 404);
+  }
+  const indexUrl = new URL('/', c.req.url);
+  return c.env.ASSETS.fetch(new Request(indexUrl.toString(), c.req.raw));
+});
+
 export default app;
+

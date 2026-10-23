@@ -117,3 +117,4 @@ export function calculatePercentiles(latencies: number[]) {
     avg: (sum / sorted.length).toFixed(2),
   };
 }
+

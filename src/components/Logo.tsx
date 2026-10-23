@@ -11,68 +11,92 @@ export const Logo: React.FC<LogoProps> = ({
   size = 'md',
   className = '',
 }) => {
-  // Dimensions for the icon
+  // Dimensions for the icon preserving original 175:142 aspect ratio
   const iconDimensions = {
-    sm: 'w-7 h-7',
-    md: 'w-9 h-9',
-    lg: 'w-12 h-12',
-    xl: 'w-16 h-16',
+    sm: 'h-6 w-auto',
+    md: 'h-8 w-auto',
+    lg: 'h-11 w-auto',
+    xl: 'h-14 w-auto',
   }[size];
 
   // Font sizes for the wordmark
   const textSizes = {
-    sm: 'text-lg',
-    md: 'text-2xl',
+    sm: 'text-xl',
+    md: 'text-2xl sm:text-[1.7rem]',
     lg: 'text-3xl',
-    xl: 'text-4xl',
+    xl: 'text-4xl sm:text-5xl',
   }[size];
 
   return (
     <div className={`flex items-center gap-2.5 select-none ${className}`}>
-      {/* SVG Icon */}
+      {/* SVG Icon matching authentic original design (Picture 2) */}
       <svg
-        className={`${iconDimensions} shrink-0 drop-shadow-sm transition-transform duration-200 hover:scale-105`}
-        viewBox="0 0 160 140"
+        className={`${iconDimensions} shrink-0`}
+        viewBox="0 0 175 142"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
         aria-label="TextFromClip logo"
       >
         <defs>
-          <linearGradient id="tfGradient" x1="10%" y1="10%" x2="90%" y2="90%">
-            <stop offset="0%" stopColor="#3B82F6" />
-            <stop offset="100%" stopColor="#6D28D9" />
+          <linearGradient id="tfClipGrad" x1="5%" y1="5%" x2="95%" y2="95%">
+            <stop offset="0%" stopColor="#0F8CFA" />
+            <stop offset="45%" stopColor="#2868F7" />
+            <stop offset="100%" stopColor="#5131ED" />
           </linearGradient>
-          <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
-            <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#3B82F6" floodOpacity="0.25" />
-          </filter>
         </defs>
 
-        {/* Rounded Triangle Play Shield */}
+        {/* Unified Rounded Play Shield with integrated horizontal speed bars */}
         <path
-          d="M 28 22 C 20 16, 12 21, 12 32 L 12 108 C 12 119, 20 124, 28 118 L 88 78 C 96 73, 96 67, 88 62 Z"
-          fill="url(#tfGradient)"
-          rx="18"
+          d="
+            M 42 10
+            C 75 10 102 24 120 48
+            L 158 48
+            C 162.5 48 166 51.5 166 55
+            C 166 58.5 162.5 62 158 62
+            L 118 62
+            C 113.5 62 110.5 65.5 110.5 66.5
+            C 110.5 67.5 113.5 71 118 71
+            L 149 71
+            C 153.5 71 157 74.5 157 78
+            C 157 81.5 153.5 85 149 85
+            L 110 85
+            C 105.5 85 102.5 87.5 102.5 88.5
+            C 102.5 89.5 105.5 92 110 92
+            L 141 92
+            C 145.5 92 149 95.5 149 98.5
+            C 149 101.5 145.5 105 141 105
+            L 96 105
+            C 80 119 62 133 42 133
+            C 18 133 8 116 8 98
+            L 8 45
+            C 8 27 18 10 42 10
+            Z
+          "
+          fill="url(#tfClipGrad)"
         />
 
-        {/* White Play Triangle */}
+        {/* Centered White Play Triangle */}
         <path
-          d="M 36 46 L 66 70 L 36 94 Z"
+          d="
+            M 54 50
+            C 52 48.5 50 49.5 50 52
+            L 50 91
+            C 50 93.5 52 94.5 54 93
+            L 88 73.5
+            C 90 72.3 90 70.7 88 69.5
+            Z
+          "
           fill="#FFFFFF"
         />
-
-        {/* 3 Horizontal Speed/Text Lines */}
-        <rect x="88" y="44" width="38" height="9" rx="4.5" fill="url(#tfGradient)" />
-        <rect x="78" y="66" width="54" height="9" rx="4.5" fill="url(#tfGradient)" />
-        <rect x="88" y="88" width="42" height="9" rx="4.5" fill="url(#tfGradient)" />
       </svg>
 
-      {/* Wordmark */}
+      {/* Wordmark replicating exact typography from Picture 2 */}
       {variant === 'full' && (
         <span className={`font-black tracking-tight leading-none ${textSizes}`}>
-          <span className="text-slate-900 dark:text-white transition-colors duration-200">
+          <span className="text-[#021331]">
             TextFrom
           </span>
-          <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+          <span className="text-[#5131ED]">
             Clip
           </span>
         </span>
@@ -80,3 +104,4 @@ export const Logo: React.FC<LogoProps> = ({
     </div>
   );
 };
+

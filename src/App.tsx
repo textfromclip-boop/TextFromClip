@@ -1,157 +1,92 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Navbar } from './components/Navbar';
-import { Hero } from './components/Hero';
-import { TranscriptResultView } from './components/TranscriptResultView';
-import { Features } from './components/Features';
-import { HowItWorks } from './components/HowItWorks';
-import { SupportedPlatforms } from './components/SupportedPlatforms';
-import { Faq } from './components/Faq';
-import { SeoPages } from './components/SeoPages';
 import { Footer } from './components/Footer';
-import { Modals, ModalType } from './components/Modals';
-import { TranscriptResult, ApiResponse } from './types';
+import { TranscribePage, PlatformConfig } from './components/TranscribePage';
+import { GuidePage } from './components/GuidePage';
+import { AboutPage } from './components/AboutPage';
+import { useRoute } from './router';
+
+const YOUTUBE: PlatformConfig = {
+  name: 'YouTube',
+  heading: 'Get the transcript of any YouTube video.',
+  intro:
+    'Paste a link and read, search and download what is said, with timestamps. Regular videos and Shorts both work.',
+  placeholder: 'https://www.youtube.com/watch?v=…',
+  example: {
+    label: 'Try it on “Me at the zoo”',
+    url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw',
+  },
+  hosts: ['youtube.com', 'youtu.be'],
+  status: {
+    working: true,
+    text: 'Reads the video’s own captions. If a video has none, you will be told rather than given guesses. Direct .mp4/.mp3 links can also be pasted here.',
+  },
+  notes: [
+    'Accepted: youtube.com/watch, youtu.be, /shorts and /embed links.',
+    'Download as .txt, .srt or .vtt, or copy to the clipboard.',
+    'Click any timestamp to open YouTube at that moment.',
+  ],
+};
+
+const TIKTOK: PlatformConfig = {
+  name: 'TikTok',
+  heading: 'TikTok transcripts.',
+  intro:
+    'Paste a public TikTok video link to read, search and download its caption track with timestamps.',
+  placeholder: 'https://www.tiktok.com/@name/video/…',
+  example: {
+    label: 'Try it on a spoken TikTok clip',
+    url: 'https://www.tiktok.com/@curiousitygeek/video/7649850716713913622',
+  },
+  hosts: ['tiktok.com'],
+  status: {
+    working: true,
+    text: 'Reads public WebVTT and creator caption tracks when TikTok includes them on the video page. Clips without captions or behind a bot check fail rather than return guesses.',
+  },
+  notes: [
+    'Accepted: tiktok.com/@user/video/… and mobile share links (vm.tiktok.com, vt.tiktok.com).',
+    'Download as .txt, .srt or .vtt, or copy to the clipboard.',
+    'If a clip has no caption track attached, you will get an explicit error rather than made-up text.',
+  ],
+};
+
+const INSTAGRAM: PlatformConfig = {
+  name: 'Instagram',
+  heading: 'Instagram Reels transcripts.',
+  intro: 'Paste a Reel or post link and we will try to read its captions.',
+  placeholder: 'https://www.instagram.com/reel/…',
+  hosts: ['instagram.com'],
+  status: {
+    working: false,
+    text: 'Instagram requires a login to read Reels, so every attempt currently fails. We do not ask for your credentials and we will not fake a transcript.',
+  },
+  notes: [
+    'If the same video is also on YouTube, use the YouTube tab.',
+    'If you have the video file, host it somewhere public and paste the .mp4 link on the YouTube tab.',
+  ],
+};
 
 export const App: React.FC = () => {
-  const [isDark, setIsDark] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('textfromclip-theme');
-      if (saved) return saved === 'dark';
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
-
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [transcriptResult, setTranscriptResult] = useState<TranscriptResult | null>(null);
-  const [activeModal, setActiveModal] = useState<ModalType>(null);
-
-  // Sync dark class on document root
-  useEffect(() => {
-    if (isDark) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('textfromclip-theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('textfromclip-theme', 'light');
-    }
-  }, [isDark]);
-
-  const toggleTheme = () => {
-    setIsDark((prev) => !prev);
-  };
-
-  const handleNavigate = (sectionId: string) => {
-    if (transcriptResult && sectionId !== 'transcript-result') {
-      // If result is displayed and user clicked a nav link, smooth scroll to it
-    }
-    const elem = document.getElementById(sectionId);
-    if (elem) {
-      elem.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
-  const handleTranscribe = async (url: string) => {
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const response = await fetch('/api/transcript', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ url }),
-      });
-
-      const data: ApiResponse<TranscriptResult> = await response.json();
-
-      if (!response.ok || !data.success) {
-        const errorText = (!data.success && data.error?.message) || 'Failed to process transcript.';
-        throw new Error(errorText);
-      }
-
-      setTranscriptResult(data.data);
-      // Smooth scroll to results
-      setTimeout(() => {
-        document.getElementById('transcript-result')?.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'An unexpected error occurred while transcribing this video.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleReset = () => {
-    setTranscriptResult(null);
-    setErrorMessage(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const route = useRoute();
 
   return (
-    <div className="min-h-screen flex flex-col bg-white dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-200">
-      {/* Navigation */}
-      <Navbar
-        isDark={isDark}
-        toggleTheme={toggleTheme}
-        onNavigate={handleNavigate}
-      />
-
-      {/* Main Content Area */}
-      <main className="flex-1">
-        {/* If result is ready, show Transcript Result */}
-        {transcriptResult ? (
-          <TranscriptResultView
-            result={transcriptResult}
-            onReset={handleReset}
-          />
-        ) : (
-          /* Otherwise show Hero with Input */
-          <Hero
-            onTranscribe={handleTranscribe}
-            isLoading={isLoading}
-            errorMessage={errorMessage}
-            clearError={() => setErrorMessage(null)}
-          />
-        )}
-
-        {/* Feature Highlights */}
-        <Features />
-
-        {/* How It Works */}
-        <HowItWorks />
-
-        {/* Supported Platforms & Live Status */}
-        <SupportedPlatforms />
-
-        {/* SEO Landing Highlights */}
-        <SeoPages
-          onSelectKeyword={(presetUrl) => {
-            if (presetUrl) {
-              handleTranscribe(presetUrl);
-            } else {
-              handleNavigate('hero');
-            }
-          }}
-        />
-
-        {/* FAQ Accordion */}
-        <Faq />
+    <div className="min-h-screen flex flex-col">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:bg-surface focus:px-3 focus:py-2 focus:border focus:border-ink"
+      >
+        Skip to content
+      </a>
+      <Navbar current={route} />
+      <main id="main" className="flex-1">
+        {/* key forces fresh state (input, result, errors) when switching tabs */}
+        {route === '/youtube' && <TranscribePage key="yt" config={YOUTUBE} />}
+        {route === '/tiktok' && <TranscribePage key="tt" config={TIKTOK} />}
+        {route === '/instagram' && <TranscribePage key="ig" config={INSTAGRAM} />}
+        {route === '/guide' && <GuidePage />}
+        {route === '/about' && <AboutPage />}
       </main>
-
-      {/* Footer */}
-      <Footer
-        onOpenModal={(modal) => setActiveModal(modal)}
-        onNavigate={handleNavigate}
-      />
-
-      {/* Policy Modals */}
-      <Modals
-        activeModal={activeModal}
-        onClose={() => setActiveModal(null)}
-      />
+      <Footer />
     </div>
   );
 };

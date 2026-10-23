@@ -70,3 +70,4 @@ export function validateSafeUrl(rawUrl: string): SafeUrlCheckResult {
 
   return { isValid: true, normalizedUrl: parsed.toString() };
 }
+

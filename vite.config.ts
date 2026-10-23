@@ -49,12 +49,43 @@ function honoDevPlugin(): Plugin {
               body: bodyBuffer && bodyBuffer.length > 0 ? bodyBuffer : undefined,
             });
 
-            // Mock Cloudflare bindings for local development
+            // Pass Cloudflare bindings and optional env vars for local development
+            const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+            const cfApiToken = process.env.CLOUDFLARE_API_TOKEN;
+            const localAiBinding =
+              cfAccountId && cfApiToken
+                ? {
+                    async run(model: string, input: { audio: number[] }) {
+                      const r = await fetch(
+                        `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/${model}`,
+                        {
+                          method: 'POST',
+                          headers: {
+                            Authorization: `Bearer ${cfApiToken}`,
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify(input),
+                        }
+                      );
+                      const json: any = await r.json();
+                      if (!r.ok || !json?.success) {
+                        throw new Error(
+                          json?.errors?.[0]?.message || `Cloudflare Workers AI HTTP ${r.status}`
+                        );
+                      }
+                      return json.result;
+                    },
+                  }
+                : undefined;
+
             const mockEnv = {
               ENVIRONMENT: 'development',
               MAX_REQUESTS_PER_MINUTE: '60',
               MAX_VIDEO_DURATION_SECONDS: '14400',
               CACHE_TTL_SECONDS: '86400',
+              AI: localAiBinding,
+              IG_SESSION_ID: process.env.IG_SESSION_ID,
+              EXTERNAL_WHISPER_URL: process.env.EXTERNAL_WHISPER_URL,
             };
 
             const fetchRes = await app.fetch(fetchReq, mockEnv);
@@ -89,3 +120,4 @@ export default defineConfig({
     host: true,
   },
 });
+

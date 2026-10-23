@@ -80,3 +80,4 @@ describe('YouTube Provider Adapter', () => {
     expect(segments[1].duration).toBe(3);
   });
 });
+

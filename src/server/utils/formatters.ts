@@ -97,3 +97,4 @@ export function unescapeHtml(text: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+

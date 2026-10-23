@@ -20,3 +20,4 @@ export interface VideoProviderAdapter {
     env: CloudflareBindings
   ): Promise<TranscriptResult>;
 }
+

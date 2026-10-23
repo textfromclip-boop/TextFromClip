@@ -51,3 +51,4 @@ describe('Formatters & Subtitle Generators', () => {
     expect(unescapeHtml('tag &lt;b&gt;bold&lt;/b&gt;')).toBe('tag <b>bold</b>');
   });
 });
+

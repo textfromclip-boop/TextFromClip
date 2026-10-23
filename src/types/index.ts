@@ -79,4 +79,7 @@ export interface CloudflareBindings {
   MAX_VIDEO_DURATION_SECONDS?: string;
   CACHE_TTL_SECONDS?: string;
   ASSETS?: Fetcher;
+  IG_SESSION_ID?: string;
+  EXTERNAL_WHISPER_URL?: string;
 }
+

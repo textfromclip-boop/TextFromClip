@@ -40,3 +40,4 @@ describe('SSRF Protection & URL Validation', () => {
     expect(validateSafeUrl('http://example.com:22/video.mp4').isValid).toBe(false);
   });
 });
+

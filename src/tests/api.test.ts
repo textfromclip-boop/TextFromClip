@@ -12,7 +12,7 @@ describe('Backend API Endpoints', () => {
   it('GET /api/health returns operational status', async () => {
     const res = await app.request('/api/health', {}, mockEnv);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.status).toBe('ok');
     expect(body.service).toBe('TextFromClip');
   });
@@ -20,7 +20,7 @@ describe('Backend API Endpoints', () => {
   it('GET /api/platforms returns registered platform adapters', async () => {
     const res = await app.request('/api/platforms', {}, mockEnv);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.success).toBe(true);
     expect(Array.isArray(body.data)).toBe(true);
     const youtube = body.data.find((p: any) => p.id === 'youtube');
@@ -39,7 +39,7 @@ describe('Backend API Endpoints', () => {
       mockEnv
     );
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('MISSING_URL');
   });
@@ -55,7 +55,7 @@ describe('Backend API Endpoints', () => {
       mockEnv
     );
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('SSRF_BLOCKED');
   });
@@ -71,7 +71,7 @@ describe('Backend API Endpoints', () => {
       mockEnv
     );
     expect(res.status).toBe(400);
-    const body = await res.json();
+    const body: any = await res.json();
     expect(body.success).toBe(false);
     expect(body.error.code).toBe('UNSUPPORTED_PROVIDER');
   });
@@ -92,3 +92,4 @@ describe('Backend API Endpoints', () => {
     expect(xml).toContain('https://textfromclip.com/');
   });
 });
+

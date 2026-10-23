@@ -83,6 +83,13 @@ export class YouTubeProvider implements VideoProviderAdapter {
       throw new Error('Invalid YouTube video link or missing video ID.');
     }
 
+    // 0. Preferred path: YouTube's app (InnerTube) API. The web watch page now
+    //    hands out caption URLs that return an empty body unless a proof-of-origin
+    //    token is attached, so the app endpoint is the reliable source today.
+    //    Falls through to the watch-page scrape below if it gives us nothing.
+    const viaApp = await this.getViaInnerTube(videoId, preferredLanguage);
+    if (viaApp) return viaApp;
+
     // 1. Fetch YouTube video watch page to retrieve caption tracks & video metadata
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const userAgent =
@@ -101,8 +108,17 @@ export class YouTubeProvider implements VideoProviderAdapter {
 
     const html = await watchRes.text();
 
-    // Check if video is unavailable / private
-    if (html.includes('Video unavailable') || html.includes('This video is private')) {
+    // Check availability from the player's own status. (Searching the page for
+    // the text "Video unavailable" is wrong: that string is part of YouTube's
+    // embedded UI strings and is present on every watch page.)
+    const playability = html.match(/"playabilityStatus":\s*\{\s*"status":\s*"([A-Z_]+)"/);
+    const playabilityStatus = playability ? playability[1] : 'OK';
+    if (playabilityStatus === 'LOGIN_REQUIRED') {
+      throw new Error(
+        'YouTube asked for sign-in (age-restricted, members-only, or a bot check). This video cannot be read without logging in.'
+      );
+    }
+    if (playabilityStatus === 'ERROR' || playabilityStatus === 'UNPLAYABLE') {
       throw new Error('This YouTube video is unavailable or private.');
     }
 
@@ -224,6 +240,139 @@ export class YouTubeProvider implements VideoProviderAdapter {
   }
 
   /**
+   * Fetch captions through the InnerTube "player" endpoint using the Android client.
+   * Returns null when this route yields nothing usable (caller falls back to the
+   * watch-page scrape); throws only when YouTube says the video is unavailable.
+   */
+  private async getViaInnerTube(
+    videoId: string,
+    preferredLanguage: string
+  ): Promise<TranscriptResult | null> {
+    const VERSION = '20.10.38';
+    const appUa = `com.google.android.youtube/${VERSION} (Linux; U; Android 11) gzip`;
+
+    let player: any;
+    try {
+      const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': appUa,
+          'X-YouTube-Client-Name': '3',
+          'X-YouTube-Client-Version': VERSION,
+        },
+        body: JSON.stringify({
+          context: {
+            client: {
+              clientName: 'ANDROID',
+              clientVersion: VERSION,
+              androidSdkVersion: 30,
+              hl: 'en',
+              gl: 'US',
+            },
+          },
+          videoId,
+          contentCheckOk: true,
+          racyCheckOk: true,
+        }),
+      });
+      if (!res.ok) return null;
+      player = await res.json();
+    } catch {
+      return null;
+    }
+
+    const status: string | undefined = player?.playabilityStatus?.status;
+    if (status === 'ERROR' || status === 'UNPLAYABLE') {
+      throw new Error('This YouTube video is unavailable or private.');
+    }
+    if (status !== 'OK') return null; // e.g. LOGIN_REQUIRED: let the fallback try
+
+    const tracks: Array<{ baseUrl: string; languageCode: string; kind?: string }> =
+      player?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+    if (tracks.length === 0) return null;
+
+    // Pick the language; within it, prefer creator-written over auto-generated (asr).
+    const byLang = (pred: (code: string) => boolean) => {
+      const matches = tracks.filter((t) => pred(t.languageCode));
+      return matches.find((t) => t.kind !== 'asr') ?? matches[0];
+    };
+    const track =
+      byLang((c) => c === preferredLanguage || c.startsWith(preferredLanguage)) ??
+      byLang((c) => c === 'en' || c.startsWith('en')) ??
+      tracks[0];
+
+    let payload = '';
+    try {
+      const capRes = await fetch(track.baseUrl, { headers: { 'User-Agent': appUa } });
+      if (capRes.ok) payload = await capRes.text();
+    } catch {
+      return null;
+    }
+    if (!payload.trim()) return null;
+
+    let segments: TranscriptSegment[] = [];
+    try {
+      if (payload.trimStart().startsWith('{')) segments = this.parseJson3Captions(payload);
+      else if (payload.includes('<timedtext')) segments = this.parseSrv3Captions(payload);
+      else segments = this.parseXmlCaptions(payload);
+    } catch {
+      return null;
+    }
+    if (segments.length === 0) return null;
+
+    const lastSeg = segments[segments.length - 1];
+    const declared = parseInt(player?.videoDetails?.lengthSeconds ?? '', 10);
+
+    return {
+      id: crypto.randomUUID(),
+      provider: 'youtube',
+      videoId,
+      videoTitle: player?.videoDetails?.title || 'YouTube Video',
+      videoDurationSeconds: Number.isFinite(declared) && declared > 0
+        ? declared
+        : Math.ceil(lastSeg.start + lastSeg.duration),
+      sourceType: 'captions',
+      language: track.languageCode,
+      segments,
+      fullText: segments.map((s) => s.text).join(' '),
+      srt: generateSrt(segments),
+      vtt: generateVtt(segments),
+      createdAt: Date.now(),
+    };
+  }
+
+  /**
+   * Parse YouTube's current timed-text format (format="3"):
+   * <timedtext format="3"><body><p t="1200" d="2160">text</p>...</body></timedtext>
+   * Times are in milliseconds; inner <s> tags carry per-word timing and are dropped.
+   */
+  private parseSrv3Captions(xml: string): TranscriptSegment[] {
+    const segments: TranscriptSegment[] = [];
+    const regex = /<p\s+([^>]*)>([\s\S]*?)<\/p>/gi;
+    let match: RegExpExecArray | null;
+    let idCounter = 1;
+
+    while ((match = regex.exec(xml)) !== null) {
+      const attrs = match[1];
+      const t = attrs.match(/\bt="(\d+)"/);
+      if (!t) continue;
+      const d = attrs.match(/\bd="(\d+)"/);
+
+      const text = unescapeHtml(match[2].replace(/<[^>]*>/g, '').replace(/\n/g, ' ')).trim();
+      if (!text) continue;
+
+      segments.push({
+        id: idCounter++,
+        start: parseFloat((parseInt(t[1], 10) / 1000).toFixed(2)),
+        duration: parseFloat(((d ? parseInt(d[1], 10) : 2000) / 1000).toFixed(2)),
+        text,
+      });
+    }
+    return segments;
+  }
+
+  /**
    * Extract captionTracks array from YouTube watch page HTML
    */
   private extractCaptionTracks(html: string): Array<{ baseUrl: string; languageCode: string; name?: string }> {
@@ -310,3 +459,4 @@ export class YouTubeProvider implements VideoProviderAdapter {
     return segments;
   }
 }
+
