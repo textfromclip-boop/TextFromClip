@@ -212,3 +212,6 @@ node scripts/run-load-test.js http://localhost:5173 50 10
 ```
 Parameters:
 `node scripts/run-load-test.js [targetUrl] [virtualUsers] [durationSeconds]`
+
+#   T e x t F r o m C l i p  
+ 
