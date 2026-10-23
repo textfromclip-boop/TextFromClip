@@ -16,6 +16,7 @@ export interface InstagramPublicMedia {
   videoUrls: string[];
   durationSeconds: number;
   username: string | null;
+  thumbnailUrl?: string;
   postCaption: string | null;
 }
 
@@ -72,12 +73,23 @@ export function parseInstagramReelPage(html: string, shortcode: string): Instagr
   const username = ogTitle ? /^(.+?) on Instagram/.exec(unescapeHtml(ogTitle))?.[1] ?? null : null;
   const captionMatch = ogTitle ? /on Instagram:\s*["“]?([\s\S]*?)["”]?$/.exec(unescapeHtml(ogTitle)) : null;
 
+  const ogImage = /property="og:image"\s+content="([^"]*)"/i.exec(html)?.[1];
+  let thumbnailUrl: string | undefined = ogImage ? unescapeHtmlUrl(ogImage) : undefined;
+  if (!thumbnailUrl) {
+    const displayUrlMatch = /"display_url":"((?:[^"\\]|\\.)*)"/.exec(html)?.[1];
+    if (displayUrlMatch) {
+      const decoded = decodeJsonString(displayUrlMatch);
+      if (decoded) thumbnailUrl = decoded;
+    }
+  }
+
   return {
     shortcode,
     audioUrl,
     videoUrls,
     durationSeconds,
     username,
+    thumbnailUrl,
     postCaption: captionMatch?.[1]?.trim() || null,
   };
 }
@@ -178,6 +190,8 @@ export class InstagramProvider implements VideoProviderAdapter {
       videoId: shortcode,
       videoTitle,
       videoDurationSeconds: media.durationSeconds,
+      videoThumbnailUrl: media.thumbnailUrl,
+      channelTitle: media.username ? `@${media.username}` : 'Instagram',
       language: preferredLanguage,
       candidateMediaUrls,
       mediaHeaders: { 'User-Agent': HONEST_USER_AGENT },

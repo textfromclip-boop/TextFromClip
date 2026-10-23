@@ -223,6 +223,7 @@ export class YouTubeProvider implements VideoProviderAdapter {
     const vtt = generateVtt(segments);
 
     const jobId = crypto.randomUUID();
+    const videoThumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
     return {
       id: jobId,
@@ -230,6 +231,7 @@ export class YouTubeProvider implements VideoProviderAdapter {
       videoId,
       videoTitle,
       videoDurationSeconds: duration,
+      videoThumbnailUrl,
       sourceType: 'captions',
       language: selectedLang,
       segments,
@@ -422,6 +424,11 @@ export class YouTubeProvider implements VideoProviderAdapter {
 
     const lastSeg = segments[segments.length - 1];
     const declared = parseInt(player?.videoDetails?.lengthSeconds ?? '', 10);
+    const thumbs = player?.videoDetails?.thumbnail?.thumbnails;
+    const videoThumbnailUrl =
+      (Array.isArray(thumbs) && thumbs.length > 0 ? thumbs[thumbs.length - 1]?.url : undefined) ||
+      `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    const channelTitle = player?.videoDetails?.author;
 
     return {
       id: crypto.randomUUID(),
@@ -432,6 +439,8 @@ export class YouTubeProvider implements VideoProviderAdapter {
         Number.isFinite(declared) && declared > 0
           ? declared
           : Math.ceil(lastSeg.start + lastSeg.duration),
+      videoThumbnailUrl,
+      channelTitle,
       sourceType: 'captions',
       language: track.languageCode,
       segments,

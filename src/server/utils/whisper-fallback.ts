@@ -7,6 +7,8 @@ export interface WhisperFallbackParams {
   videoId: string;
   videoTitle: string;
   videoDurationSeconds?: number;
+  videoThumbnailUrl?: string;
+  channelTitle?: string;
   language: string;
   candidateMediaUrls: string[];
   mediaHeaders: Record<string, string>;
@@ -121,6 +123,8 @@ export async function transcribeMediaWithWhisper(
     videoId,
     videoTitle,
     videoDurationSeconds,
+    videoThumbnailUrl,
+    channelTitle,
     language,
     candidateMediaUrls,
     mediaHeaders,
@@ -223,6 +227,8 @@ export async function transcribeMediaWithWhisper(
       videoId,
       videoTitle,
       videoDurationSeconds: computedDuration,
+      videoThumbnailUrl,
+      channelTitle,
       sourceType: 'ai_whisper',
       language,
       segments,
@@ -266,6 +272,8 @@ export async function transcribeMediaWithWhisper(
     videoId,
     videoTitle,
     videoDurationSeconds: videoDurationSeconds || 0,
+    videoThumbnailUrl,
+    channelTitle,
     sourceType: 'ai_whisper',
     language,
     segments,

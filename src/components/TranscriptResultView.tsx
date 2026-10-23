@@ -85,28 +85,54 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset }) => {
       id="transcript-result"
       className="mt-8 rounded-2xl bg-surface border border-rule shadow-[0_16px_44px_-12px_rgba(2,19,49,0.08)] overflow-hidden"
     >
-      {/* Top Header Bar */}
+      {/* Top Header Bar with Video Thumbnail & Info */}
       <div className="p-6 sm:p-7 border-b border-rule bg-slate-50/60">
-        <p className="text-xs font-bold uppercase tracking-wider text-accent mb-2">
-          Your transcript is ready
-        </p>
-        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-muted">
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-accent-soft text-accent border border-accent/20">
-            {providerLabel}
-          </span>
-          <span className="px-2 py-0.5 rounded bg-white border border-rule uppercase font-mono">
-            {result.language}
-          </span>
-          {result.videoDurationSeconds ? (
-            <span>· {formatTimestamp(result.videoDurationSeconds)}</span>
+        <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-5">
+          {/* Video Thumbnail */}
+          {result.videoThumbnailUrl ? (
+            <div className="relative shrink-0 w-28 sm:w-36 aspect-video rounded-xl overflow-hidden bg-slate-900 border border-slate-200/90 shadow-sm">
+              <img
+                src={result.videoThumbnailUrl}
+                alt={result.videoTitle || 'Video thumbnail'}
+                className="w-full h-full object-cover"
+                loading="lazy"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
+              {result.videoDurationSeconds ? (
+                <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded bg-black/85 text-[10px] font-mono text-white">
+                  {formatTimestamp(result.videoDurationSeconds)}
+                </span>
+              ) : null}
+            </div>
           ) : null}
-          <span>· {words.toLocaleString()} words</span>
-          <span>· {result.segments.length} segments</span>
-        </div>
 
-        <h2 className="text-xl sm:text-2xl font-bold text-ink mt-3 leading-snug">
-          {result.videoTitle || 'Transcript'}
-        </h2>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-muted">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-accent-soft text-accent border border-accent/20">
+                {providerLabel}
+              </span>
+              {result.channelTitle && (
+                <span className="text-slate-700 font-medium truncate max-w-[240px]">
+                  {result.channelTitle}
+                </span>
+              )}
+              <span className="px-2 py-0.5 rounded bg-white border border-rule uppercase font-mono">
+                {result.language}
+              </span>
+              {result.videoDurationSeconds && !result.videoThumbnailUrl ? (
+                <span>· {formatTimestamp(result.videoDurationSeconds)}</span>
+              ) : null}
+              <span>· {words.toLocaleString()} words</span>
+              <span>· {result.segments.length} segments</span>
+            </div>
+
+            <h2 className="text-lg sm:text-xl font-bold text-ink mt-2 leading-snug">
+              {result.videoTitle || 'Transcript'}
+            </h2>
+          </div>
+        </div>
 
         {/* Action Toolbar */}
         <div className="mt-5 flex flex-wrap items-center gap-2.5">

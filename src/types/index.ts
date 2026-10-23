@@ -15,6 +15,8 @@ export interface TranscriptResult {
   videoId: string;
   videoTitle?: string;
   videoDurationSeconds?: number;
+  videoThumbnailUrl?: string;
+  channelTitle?: string;
   sourceType: TranscriptSourceType;
   language: string;
   segments: TranscriptSegment[];

@@ -267,11 +267,17 @@ export class TikTokProvider implements VideoProviderAdapter {
 
     const videoId = String(itemStruct.id || this.extractVideoId(pageRes.url || url) || initialId);
     const authorHandle = itemStruct.author?.uniqueId ? `@${itemStruct.author.uniqueId}` : 'TikTok';
+    const channelTitle = itemStruct.author?.nickname ? `${itemStruct.author.nickname} (${authorHandle})` : authorHandle;
     const rawDesc = typeof itemStruct.desc === 'string' ? itemStruct.desc.trim() : '';
     const videoTitle = rawDesc
       ? `${authorHandle}: ${rawDesc.slice(0, 110)}${rawDesc.length > 110 ? '…' : ''}`
       : `${authorHandle} — TikTok video ${videoId}`;
     const durationSeconds = Number(itemStruct.video?.duration) || 0;
+    const videoThumbnailUrl =
+      itemStruct.video?.cover ||
+      itemStruct.video?.originCover ||
+      itemStruct.video?.dynamicCover ||
+      undefined;
 
     // 1. Primary path: Native TikTok caption tracks (WebVTT / creator_caption JSON)
     const subtitleInfos: TikTokSubtitleInfo[] = Array.isArray(itemStruct.video?.subtitleInfos)
@@ -315,6 +321,8 @@ export class TikTokProvider implements VideoProviderAdapter {
         videoId,
         videoTitle,
         videoDurationSeconds: durationSeconds,
+        videoThumbnailUrl,
+        channelTitle,
         sourceType: 'captions',
         language,
         segments,
@@ -343,6 +351,8 @@ export class TikTokProvider implements VideoProviderAdapter {
       videoId,
       videoTitle,
       videoDurationSeconds: durationSeconds,
+      videoThumbnailUrl,
+      channelTitle,
       language: preferredLanguage,
       candidateMediaUrls,
       mediaHeaders: {
