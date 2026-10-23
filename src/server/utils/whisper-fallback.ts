@@ -83,6 +83,33 @@ function buildSegmentsFromPlainText(text: string): TranscriptSegment[] {
 }
 
 /**
+ * Whisper sometimes "hears" speech in non-speech audio and loops on a token
+ * ("hey hey hey…", "UJUJUJ…"). Detect that so we can refuse instead of
+ * returning invented text.
+ */
+export function looksLikeWhisperHallucination(text: string): boolean {
+  const words = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s']/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0) return false;
+
+  // A single absurdly long token, e.g. "ujujujuj…" with no spaces.
+  if (words.some((w) => w.length > 30)) return true;
+
+  if (words.length < 15) return false;
+
+  const counts = new Map<string, number>();
+  for (const w of words) counts.set(w, (counts.get(w) ?? 0) + 1);
+  const top = Math.max(...counts.values());
+
+  // One word makes up most of the text, or very little variety overall.
+  if (top / words.length > 0.5) return true;
+  if (counts.size / words.length < 0.12) return true;
+  return false;
+}
+/**
  * Transcribe a video/audio stream using Cloudflare Workers AI (@cf/openai/whisper)
  * or an optional external Whisper endpoint when native captions are unavailable.
  */
@@ -164,6 +191,11 @@ export async function transcribeMediaWithWhisper(
     const transcribedText = (aiResponse?.text ?? '').trim();
     if (!transcribedText) {
       throw new Error('No speech was detected in the audio track of this video.');
+    }
+    if (looksLikeWhisperHallucination(transcribedText)) {
+      throw new Error(
+        'This video has no clear speech (music, noise or animal sounds only), so there is nothing reliable to transcribe. The speech recognizer produced repetitive nonsense, which we do not return.'
+      );
     }
 
     let segments: TranscriptSegment[] = [];

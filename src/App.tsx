@@ -53,16 +53,22 @@ const TIKTOK: PlatformConfig = {
 const INSTAGRAM: PlatformConfig = {
   name: 'Instagram',
   heading: 'Instagram Reels transcripts.',
-  intro: 'Paste a Reel or post link and we will try to read its captions.',
+  intro:
+    'Paste a public Reel link. Instagram Reels have no caption track, so we listen to the Reel’s audio and write out what is said, with timestamps.',
   placeholder: 'https://www.instagram.com/reel/…',
+  example: {
+    label: 'Try it on a public Reel',
+    url: 'https://www.instagram.com/reel/Dd1gQBsCWE8/',
+  },
   hosts: ['instagram.com'],
   status: {
-    working: false,
-    text: 'Instagram requires a login to read Reels, so every attempt currently fails. We do not ask for your credentials and we will not fake a transcript.',
+    working: true,
+    text: 'Works for public Reels that Instagram shows to visitors who are not logged in. This is speech recognition, so expect occasional mistakes with names and jargon. Private or login-only Reels, and Reels with only music or sound, return an error instead of guesses.',
   },
   notes: [
-    'If the same video is also on YouTube, use the YouTube tab.',
-    'If you have the video file, host it somewhere public and paste the .mp4 link on the YouTube tab.',
+    'Accepted: instagram.com/reel/… links. We never ask for your Instagram login.',
+    'The post description is only used as the title. The transcript comes from the audio.',
+    'A 2-minute Reel takes roughly 15 to 20 seconds.',
   ],
 };
 

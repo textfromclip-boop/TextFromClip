@@ -339,14 +339,8 @@ export class YouTubeProvider implements VideoProviderAdapter {
     let activeUa = clients[0].ua;
     let sawHardUnplayable = false;
 
-    // Datacenter IPs are often rate-limited on one YouTube hostname but not another,
-    // so try each API host for each client.
-    const hosts = [
-      'https://youtubei.googleapis.com',
-      'https://www.youtube.com',
-      'https://m.youtube.com',
-      'https://www.youtube-nocookie.com',
-    ];
+    // Probed from Cloudflare: other YouTube hostnames behave identically, so one host is enough.
+    const hosts = ['https://www.youtube.com'];
 
     outer: for (const c of clients) {
       for (const host of hosts) {

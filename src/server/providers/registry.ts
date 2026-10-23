@@ -30,7 +30,7 @@ export class ProviderRegistry {
       id: p.id,
       name: p.name,
       capabilities: p.capabilities,
-      isFullyOperational: p.id === 'youtube' || p.id === 'direct_media' || p.id === 'tiktok',
+      isFullyOperational: p.id === 'youtube' || p.id === 'direct_media' || p.id === 'tiktok' || p.id === 'instagram',
     }));
   }
 }

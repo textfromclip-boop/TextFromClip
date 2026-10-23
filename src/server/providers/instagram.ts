@@ -1,54 +1,90 @@
 import { VideoProviderAdapter, ProviderCapability } from './base';
 import { TranscriptResult, CloudflareBindings } from '../../types';
-import { generateSrt, generateVtt } from '../utils/formatters';
-import { parseTikTokSubtitlePayload } from './tiktok';
+import { unescapeHtml } from '../utils/formatters';
 import { transcribeMediaWithWhisper } from '../utils/whisper-fallback';
 
-export interface InstagramShortcodeMedia {
-  id?: string;
-  shortcode?: string;
-  is_video?: boolean;
-  video_url?: string;
-  video_duration?: number;
-  video_subtitles_uri?: string;
-  owner?: {
-    username?: string;
-  };
-  edge_media_to_caption?: {
-    edges?: Array<{ node?: { text?: string } }>;
+const HONEST_USER_AGENT = 'Mozilla/5.0 (compatible; TextFromClip/1.0)';
+
+/**
+ * What we read from a public Reel page.
+ * NOTE: `postCaption` is the text the author typed under the video. It is NOT
+ * the spoken audio and is only ever used to build a title, never a transcript.
+ */
+export interface InstagramPublicMedia {
+  shortcode: string;
+  audioUrl: string | null;
+  videoUrls: string[];
+  durationSeconds: number;
+  username: string | null;
+  postCaption: string | null;
+}
+
+/** Parse an ISO-8601 duration such as "PT0H0M30.5S" into seconds. */
+export function parseIsoDuration(value: string | undefined | null): number {
+  if (!value) return 0;
+  const m = /^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/.exec(value.trim());
+  if (!m) return 0;
+  return Math.round(Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0));
+}
+
+/** Decode the contents of a JSON string literal (without surrounding quotes). */
+function decodeJsonString(raw: string): string | null {
+  try {
+    return JSON.parse(`"${raw}"`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract the Reel's own media from the public page HTML.
+ * Returns null when the page is a login wall or carries no media.
+ */
+export function parseInstagramReelPage(html: string, shortcode: string): InstagramPublicMedia | null {
+  // 1. Audio-only track from the page's own DASH manifest (small AAC stream).
+  let audioUrl: string | null = null;
+  let durationSeconds = 0;
+  const manifestMatch = /"video_dash_manifest":"((?:[^"\\]|\\.)*)"/.exec(html);
+  if (manifestMatch) {
+    const mpd = decodeJsonString(manifestMatch[1]);
+    if (mpd) {
+      durationSeconds = parseIsoDuration(/mediaPresentationDuration="([^"]+)"/.exec(mpd)?.[1]);
+      const sets = [...mpd.matchAll(/<AdaptationSet([^>]*)>([\s\S]*?)<\/AdaptationSet>/g)];
+      const audioSet = sets.find((s) => /contentType="audio"/.test(s[1]));
+      const base = audioSet ? /<BaseURL>([^<]+)<\/BaseURL>/.exec(audioSet[2])?.[1] : undefined;
+      if (base) audioUrl = unescapeHtmlUrl(base);
+    }
+  }
+
+  // 2. Progressive video files, used only as a fallback if there is no audio track URL.
+  const videoUrls: string[] = [];
+  const vv = /"video_versions":\[((?:\{[^{}]*\},?)+)\]/.exec(html);
+  if (vv) {
+    for (const m of vv[1].matchAll(/"url":"((?:[^"\\]|\\.)*)"/g)) {
+      const decoded = decodeJsonString(m[1]);
+      if (decoded && decoded.startsWith('http')) videoUrls.push(decoded);
+    }
+  }
+
+  if (!audioUrl && videoUrls.length === 0) return null;
+
+  const ogTitle = /property="og:title"\s+content="([^"]*)"/i.exec(html)?.[1];
+  const username = ogTitle ? /^(.+?) on Instagram/.exec(unescapeHtml(ogTitle))?.[1] ?? null : null;
+  const captionMatch = ogTitle ? /on Instagram:\s*["“]?([\s\S]*?)["”]?$/.exec(unescapeHtml(ogTitle)) : null;
+
+  return {
+    shortcode,
+    audioUrl,
+    videoUrls,
+    durationSeconds,
+    username,
+    postCaption: captionMatch?.[1]?.trim() || null,
   };
 }
 
-export interface InstagramMediaPayload {
-  graphql?: {
-    shortcode_media?: InstagramShortcodeMedia;
-  };
-  data?: {
-    xdt_shortcode_media?: InstagramShortcodeMedia;
-  };
-  items?: Array<{
-    pk?: string;
-    code?: string;
-    video_duration?: number;
-    video_versions?: Array<{ url?: string }>;
-    video_subtitles_uri?: string;
-    user?: { username?: string };
-    caption?: { text?: string };
-  }>;
-  require_login?: boolean;
-  status?: string;
-  message?: string;
+function unescapeHtmlUrl(u: string): string {
+  return u.replace(/&amp;/g, '&');
 }
-
-const MOBILE_SAFARI_HEADERS: Record<string, string> = {
-  'User-Agent':
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
-  Accept: 'application/json, text/plain, */*',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Sec-Fetch-Site': 'same-origin',
-  'Sec-Fetch-Mode': 'cors',
-  'Sec-Fetch-Dest': 'empty',
-};
 
 export class InstagramProvider implements VideoProviderAdapter {
   id = 'instagram';
@@ -56,16 +92,15 @@ export class InstagramProvider implements VideoProviderAdapter {
 
   capabilities: ProviderCapability = {
     id: 'instagram',
-    name: 'Instagram Reels & Videos',
-    supportsCaptions: true,
+    name: 'Instagram Reels',
+    supportsCaptions: false,
     supportsAiWhisper: true,
-    exampleUrl: 'https://www.instagram.com/reel/C1234567890/',
+    exampleUrl: 'https://www.instagram.com/reel/DH3tWudxIKB/',
   };
 
   matches(url: string): boolean {
     try {
-      const parsed = new URL(url);
-      const host = parsed.hostname.toLowerCase();
+      const host = new URL(url).hostname.toLowerCase();
       return host === 'instagram.com' || host === 'www.instagram.com';
     } catch {
       return false;
@@ -74,15 +109,11 @@ export class InstagramProvider implements VideoProviderAdapter {
 
   extractVideoId(url: string): string | null {
     try {
-      const parsed = new URL(url);
-      const match = parsed.pathname.match(/\/(?:reel|reels|p)\/([a-zA-Z0-9_-]+)/);
-      if (match && match[1]) {
-        return match[1];
-      }
+      const match = new URL(url).pathname.match(/\/(?:reel|reels|p|tv)\/([a-zA-Z0-9_-]+)/);
+      return match?.[1] ?? null;
     } catch {
       return null;
     }
-    return null;
   }
 
   async getTranscript(
@@ -92,141 +123,65 @@ export class InstagramProvider implements VideoProviderAdapter {
   ): Promise<TranscriptResult> {
     const shortcode = this.extractVideoId(url);
     if (!shortcode) {
-      throw new Error('Could not extract a valid Instagram Reel or post shortcode from the URL.');
+      throw new Error('Could not find a valid Instagram Reel link. Use a link like instagram.com/reel/XXXX/.');
     }
 
-    const igHeaders: Record<string, string> = {
-      ...MOBILE_SAFARI_HEADERS,
-      'X-IG-App-ID': '936619743392459',
-      'X-ASBD-ID': '129477',
-      'X-IG-WWW-Claim': '0',
-      Referer: `https://www.instagram.com/reel/${shortcode}/`,
-    };
-
-    if (env.IG_SESSION_ID) {
-      igHeaders['Cookie'] = `sessionid=${env.IG_SESSION_ID}`;
+    if (!env.AI && !env.EXTERNAL_WHISPER_URL) {
+      throw new Error(
+        'Instagram Reels have no caption track, so they need speech recognition, and Cloudflare Workers AI is not available in this runtime.'
+      );
     }
 
-    let mediaData: InstagramMediaPayload | null = null;
-
-    // 1. Attempt Instagram's ?__a=1&__d=dis JSON query endpoint
+    // Public page only. No login, no cookies, no impersonated browser.
+    let html: string;
     try {
-      const a1Res = await fetch(`https://www.instagram.com/reel/${shortcode}/?__a=1&__d=dis`, {
-        headers: igHeaders,
-        redirect: 'manual',
+      const res = await fetch(`https://www.instagram.com/reel/${shortcode}/`, {
+        headers: {
+          'User-Agent': HONEST_USER_AGENT,
+          Accept: 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        redirect: 'follow',
       });
-      if (a1Res.ok && (a1Res.headers.get('content-type') || '').includes('application/json')) {
-        mediaData = (await a1Res.json()) as InstagramMediaPayload;
+      if (res.status === 429) {
+        throw new Error(
+          'Instagram is limiting requests from our hosting provider right now (HTTP 429). Wait a minute and try again. This is not a problem with your link.'
+        );
       }
-    } catch {
-      // Fall through to GraphQL query
+      if (!res.ok) {
+        throw new Error(`Instagram returned HTTP ${res.status} for this Reel.`);
+      }
+      html = await res.text();
+    } catch (err: any) {
+      throw new Error(err?.message || 'Could not reach Instagram.');
     }
 
-    // 2. Fallback to Instagram internal GraphQL query (doc_id=10015901848480474)
-    if (!mediaData || mediaData.require_login || mediaData.status === 'fail') {
-      try {
-        const gqlBody = new URLSearchParams({
-          variables: JSON.stringify({ shortcode }),
-          doc_id: '10015901848480474',
-          lsd: 'AVqbxe3J_YA',
-        });
-        const gqlRes = await fetch('https://www.instagram.com/api/graphql', {
-          method: 'POST',
-          headers: {
-            ...igHeaders,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-FB-LSD': 'AVqbxe3J_YA',
-          },
-          body: gqlBody.toString(),
-          redirect: 'manual',
-        });
-        if (gqlRes.ok && (gqlRes.headers.get('content-type') || '').includes('application/json')) {
-          mediaData = (await gqlRes.json()) as InstagramMediaPayload;
-        }
-      } catch {
-        // Handled below
-      }
-    }
-
-    if (!mediaData || mediaData.require_login || mediaData.status === 'fail') {
+    const media = parseInstagramReelPage(html, shortcode);
+    if (!media) {
       throw new Error(
-        'Instagram Reels public caption retrieval is blocked by Meta authentication requirements (require_login: true). In accordance with our accuracy policy, we never generate synthetic mock transcripts. Please upload or link directly via YouTube or direct MP4/audio URL.'
+        'Instagram did not show this Reel to an anonymous visitor (it asks for a login). The Reel may be private, age-restricted, removed, or Instagram is limiting our server. We do not log in or work around that.'
       );
     }
 
-    const firstItem = mediaData.items?.[0];
-    const node: InstagramShortcodeMedia | undefined =
-      mediaData.graphql?.shortcode_media ??
-      mediaData.data?.xdt_shortcode_media ??
-      (firstItem
-        ? {
-            id: firstItem.pk,
-            shortcode: firstItem.code || shortcode,
-            video_url: firstItem.video_versions?.[0]?.url,
-            video_duration: firstItem.video_duration,
-            video_subtitles_uri: firstItem.video_subtitles_uri,
-            owner: { username: firstItem.user?.username },
-            edge_media_to_caption: firstItem.caption?.text
-              ? { edges: [{ node: { text: firstItem.caption.text } }] }
-              : undefined,
-          }
-        : undefined);
-
-    if (!node) {
-      throw new Error(
-        'Instagram Reels public caption retrieval is blocked by Meta authentication requirements. No media metadata was returned for this Reel.'
-      );
-    }
-
-    const author = node.owner?.username ? `@${node.owner.username}` : 'Instagram';
-    const postCaption = node.edge_media_to_caption?.edges?.[0]?.node?.text?.trim() || '';
-    const videoTitle = postCaption
-      ? `${author}: ${postCaption.slice(0, 110)}${postCaption.length > 110 ? '…' : ''}`
+    const author = media.username ? media.username : 'Instagram';
+    const videoTitle = media.postCaption
+      ? `${author}: ${media.postCaption.slice(0, 110)}${media.postCaption.length > 110 ? '…' : ''}`
       : `${author} — Instagram Reel ${shortcode}`;
-    const durationSeconds = Number(node.video_duration) || 0;
 
-    // 3. Primary path: Native subtitle track if exposed by Instagram
-    if (node.video_subtitles_uri) {
-      const subRes = await fetch(node.video_subtitles_uri, { headers: MOBILE_SAFARI_HEADERS });
-      if (subRes.ok) {
-        const subText = await subRes.text();
-        const segments = parseTikTokSubtitlePayload(subText);
-        if (segments.length > 0) {
-          const fullText = segments.map((s) => s.text).join(' ').trim();
-          return {
-            id: crypto.randomUUID(),
-            provider: 'instagram',
-            videoId: shortcode,
-            videoTitle,
-            videoDurationSeconds: durationSeconds,
-            sourceType: 'captions',
-            language: preferredLanguage,
-            segments,
-            fullText,
-            srt: generateSrt(segments),
-            vtt: generateVtt(segments),
-            createdAt: Date.now(),
-          };
-        }
-      }
-    }
-
-    // 4. Fallback path: Cloudflare Workers AI Whisper (@cf/openai/whisper) using video_url
-    if (node.video_url) {
-      return transcribeMediaWithWhisper({
-        provider: 'instagram',
-        videoId: shortcode,
-        videoTitle,
-        videoDurationSeconds: durationSeconds,
-        language: preferredLanguage,
-        candidateMediaUrls: [node.video_url],
-        mediaHeaders: MOBILE_SAFARI_HEADERS,
-        env,
-      });
-    }
-
-    throw new Error(
-      'Neither a native subtitle track nor a downloadable video stream was returned by Instagram for this Reel.'
+    // Prefer the tiny audio-only stream; fall back to the smallest-first video files.
+    const candidateMediaUrls = [media.audioUrl, ...media.videoUrls].filter(
+      (u): u is string => typeof u === 'string' && u.length > 0
     );
+
+    return transcribeMediaWithWhisper({
+      provider: 'instagram',
+      videoId: shortcode,
+      videoTitle,
+      videoDurationSeconds: media.durationSeconds,
+      language: preferredLanguage,
+      candidateMediaUrls,
+      mediaHeaders: { 'User-Agent': HONEST_USER_AGENT },
+      env,
+    });
   }
 }

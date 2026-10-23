@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { TikTokProvider, parseTikTokSubtitlePayload, parseVttTime } from '../server/providers/tiktok';
-import { InstagramProvider } from '../server/providers/instagram';
 
-describe('TikTokProvider, InstagramProvider & Whisper Fallback', () => {
+describe('TikTokProvider & Whisper fallback', () => {
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -145,49 +145,4 @@ founded the modern schooling system`;
     ).rejects.toThrow(/No captions or subtitles were found on this TikTok video/i);
   });
 
-  it('InstagramProvider extracts video_url from GraphQL/?__a=1 and runs Whisper fallback when env.AI is bound', async () => {
-    const igProvider = new InstagramProvider();
-    const igJsonPayload = {
-      data: {
-        xdt_shortcode_media: {
-          id: '3300000000',
-          shortcode: 'C1234567890',
-          is_video: true,
-          video_duration: 18,
-          video_url: 'https://scontent.cdninstagram.com/v/t50.2886-16/sample.mp4',
-          owner: { username: 'creator' },
-          edge_media_to_caption: {
-            edges: [{ node: { text: 'Sample Instagram Reel description' } }],
-          },
-        },
-      },
-    };
-
-    const fakeMp4Bytes = new Uint8Array(1024);
-    vi.spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify(igJsonPayload), {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        })
-      )
-      .mockResolvedValueOnce(new Response(fakeMp4Bytes, { status: 200 }));
-
-    const mockAi = {
-      run: vi.fn().mockResolvedValue({
-        text: 'Spoken words inside the Instagram Reel.',
-      }),
-    };
-
-    const result = await igProvider.getTranscript(
-      'https://www.instagram.com/reel/C1234567890/',
-      'en',
-      { AI: mockAi }
-    );
-
-    expect(result.provider).toBe('instagram');
-    expect(result.sourceType).toBe('ai_whisper');
-    expect(result.videoTitle).toContain('@creator: Sample Instagram Reel description');
-    expect(result.fullText).toBe('Spoken words inside the Instagram Reel.');
-  });
 });

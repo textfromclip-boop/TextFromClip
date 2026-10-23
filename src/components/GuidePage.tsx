@@ -73,8 +73,8 @@ export const GuidePage: React.FC = () => (
               </tr>
               <tr>
                 <td>Instagram</td>
-                <td>Blocked</td>
-                <td>Instagram requires a login to read Reels and posts.</td>
+                <td>Works (speech recognition)</td>
+                <td>Public Reels only (instagram.com/reel/…). Login-only, private or removed Reels cannot be read.</td>
               </tr>
             </tbody>
           </table>

@@ -41,7 +41,7 @@ export const AboutPage: React.FC = () => (
           TextFromClip reads the captions a video already has, or, for direct audio and video files, runs speech recognition, and hands you the result as text, SRT or VTT. It runs on Cloudflare Workers. There are no accounts and nothing to install.
         </p>
         <p>
-          We say plainly what does not work. Instagram blocks anonymous access, and TikTok videos without an attached caption track (or behind a bot check) cannot be read, so those cases tell you so instead of returning made-up text. See the <Link to="/guide">guide</Link> for the details.
+          We say plainly what does not work. YouTube may refuse requests that come from our hosting provider, TikTok clips without captions rely on speech recognition, and Instagram only works for Reels it shows to logged-out visitors. When a source cannot be read, or has no clear speech, you get an error instead of made-up text. See the <Link to="/guide">guide</Link> for the details.
         </p>
 
         <H2 id="privacy">Privacy</H2>
