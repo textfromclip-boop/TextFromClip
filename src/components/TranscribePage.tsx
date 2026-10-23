@@ -449,34 +449,34 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
         {/* LIVE TRANSCRIPT RESULT WORKSPACE */}
         {result && <TranscriptResultView result={result} onReset={reset} />}
 
-        {/* STRATEGIC SPECIFICATION STRIP (Replaces generic vibecoded filler with real platform mechanics) */}
+        {/* STRATEGIC SPECIFICATION STRIP */}
         {!result && (
           <section
-            aria-label="How it works and technical specifications"
+            aria-label="Platform details and specifications"
             className="mt-14 pt-10 border-t border-rule grid md:grid-cols-3 gap-5"
           >
-            {/* Card 1: Current Platform Engine Status */}
+            {/* Card 1: Current Platform Status */}
             <div className="rounded-2xl bg-surface border border-rule p-5 shadow-sm">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-mono font-semibold uppercase tracking-wider text-accent">
-                  01 / Extraction Engine
+                  01 / Platform Status
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  Operational
+                  Active
                 </span>
               </div>
               <h2 className="mt-2.5 text-base font-bold text-ink">{config.status.title}</h2>
               <p className="mt-1.5 text-sm text-muted leading-relaxed">{config.status.text}</p>
             </div>
 
-            {/* Card 2: Accepted Links & Rules */}
+            {/* Card 2: Supported Links & Guidelines */}
             <div className="rounded-2xl bg-surface border border-rule p-5 shadow-sm">
               <span className="text-xs font-mono font-semibold uppercase tracking-wider text-accent">
-                02 / Supported Sources
+                02 / Supported Links
               </span>
               <h2 className="mt-2.5 text-base font-bold text-ink">
-                {config.name} & Direct Media
+                {config.name} Links
               </h2>
               <ul className="mt-2 space-y-1.5 text-sm text-muted">
                 {config.notes.map((n, i) => (
@@ -491,20 +491,16 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
             {/* Card 3: Export Formats */}
             <div className="rounded-2xl bg-surface border border-rule p-5 shadow-sm">
               <span className="text-xs font-mono font-semibold uppercase tracking-wider text-accent">
-                03 / Instant Exports
+                03 / Export Formats
               </span>
               <h2 className="mt-2.5 text-base font-bold text-ink">
-                Copy, Search & Subtitle Files
+                Copy, Search & Subtitles
               </h2>
               <p className="mt-1.5 text-sm text-muted leading-relaxed">
-                Copy clean text with or without <code className="font-mono text-xs">[00:12]</code>{' '}
-                timecodes, or download <code className="font-mono text-xs">.txt</code>,{' '}
-                <code className="font-mono text-xs">.srt</code> and{' '}
-                <code className="font-mono text-xs">.vtt</code> files for Premiere, DaVinci Resolve
-                and web players. See the{' '}
-                <Link to="/guide" className="font-semibold text-accent hover:underline">
-                  full guide →
-                </Link>
+                Copy text with or without <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">[00:12]</code>{' '}
+                timestamps, search words instantly, or download <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.txt</code>,{' '}
+                <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.srt</code> and{' '}
+                <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.vtt</code> files for video editors and players.
               </p>
             </div>
           </section>

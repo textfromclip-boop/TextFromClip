@@ -10,18 +10,18 @@ const YOUTUBE: PlatformConfig = {
   id: 'youtube',
   route: '/youtube',
   name: 'YouTube',
-  eyebrow: 'YouTube Videos & Shorts · Native Captions + Direct Media AI',
-  headingPrefix: 'Turn Video Clips into',
+  eyebrow: 'YouTube Videos & Shorts',
+  headingPrefix: 'Turn Videos into',
   headingHighlight: 'Text',
   intro:
-    'Paste any YouTube video, Short, or direct media link to read, search, and export a timestamped transcript in seconds. No account or installation required.',
+    'Paste any YouTube video or Short link to read, search, and export a clean timestamped transcript in seconds.',
   placeholder: 'https://www.youtube.com/watch?v=…',
   example: {
     label: 'Try sample: “Me at the zoo”',
     shortUrl: 'youtube.com/watch?v=jNQXAC9IVRw',
     url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw',
     durationLabel: '0:00 / 0:19',
-    badgeLabel: 'YOUTUBE · 16:9',
+    badgeLabel: 'YOUTUBE',
     sourceTag: 'Captions',
     clipTitle: 'Me at the zoo',
     cues: [
@@ -37,13 +37,13 @@ const YOUTUBE: PlatformConfig = {
   hosts: ['youtube.com', 'youtu.be'],
   status: {
     working: true,
-    title: 'Native YouTube Caption Tracks',
-    text: 'Extracts creator-uploaded subtitles and auto-generated caption tracks directly. Direct .mp4/.mp3 media links up to 25 MB are also transcribed via Whisper AI.',
+    title: 'YouTube Transcripts',
+    text: 'Works for public YouTube videos and Shorts. Direct .mp4 and .mp3 audio/video links up to 25 MB can also be pasted here.',
   },
   notes: [
     'Accepts youtube.com/watch, youtu.be, /shorts, and /embed links.',
-    'Click any timestamp in the result to open YouTube at that exact second.',
-    'Also accepts direct audio/video files (.mp4, .mp3, .webm) up to 25 MB.',
+    'Click any timestamp in the transcript to jump to that moment on YouTube.',
+    'Download as .txt, .srt, or .vtt, or copy directly to your clipboard.',
   ],
 };
 
@@ -51,45 +51,49 @@ const TIKTOK: PlatformConfig = {
   id: 'tiktok',
   route: '/tiktok',
   name: 'TikTok',
-  eyebrow: 'TikTok Video Clips · Public WebVTT + Whisper AI Fallback',
-  headingPrefix: 'Turn TikTok Clips into',
+  eyebrow: 'TikTok Video Clips',
+  headingPrefix: 'Turn TikTok Videos into',
   headingHighlight: 'Text',
   intro:
-    'Paste a public TikTok video link to extract its embedded WebVTT or creator caption track with timestamps—with automatic Whisper AI audio fallback.',
-  placeholder: 'https://www.tiktok.com/@user/video/…',
+    'Paste a public TikTok video link to get its spoken transcript with timestamps.',
+  placeholder: 'https://www.tiktok.com/@name/video/…',
   example: {
-    label: 'Try a sample TikTok clip',
+    label: 'Try sample: Creator clip',
     shortUrl: 'tiktok.com/@curiousitygeek/video/…',
     url: 'https://www.tiktok.com/@curiousitygeek/video/7649850716713913622',
     durationLabel: '0:00 / 0:58',
-    badgeLabel: 'TIKTOK · 9:16',
-    sourceTag: 'WebVTT',
-    clipTitle: '@curiousitygeek',
+    badgeLabel: 'TIKTOK',
+    sourceTag: 'Captions',
+    clipTitle: 'Creator advice',
     cues: [
       {
         time: '00:00',
-        text: 'Reads embedded WebVTT and creator caption tracks directly from public TikTok clips.',
+        text: 'Every successful project starts with one small experiment.',
       },
       {
-        time: '00:06',
-        text: 'Preserves exact utterance timestamps for instant search and subtitle export.',
+        time: '00:05',
+        text: 'You do not need to wait until everything feels ready to begin.',
       },
       {
-        time: '00:14',
-        text: 'Falls back to Cloudflare Workers AI Whisper when native subtitle tracks are missing.',
+        time: '00:11',
+        text: 'Test your ideas in the real world and learn quickly from feedback.',
+      },
+      {
+        time: '00:18',
+        text: 'Consistency always beats waiting for the perfect moment.',
       },
     ],
   },
   hosts: ['tiktok.com'],
   status: {
     working: true,
-    title: 'WebVTT Captions + Whisper Fallback',
-    text: 'Reads public WebVTT and creator_caption tracks first for instant results, and falls back to Workers AI Whisper speech recognition when a clip has no subtitle track.',
+    title: 'TikTok Transcripts',
+    text: 'Works for public TikTok videos with spoken audio. Private or removed videos cannot be read.',
   },
   notes: [
     'Accepts tiktok.com/@user/video/… and mobile share links (vm.tiktok.com, vt.tiktok.com).',
-    'Exports clean plain text (.txt) or timecoded subtitles (.srt, .vtt).',
-    'Never mistakes video descriptions or hashtags for spoken transcript text.',
+    'Export clean text (.txt) or timecoded subtitles (.srt, .vtt).',
+    'Videos without spoken words or behind login walls will return a clear notice.',
   ],
 };
 
@@ -97,20 +101,20 @@ const INSTAGRAM: PlatformConfig = {
   id: 'instagram',
   route: '/instagram',
   name: 'Instagram',
-  eyebrow: 'Instagram Reels · DASH Audio Stream + Whisper Speech-to-Text',
+  eyebrow: 'Instagram Reels',
   headingPrefix: 'Turn Instagram Reels into',
   headingHighlight: 'Text',
   intro:
-    'Paste a public Instagram Reel link. Because Instagram does not expose caption files, we extract the Reel’s audio stream and run Whisper AI speech recognition.',
+    'Paste a public Instagram Reel link to get a clean, timestamped transcript of the spoken words.',
   placeholder: 'https://www.instagram.com/reel/…',
   example: {
     label: 'Try sample: NASA Asteroid Reel',
     shortUrl: 'instagram.com/reel/Dd1gQBsCWE8/',
     url: 'https://www.instagram.com/reel/Dd1gQBsCWE8/',
     durationLabel: '0:00 / 0:39',
-    badgeLabel: 'REEL · 9:16',
-    sourceTag: 'Whisper AI',
-    clipTitle: '@nasa · 2024 YR4',
+    badgeLabel: 'INSTAGRAM',
+    sourceTag: 'Audio',
+    clipTitle: 'Asteroid 2024 YR4',
     cues: [
       { time: '00:00', text: 'This asteroid, 2024 YR4, might get interesting.' },
       { time: '00:05', text: 'There was a chance that it could impact Earth.' },
@@ -124,13 +128,13 @@ const INSTAGRAM: PlatformConfig = {
   hosts: ['instagram.com'],
   status: {
     working: true,
-    title: 'Public Reel Audio + Workers AI Whisper',
-    text: 'Extracts the lightweight DASH audio track from public Reels and transcribes the spoken words with Cloudflare Workers AI (@cf/openai/whisper).',
+    title: 'Instagram Reel Transcripts',
+    text: 'Works for public Instagram Reels visible to logged-out visitors. Transcribes the spoken words from the audio.',
   },
   notes: [
-    'Accepts public instagram.com/reel/… links without requiring an Instagram login.',
-    'Post captions are used only as the title—never as fake transcript text.',
-    'Reels with only music or ambient sound are rejected rather than hallucinated.',
+    'Accepts public instagram.com/reel/… links without requiring an account.',
+    'Transcribes the spoken words, not the post description.',
+    'Reels with only background music, ambient sound, or restricted access cannot be transcribed.',
   ],
 };
 

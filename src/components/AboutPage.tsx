@@ -49,10 +49,10 @@ export const AboutPage: React.FC = () => (
       <article className="max-w-3xl bg-surface border border-rule rounded-2xl p-6 sm:p-8 shadow-sm leading-relaxed space-y-4 text-ink/90 [&_a]:text-accent [&_a]:font-semibold [&_a]:underline">
         <H2 id="what">What this is</H2>
         <p>
-          TextFromClip extracts native caption tracks from YouTube and TikTok videos, and runs Cloudflare Workers AI Whisper speech recognition on Instagram Reels and direct audio/video streams. Results can be searched in the browser or downloaded as <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.txt</code>, <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.srt</code>, or <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.vtt</code>.
+          TextFromClip converts public video and audio clips from YouTube, TikTok, and Instagram into clean, searchable, timestamped text. Results can be searched directly in your browser or downloaded as <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.txt</code>, <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.srt</code>, or <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.vtt</code> files.
         </p>
         <p>
-          When a video is private, login-gated, or contains no speech, TextFromClip reports the exact reason instead of returning fabricated text. See the <Link to="/guide">guide</Link> for full details.
+          When a video is private, login-gated, or contains no clear speech, TextFromClip reports the exact reason instead of returning fabricated text. See the <Link to="/guide">guide</Link> for details.
         </p>
 
         <H2 id="privacy">Privacy</H2>

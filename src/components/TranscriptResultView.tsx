@@ -71,8 +71,6 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset }) => {
   };
 
   const words = result.fullText.split(/\s+/).filter(Boolean).length;
-  const sourceLabel =
-    result.sourceType === 'captions' ? 'Native Captions' : 'Whisper AI Speech-to-Text';
   const providerLabel =
     result.provider === 'youtube'
       ? 'YouTube'
@@ -89,14 +87,14 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset }) => {
     >
       {/* Top Header Bar */}
       <div className="p-6 sm:p-7 border-b border-rule bg-slate-50/60">
+        <p className="text-xs font-bold uppercase tracking-wider text-accent mb-2">
+          Your transcript is ready
+        </p>
         <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-muted">
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-accent-soft text-accent border border-accent/20">
             {providerLabel}
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white text-ink border border-rule">
-            {sourceLabel}
-          </span>
-          <span className="px-2 py-0.5 rounded bg-white border border-rule uppercase">
+          <span className="px-2 py-0.5 rounded bg-white border border-rule uppercase font-mono">
             {result.language}
           </span>
           {result.videoDurationSeconds ? (
