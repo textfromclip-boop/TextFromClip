@@ -27,6 +27,7 @@ export interface TranscriptResult {
 export interface TranscriptRequest {
   url: string;
   preferredLanguage?: string;
+  platform?: 'youtube' | 'tiktok' | 'instagram' | string;
 }
 
 export interface ApiSuccessResponse<T> {

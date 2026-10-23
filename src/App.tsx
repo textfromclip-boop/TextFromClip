@@ -15,7 +15,7 @@ const YOUTUBE: PlatformConfig = {
   headingHighlight: 'Text',
   intro:
     'Paste any YouTube video, Short, or direct media link to read, search, and export a timestamped transcript in seconds. No account or installation required.',
-  placeholder: 'Paste a YouTube, TikTok, or Instagram link…',
+  placeholder: 'https://www.youtube.com/watch?v=…',
   example: {
     label: 'Try sample: “Me at the zoo”',
     shortUrl: 'youtube.com/watch?v=jNQXAC9IVRw',
@@ -43,7 +43,7 @@ const YOUTUBE: PlatformConfig = {
   notes: [
     'Accepts youtube.com/watch, youtu.be, /shorts, and /embed links.',
     'Click any timestamp in the result to open YouTube at that exact second.',
-    'Also accepts TikTok, Instagram Reel, or direct .mp4/.mp3 URLs in the same bar.',
+    'Also accepts direct audio/video files (.mp4, .mp3, .webm) up to 25 MB.',
   ],
 };
 

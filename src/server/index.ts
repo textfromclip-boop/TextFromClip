@@ -90,9 +90,9 @@ app.post('/api/transcript', async (c) => {
     );
   }
 
-  const { url, preferredLanguage = 'en' } = body;
+  const { url, preferredLanguage = 'en', platform } = body;
 
-  if (!url || typeof url !== 'string') {
+  if (!url || typeof url !== 'string' || !url.trim()) {
     return c.json(
       {
         success: false,
@@ -106,7 +106,7 @@ app.post('/api/transcript', async (c) => {
   }
 
   // 1. Validate Safe URL against SSRF and private network attacks
-  const ssrfCheck = validateSafeUrl(url);
+  const ssrfCheck = validateSafeUrl(url.trim());
   if (!ssrfCheck.isValid) {
     return c.json(
       {
@@ -120,23 +120,75 @@ app.post('/api/transcript', async (c) => {
     );
   }
 
-  const safeUrl = ssrfCheck.normalizedUrl || url;
+  const safeUrl = ssrfCheck.normalizedUrl || url.trim();
 
   // 2. Identify matching provider adapter
-  const provider = ProviderRegistry.findProvider(safeUrl);
-  if (!provider) {
+  const detectedProvider = ProviderRegistry.findProvider(safeUrl);
+
+  // 3. Platform enforcement: strictly validate requested platform against detected provider
+  if (platform) {
+    const validPlatforms = ['youtube', 'tiktok', 'instagram'];
+    if (!validPlatforms.includes(platform)) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'INVALID_PLATFORM',
+            message: `Invalid platform '${platform}'. Supported platforms: ${validPlatforms.join(', ')}.`,
+          },
+        },
+        400
+      );
+    }
+
+    const platformMatches =
+      (platform === 'youtube' && (detectedProvider?.id === 'youtube' || detectedProvider?.id === 'direct_media')) ||
+      (platform === 'tiktok' && detectedProvider?.id === 'tiktok') ||
+      (platform === 'instagram' && detectedProvider?.id === 'instagram');
+
+    if (!platformMatches) {
+      const detectedName =
+        detectedProvider?.id === 'youtube'
+          ? 'YouTube'
+          : detectedProvider?.id === 'tiktok'
+          ? 'TikTok'
+          : detectedProvider?.id === 'instagram'
+          ? 'Instagram'
+          : detectedProvider?.id === 'direct_media'
+          ? 'Direct media'
+          : 'an unsupported source';
+
+      const requestedName =
+        platform === 'youtube' ? 'YouTube' : platform === 'tiktok' ? 'TikTok' : 'Instagram';
+
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'PLATFORM_MISMATCH',
+            message: `That link is from ${detectedName}, but ${requestedName} was selected. Please switch to the ${detectedName} tab or provide a ${requestedName} URL.`,
+          },
+        },
+        400
+      );
+    }
+  }
+
+  if (!detectedProvider) {
     return c.json(
       {
         success: false,
         error: {
           code: 'UNSUPPORTED_PROVIDER',
           message:
-            'Unsupported platform. TextFromClip currently supports YouTube (all public videos & Shorts) and direct audio/video links (.mp4, .mp3, .webm).',
+            'Unsupported platform. TextFromClip currently supports YouTube (all public videos & Shorts), TikTok, Instagram Reels, and direct audio/video links (.mp4, .mp3, .webm).',
         },
       },
       400
     );
   }
+
+  const provider = detectedProvider;
 
   const startTime = Date.now();
 

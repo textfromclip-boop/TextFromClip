@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { TranscriptResult, ApiResponse } from '../types';
 import { TranscriptResultView } from './TranscriptResultView';
 import { Link, RoutePath } from '../router';
+import { validateUrlForPlatform } from '../utils/validation';
 
 export interface PreviewCue {
   time: string;
@@ -40,22 +41,27 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
 
   const run = async (target: string) => {
     const value = target.trim();
-    if (!value) return;
+    if (!value) {
+      setError(`Please enter a ${config.name} video link.`);
+      return;
+    }
 
-    try {
-      new URL(value);
-    } catch {
-      setError('Please enter a full video URL starting with https://');
+    // Bug 1 & Bug 2: Enforce platform validation before spending network requests
+    const validation = validateUrlForPlatform(value, config.id);
+    if (!validation.isValid) {
+      setError(validation.error || 'Please enter a valid video link.');
       return;
     }
 
     setLoading(true);
     setError(null);
+    setResult(null); // Clear previous result immediately so stale transcripts never linger
+
     try {
       const res = await fetch('/api/transcript', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ url: value }),
+        body: JSON.stringify({ url: value, platform: config.id }),
       });
       const data: ApiResponse<TranscriptResult> = await res.json();
       if (!res.ok || !data.success) {
@@ -137,8 +143,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                   </svg>
                   <input
                     id="video-url"
-                    type="url"
-                    required
+                    type="text"
                     value={url}
                     onChange={(e) => {
                       setUrl(e.target.value);
@@ -154,7 +159,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
 
                 <button
                   type="submit"
-                  disabled={loading || !url.trim()}
+                  disabled={loading}
                   className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] shadow-md hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0"
                 >
                   {loading ? (
@@ -185,24 +190,39 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                 </button>
               </div>
 
-              {/* Error Alert */}
+              {/* Visible Validation & Provider Error Alert */}
               {error && (
                 <div
                   id="url-error"
                   role="alert"
-                  className="mt-3 flex items-start gap-2.5 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-sm"
+                  className="mt-3 flex items-start justify-between gap-3 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-sm shadow-sm"
                 >
-                  <svg
-                    className="w-5 h-5 text-red-600 shrink-0 mt-0.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
+                  <div className="flex items-start gap-2.5">
+                    <svg
+                      className="w-5 h-5 text-red-600 shrink-0 mt-0.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <path strokeLinecap="round" d="M12 8v4m0 4h.01" />
+                    </svg>
+                    <div className="flex-1">
+                      <p className="font-semibold text-red-950">Notice</p>
+                      <p className="text-red-800 text-[13.5px] mt-0.5 leading-snug">{error}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setError(null)}
+                    className="text-red-400 hover:text-red-700 p-1 rounded-md transition-colors"
+                    aria-label="Dismiss error"
                   >
-                    <circle cx="12" cy="12" r="10" />
-                    <path strokeLinecap="round" d="M12 8v4m0 4h.01" />
-                  </svg>
-                  <span>{error}</span>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
               )}
 
