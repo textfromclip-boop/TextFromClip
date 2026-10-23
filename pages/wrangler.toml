@@ -1,0 +1,19 @@
+name = "textfromclip"
+pages_build_output_dir = "../dist-pages"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "textfromclip-db"
+database_id = "0dd853ee-3624-40d3-ba49-a3f41ede2684"
+
+[ai]
+binding = "AI"
+
+[vars]
+ENVIRONMENT = "production"
+MAX_REQUESTS_PER_MINUTE = "30"
+MAX_VIDEO_DURATION_SECONDS = "14400"
+CACHE_TTL_SECONDS = "86400"
+

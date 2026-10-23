@@ -83,34 +83,37 @@ export class YouTubeProvider implements VideoProviderAdapter {
       throw new Error('Invalid YouTube video link or missing video ID.');
     }
 
-    // 0. Preferred path: YouTube's app (InnerTube) API. The web watch page now
-    //    hands out caption URLs that return an empty body unless a proof-of-origin
-    //    token is attached, so the app endpoint is the reliable source today.
-    //    Falls through to the watch-page scrape below if it gives us nothing.
+    // 0. Preferred path: YouTube's app (InnerTube) API with visitorData across IOS + ANDROID.
     const viaApp = await this.getViaInnerTube(videoId, preferredLanguage);
     if (viaApp) return viaApp;
 
     // 1. Fetch YouTube video watch page to retrieve caption tracks & video metadata
     const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
     const userAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
     const watchRes = await fetch(watchUrl, {
       headers: {
         'User-Agent': userAgent,
         'Accept-Language': 'en-US,en;q=0.9',
+        Cookie: 'CONSENT=YES+cb; SOCS=CAISHAgBEhJnd3NfMjAyNDAzMTMtMF9SQzIaAmVuIAEaBgiA_LyaBg',
       },
     });
 
     if (!watchRes.ok) {
-      throw new Error(`Failed to access YouTube video (HTTP ${watchRes.status}). The video may be private, restricted, or deleted.`);
+      if (watchRes.status === 429) {
+        throw new Error(
+          'YouTube is blocking requests from our hosting provider (it asks servers like ours to "sign in to confirm you are not a bot"). This is not a problem with your link. Retrying will usually not help.'
+        );
+      }
+      throw new Error(
+        `Failed to access YouTube video (HTTP ${watchRes.status}). The video may be private, restricted, or deleted.`
+      );
     }
 
     const html = await watchRes.text();
 
-    // Check availability from the player's own status. (Searching the page for
-    // the text "Video unavailable" is wrong: that string is part of YouTube's
-    // embedded UI strings and is present on every watch page.)
+    // Check availability from the player's own status.
     const playability = html.match(/"playabilityStatus":\s*\{\s*"status":\s*"([A-Z_]+)"/);
     const playabilityStatus = playability ? playability[1] : 'OK';
     if (playabilityStatus === 'LOGIN_REQUIRED') {
@@ -137,7 +140,6 @@ export class YouTubeProvider implements VideoProviderAdapter {
     let captionFormat: 'xml' | 'json3' = 'xml';
 
     if (captionTracks && captionTracks.length > 0) {
-      // Find track matching preferred language, or fallback to first available
       let track = captionTracks.find(
         (t) => t.languageCode === preferredLanguage || t.languageCode.startsWith(preferredLanguage)
       );
@@ -220,7 +222,6 @@ export class YouTubeProvider implements VideoProviderAdapter {
     const srt = generateSrt(segments);
     const vtt = generateVtt(segments);
 
-    // Crypto-random unguessable job ID
     const jobId = crypto.randomUUID();
 
     return {
@@ -240,53 +241,157 @@ export class YouTubeProvider implements VideoProviderAdapter {
   }
 
   /**
-   * Fetch captions through the InnerTube "player" endpoint using the Android client.
-   * Returns null when this route yields nothing usable (caller falls back to the
-   * watch-page scrape); throws only when YouTube says the video is unavailable.
+   * Obtain a fresh anonymous visitorData token so InnerTube player calls from
+   * Cloudflare datacenter IPs are less likely to trigger LOGIN_REQUIRED bot checks.
+   */
+  private async fetchVisitorData(): Promise<string | undefined> {
+    try {
+      const res = await fetch('https://www.youtube.com/youtubei/v1/visitor_id?prettyPrint=false', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent':
+            'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+        },
+        body: JSON.stringify({
+          context: {
+            client: {
+              clientName: 'IOS',
+              clientVersion: '20.10.4',
+              deviceMake: 'Apple',
+              deviceModel: 'iPhone16,2',
+              osName: 'iPhone',
+              osVersion: '18.3.2.22D82',
+              hl: 'en',
+              gl: 'US',
+            },
+          },
+        }),
+      });
+      if (res.ok) {
+        const data: any = await res.json();
+        const vd = data?.responseContext?.visitorData;
+        if (typeof vd === 'string' && vd.length > 0) return vd;
+      }
+    } catch {
+      // Fall through to sw.js_data
+    }
+
+    try {
+      const swRes = await fetch('https://www.youtube.com/sw.js_data', {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        },
+      });
+      if (swRes.ok) {
+        const text = await swRes.text();
+        const m = text.match(/"(Cg[a-zA-Z0-9_%-]+)"/);
+        if (m?.[1]) return m[1];
+      }
+    } catch {
+      // Ignore
+    }
+    return undefined;
+  }
+
+  /**
+   * Fetch captions through the InnerTube "player" endpoint trying IOS and ANDROID clients
+   * with a fresh visitorData token.
    */
   private async getViaInnerTube(
     videoId: string,
     preferredLanguage: string
   ): Promise<TranscriptResult | null> {
-    const VERSION = '20.10.38';
-    const appUa = `com.google.android.youtube/${VERSION} (Linux; U; Android 11) gzip`;
+    const visitorData = await this.fetchVisitorData();
 
-    let player: any;
-    try {
-      const res = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': appUa,
-          'X-YouTube-Client-Name': '3',
-          'X-YouTube-Client-Version': VERSION,
+    const clients = [
+      {
+        id: '3',
+        ua: 'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip',
+        client: {
+          clientName: 'ANDROID',
+          clientVersion: '20.10.38',
+          androidSdkVersion: 30,
+          hl: 'en',
+          gl: 'US',
+          ...(visitorData ? { visitorData } : {}),
         },
-        body: JSON.stringify({
-          context: {
-            client: {
-              clientName: 'ANDROID',
-              clientVersion: VERSION,
-              androidSdkVersion: 30,
-              hl: 'en',
-              gl: 'US',
+      },
+      {
+        id: '5',
+        ua: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)',
+        client: {
+          clientName: 'IOS',
+          clientVersion: '20.10.4',
+          deviceMake: 'Apple',
+          deviceModel: 'iPhone16,2',
+          osName: 'iPhone',
+          osVersion: '18.3.2.22D82',
+          hl: 'en',
+          gl: 'US',
+          ...(visitorData ? { visitorData } : {}),
+        },
+      },
+    ];
+
+    let player: any = null;
+    let activeUa = clients[0].ua;
+    let sawHardUnplayable = false;
+
+    // Datacenter IPs are often rate-limited on one YouTube hostname but not another,
+    // so try each API host for each client.
+    const hosts = [
+      'https://youtubei.googleapis.com',
+      'https://www.youtube.com',
+      'https://m.youtube.com',
+      'https://www.youtube-nocookie.com',
+    ];
+
+    outer: for (const c of clients) {
+      for (const host of hosts) {
+        try {
+          const res = await fetch(`${host}/youtubei/v1/player?prettyPrint=false`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': c.ua,
+              'X-YouTube-Client-Name': c.id,
+              'X-YouTube-Client-Version': c.client.clientVersion,
+              ...(visitorData ? { 'X-Goog-Visitor-Id': visitorData } : {}),
             },
-          },
-          videoId,
-          contentCheckOk: true,
-          racyCheckOk: true,
-        }),
-      });
-      if (!res.ok) return null;
-      player = await res.json();
-    } catch {
+            body: JSON.stringify({
+              context: { client: c.client },
+              videoId,
+              contentCheckOk: true,
+              racyCheckOk: true,
+            }),
+          });
+          if (!res.ok) continue;
+          const candidate: any = await res.json();
+          const status: string | undefined = candidate?.playabilityStatus?.status;
+          if (status === 'OK') {
+            const tracks = candidate?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
+            if (tracks.length > 0) {
+              player = candidate;
+              activeUa = c.ua;
+              break outer;
+            }
+          } else if (status === 'ERROR' || status === 'UNPLAYABLE') {
+            sawHardUnplayable = true;
+          }
+        } catch {
+          // Try next host / client
+        }
+      }
+    }
+
+    if (!player) {
+      if (sawHardUnplayable) {
+        throw new Error('This YouTube video is unavailable or private.');
+      }
       return null;
     }
-
-    const status: string | undefined = player?.playabilityStatus?.status;
-    if (status === 'ERROR' || status === 'UNPLAYABLE') {
-      throw new Error('This YouTube video is unavailable or private.');
-    }
-    if (status !== 'OK') return null; // e.g. LOGIN_REQUIRED: let the fallback try
 
     const tracks: Array<{ baseUrl: string; languageCode: string; kind?: string }> =
       player?.captions?.playerCaptionsTracklistRenderer?.captionTracks ?? [];
@@ -304,7 +409,7 @@ export class YouTubeProvider implements VideoProviderAdapter {
 
     let payload = '';
     try {
-      const capRes = await fetch(track.baseUrl, { headers: { 'User-Agent': appUa } });
+      const capRes = await fetch(track.baseUrl, { headers: { 'User-Agent': activeUa } });
       if (capRes.ok) payload = await capRes.text();
     } catch {
       return null;
@@ -329,9 +434,10 @@ export class YouTubeProvider implements VideoProviderAdapter {
       provider: 'youtube',
       videoId,
       videoTitle: player?.videoDetails?.title || 'YouTube Video',
-      videoDurationSeconds: Number.isFinite(declared) && declared > 0
-        ? declared
-        : Math.ceil(lastSeg.start + lastSeg.duration),
+      videoDurationSeconds:
+        Number.isFinite(declared) && declared > 0
+          ? declared
+          : Math.ceil(lastSeg.start + lastSeg.duration),
       sourceType: 'captions',
       language: track.languageCode,
       segments,
@@ -345,7 +451,6 @@ export class YouTubeProvider implements VideoProviderAdapter {
   /**
    * Parse YouTube's current timed-text format (format="3"):
    * <timedtext format="3"><body><p t="1200" d="2160">text</p>...</body></timedtext>
-   * Times are in milliseconds; inner <s> tags carry per-word timing and are dropped.
    */
   private parseSrv3Captions(xml: string): TranscriptSegment[] {
     const segments: TranscriptSegment[] = [];
@@ -375,7 +480,9 @@ export class YouTubeProvider implements VideoProviderAdapter {
   /**
    * Extract captionTracks array from YouTube watch page HTML
    */
-  private extractCaptionTracks(html: string): Array<{ baseUrl: string; languageCode: string; name?: string }> {
+  private extractCaptionTracks(
+    html: string
+  ): Array<{ baseUrl: string; languageCode: string; name?: string }> {
     try {
       const regex = /"captionTracks":\s*(\[.*?\])/;
       const match = html.match(regex);
@@ -443,7 +550,6 @@ export class YouTubeProvider implements VideoProviderAdapter {
       const start = parseFloat(match[1]) || 0;
       const dur = match[2] ? parseFloat(match[2]) : 2.0;
       const rawText = match[3] || '';
-      // Strip any inner xml tags like <font color="...">
       const cleanText = unescapeHtml(rawText.replace(/<[^>]*>/g, '')).trim();
 
       if (cleanText) {
@@ -459,4 +565,3 @@ export class YouTubeProvider implements VideoProviderAdapter {
     return segments;
   }
 }
-
