@@ -1,4 +1,4 @@
-name = "textfromclip"
+name = "textfromclippro"
 main = "src/server/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
@@ -12,7 +12,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "textfromclip-db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "0dd853ee-3624-40d3-ba49-a3f41ede2684"
 migrations_dir = "migrations"
 
 # Cloudflare Workers AI Binding
