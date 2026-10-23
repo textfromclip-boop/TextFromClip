@@ -9,25 +9,36 @@ const sections = [
 ];
 
 const H2: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => (
-  <h2 id={id} className="font-serif text-2xl font-semibold mt-12 first:mt-0 scroll-mt-6">
+  <h2 id={id} className="text-2xl font-bold text-ink mt-12 first:mt-0 scroll-mt-24">
     {children}
   </h2>
 );
 
 export const AboutPage: React.FC = () => (
-  <div className="max-w-5xl mx-auto px-5 pt-12">
-    <h1 className="font-serif text-4xl sm:text-5xl font-semibold leading-[1.1]">About</h1>
-    <p className="mt-4 text-lg text-muted max-w-2xl">
-      A small utility that turns a video link into text you can copy, search and download.
+  <div className="max-w-6xl mx-auto px-5 pt-12 pb-6">
+    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent-soft text-accent text-xs font-semibold">
+      About TextFromClip
+    </div>
+    <h1 className="mt-3 text-4xl sm:text-5xl font-black tracking-tight text-ink leading-[1.1]">
+      Built for Fast, Honest{' '}
+      <span className="bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] bg-clip-text text-transparent">
+        Transcription
+      </span>
+    </h1>
+    <p className="mt-3 text-lg text-muted max-w-2xl">
+      A focused edge utility that turns public video clips into searchable, timecoded text.
     </p>
 
-    <div className="mt-10 grid md:grid-cols-[12rem_1fr] gap-10">
-      <nav aria-label="On this page" className="md:sticky md:top-6 self-start text-sm">
-        <p className="font-semibold mb-2">On this page</p>
+    <div className="mt-10 grid md:grid-cols-[14rem_1fr] gap-10">
+      <nav aria-label="On this page" className="md:sticky md:top-24 self-start text-sm">
+        <p className="font-bold text-ink mb-2.5">On this page</p>
         <ul className="space-y-1.5 border-l border-rule">
           {sections.map((s) => (
             <li key={s.id}>
-              <Link to={`/about#${s.id}`} className="block pl-3 -ml-px border-l border-transparent hover:border-accent hover:text-accent">
+              <Link
+                to={`/about#${s.id}`}
+                className="block pl-3.5 py-1 -ml-px border-l-2 border-transparent text-muted hover:border-accent hover:text-accent font-medium transition-colors"
+              >
                 {s.title}
               </Link>
             </li>
@@ -35,41 +46,34 @@ export const AboutPage: React.FC = () => (
         </ul>
       </nav>
 
-      <article className="max-w-2xl leading-relaxed space-y-4 [&_a]:text-accent [&_a]:underline">
+      <article className="max-w-3xl bg-surface border border-rule rounded-2xl p-6 sm:p-8 shadow-sm leading-relaxed space-y-4 text-ink/90 [&_a]:text-accent [&_a]:font-semibold [&_a]:underline">
         <H2 id="what">What this is</H2>
         <p>
-          TextFromClip reads the captions a video already has, or, for direct audio and video files, runs speech recognition, and hands you the result as text, SRT or VTT. It runs on Cloudflare Workers. There are no accounts and nothing to install.
+          TextFromClip extracts native caption tracks from YouTube and TikTok videos, and runs Cloudflare Workers AI Whisper speech recognition on Instagram Reels and direct audio/video streams. Results can be searched in the browser or downloaded as <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.txt</code>, <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.srt</code>, or <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.vtt</code>.
         </p>
         <p>
-          We say plainly what does not work. YouTube may refuse requests that come from our hosting provider, TikTok clips without captions rely on speech recognition, and Instagram only works for Reels it shows to logged-out visitors. When a source cannot be read, or has no clear speech, you get an error instead of made-up text. See the <Link to="/guide">guide</Link> for the details.
+          When a video is private, login-gated, or contains no speech, TextFromClip reports the exact reason instead of returning fabricated text. See the <Link to="/guide">guide</Link> for full details.
         </p>
 
         <H2 id="privacy">Privacy</H2>
         <ul className="list-disc pl-5 space-y-2">
-          <li><strong>No accounts.</strong> We ask for no email, name or password.</li>
-          <li><strong>Transcripts are not stored.</strong> The text goes from the platform to your browser. It is not saved in our database.</li>
-          <li><strong>Minimal job records.</strong> When the database is enabled we keep a record of provider, video ID, title, length and segment count, deleted after 24 hours, to detect abuse and count usage.</li>
-          <li><strong>Rate limiting.</strong> Your IP address is used to enforce the per-minute request limit.</li>
-          <li><strong>No ads, no tracking scripts, no sale of data.</strong></li>
-          <li>The page loads fonts from Google Fonts, which means your browser contacts Google when it opens.</li>
+          <li><strong>No accounts required.</strong> We never ask for your email, password, or social media login.</li>
+          <li><strong>No permanent transcript storage.</strong> Short-lived edge caching is used solely to speed up repeat lookups and is automatically purged.</li>
+          <li><strong>Rate limiting.</strong> Requests are rate-limited per IP to keep the service fast and available.</li>
+          <li><strong>Zero ad trackers.</strong> We do not sell user data or run third-party ad networks.</li>
         </ul>
 
         <H2 id="terms">Terms</H2>
         <ol className="list-decimal pl-5 space-y-2">
-          <li><strong>Use it fairly.</strong> It is a free tool for personal, educational and research use. Do not send malicious URLs, flood the service or try to bypass rate limits.</li>
-          <li><strong>Respect copyright.</strong> Transcripts come from content made by others. You are responsible for following the copyright and licence terms of the original video. We claim no ownership of the text.</li>
-          <li><strong>We do not bypass access controls.</strong> If a platform restricts access, we will not work around logins, DRM or bot protection.</li>
-          <li><strong>No warranty.</strong> The service is provided as is. Automatic captions and speech recognition make mistakes, so check anything that matters.</li>
+          <li><strong>Fair use.</strong> Designed for personal, educational, creator, and research workflows.</li>
+          <li><strong>Respect creator rights.</strong> Transcripts belong to the original creators of the underlying media.</li>
+          <li><strong>No warranty.</strong> Automated captions and speech recognition can mishear names or technical terms; always verify critical quotes.</li>
         </ol>
 
         <H2 id="contact">Contact</H2>
-        <p>Questions, feedback or a problem with a specific link:</p>
-        <p className="font-mono text-sm">support@textfromclip.com</p>
-        <p>Abuse reports and copyright (DMCA) notices:</p>
-        <p className="font-mono text-sm">abuse@textfromclip.com</p>
-        <p className="text-sm text-muted">We aim to reply within two business days.</p>
+        <p>Questions, feedback, or bug reports:</p>
+        <p className="font-mono text-sm font-semibold text-ink">support@textfromclip.com</p>
       </article>
     </div>
   </div>
 );
-

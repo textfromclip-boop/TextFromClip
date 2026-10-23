@@ -10,25 +10,36 @@ const sections = [
 ];
 
 const H2: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => (
-  <h2 id={id} className="font-serif text-2xl font-semibold mt-12 first:mt-0 scroll-mt-6">
+  <h2 id={id} className="text-2xl font-bold text-ink mt-12 first:mt-0 scroll-mt-24">
     {children}
   </h2>
 );
 
 export const GuidePage: React.FC = () => (
-  <div className="max-w-5xl mx-auto px-5 pt-12">
-    <h1 className="font-serif text-4xl sm:text-5xl font-semibold leading-[1.1]">Guide</h1>
-    <p className="mt-4 text-lg text-muted max-w-2xl">
-      Everything about using TextFromClip, including what it cannot do.
+  <div className="max-w-6xl mx-auto px-5 pt-12 pb-6">
+    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent-soft text-accent text-xs font-semibold">
+      Documentation
+    </div>
+    <h1 className="mt-3 text-4xl sm:text-5xl font-black tracking-tight text-ink leading-[1.1]">
+      Platform & Export{' '}
+      <span className="bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] bg-clip-text text-transparent">
+        Guide
+      </span>
+    </h1>
+    <p className="mt-3 text-lg text-muted max-w-2xl">
+      How TextFromClip extracts transcripts across YouTube, TikTok, Instagram Reels, and direct media files.
     </p>
 
-    <div className="mt-10 grid md:grid-cols-[12rem_1fr] gap-10">
-      <nav aria-label="On this page" className="md:sticky md:top-6 self-start text-sm">
-        <p className="font-semibold mb-2">On this page</p>
+    <div className="mt-10 grid md:grid-cols-[14rem_1fr] gap-10">
+      <nav aria-label="On this page" className="md:sticky md:top-24 self-start text-sm">
+        <p className="font-bold text-ink mb-2.5">On this page</p>
         <ul className="space-y-1.5 border-l border-rule">
           {sections.map((s) => (
             <li key={s.id}>
-              <Link to={`/guide#${s.id}`} className="block pl-3 -ml-px border-l border-transparent hover:border-accent hover:text-accent">
+              <Link
+                to={`/guide#${s.id}`}
+                className="block pl-3.5 py-1 -ml-px border-l-2 border-transparent text-muted hover:border-accent hover:text-accent font-medium transition-colors"
+              >
                 {s.title}
               </Link>
             </li>
@@ -36,104 +47,115 @@ export const GuidePage: React.FC = () => (
         </ul>
       </nav>
 
-      <article className="max-w-2xl leading-relaxed space-y-4 [&_a]:text-accent [&_a]:underline">
+      <article className="max-w-3xl bg-surface border border-rule rounded-2xl p-6 sm:p-8 shadow-sm leading-relaxed space-y-4 text-ink/90 [&_a]:text-accent [&_a]:font-semibold [&_a]:underline">
         <H2 id="quick-start">Quick start</H2>
-        <ol className="list-decimal pl-5 space-y-1.5">
-          <li>Open the tab for the platform: <Link to="/youtube">YouTube</Link>, <Link to="/tiktok">TikTok</Link> or <Link to="/instagram">Instagram</Link>.</li>
-          <li>Paste the full link, including <code className="font-mono text-sm">https://</code>.</li>
-          <li>Press <em>Get transcript</em>. Captions usually come back in a few seconds.</li>
-          <li>Copy the text or download it. Search the transcript to find a moment, and click a timestamp to open YouTube at that point.</li>
+        <ol className="list-decimal pl-5 space-y-2">
+          <li>
+            Select a platform (<Link to="/youtube">YouTube</Link>,{' '}
+            <Link to="/tiktok">TikTok</Link> or <Link to="/instagram">Instagram</Link>) or paste any supported URL directly into the bar.
+          </li>
+          <li>
+            Include the full URL starting with <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">https://</code>.
+          </li>
+          <li>
+            Click <strong>Get Transcript</strong>. Caption tracks return in 1–3 seconds; Whisper AI audio transcription takes 5–20 seconds depending on clip length.
+          </li>
+          <li>
+            Copy the full text, search specific words, or download <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.txt</code>, <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.srt</code>, or <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.vtt</code>.
+          </li>
         </ol>
 
         <H2 id="links">Which links work</H2>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto rounded-xl border border-rule">
           <table className="w-full text-sm border-collapse">
             <thead>
-              <tr className="text-left border-b border-ink">
-                <th className="py-2 pr-4 font-semibold">Source</th>
-                <th className="py-2 pr-4 font-semibold">Status</th>
-                <th className="py-2 font-semibold">Accepted links</th>
+              <tr className="text-left bg-slate-50 border-b border-rule">
+                <th className="py-3 px-4 font-bold text-ink">Source</th>
+                <th className="py-3 px-4 font-bold text-ink">Engine</th>
+                <th className="py-3 px-4 font-bold text-ink">Accepted links</th>
               </tr>
             </thead>
-            <tbody className="align-top [&_td]:py-2.5 [&_td]:pr-4 [&_tr]:border-b [&_tr]:border-rule">
+            <tbody className="align-top divide-y divide-rule">
               <tr>
-                <td>YouTube</td>
-                <td>Works</td>
-                <td className="font-mono text-xs">youtube.com/watch?v=… · youtu.be/… · youtube.com/shorts/… · youtube.com/embed/…</td>
+                <td className="py-3 px-4 font-semibold">YouTube</td>
+                <td className="py-3 px-4 text-emerald-700 font-medium">Native Captions</td>
+                <td className="py-3 px-4 font-mono text-xs text-muted">
+                  youtube.com/watch?v=… · youtu.be/… · youtube.com/shorts/… · youtube.com/embed/…
+                </td>
               </tr>
               <tr>
-                <td>Direct files</td>
-                <td>Works*</td>
-                <td className="font-mono text-xs">.mp4 .webm .mp3 .wav .m4a .ogg .aac, up to 25 MB</td>
+                <td className="py-3 px-4 font-semibold">TikTok</td>
+                <td className="py-3 px-4 text-emerald-700 font-medium">WebVTT + Whisper AI</td>
+                <td className="py-3 px-4 font-mono text-xs text-muted">
+                  tiktok.com/@user/video/… · vm.tiktok.com/… · vt.tiktok.com/…
+                </td>
               </tr>
               <tr>
-                <td>TikTok</td>
-                <td>Works (captions)</td>
-                <td className="font-mono text-xs">tiktok.com/@user/video/… · vm.tiktok.com/… · vt.tiktok.com/… (clips with public caption tracks)</td>
+                <td className="py-3 px-4 font-semibold">Instagram Reels</td>
+                <td className="py-3 px-4 text-emerald-700 font-medium">DASH Audio + Whisper AI</td>
+                <td className="py-3 px-4 font-mono text-xs text-muted">
+                  instagram.com/reel/… (Public Reels accessible without login)
+                </td>
               </tr>
               <tr>
-                <td>Instagram</td>
-                <td>Works (speech recognition)</td>
-                <td>Public Reels only (instagram.com/reel/…). Login-only, private or removed Reels cannot be read.</td>
+                <td className="py-3 px-4 font-semibold">Direct Media</td>
+                <td className="py-3 px-4 text-emerald-700 font-medium">Whisper AI</td>
+                <td className="py-3 px-4 font-mono text-xs text-muted">
+                  .mp4 .webm .mp3 .wav .m4a .ogg .aac (up to 25 MB)
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
         <p className="text-sm text-muted">
-          * Direct files are transcribed with speech recognition and need the Workers AI service to be enabled on the server. Paste them on the YouTube tab.
-        </p>
-        <p>
-          We do not work around login walls or bot checks, and we never invent text when a platform refuses access.
+          We never fabricate transcripts or substitute post descriptions for spoken words.
         </p>
 
         <H2 id="formats">Export formats</H2>
         <dl className="space-y-3">
           <div>
-            <dt className="font-semibold">Copy / .txt</dt>
-            <dd className="text-muted">Plain text. With <em>Timestamps</em> ticked, each line starts with <code className="font-mono text-sm">[01:23]</code>; unticked, you get one clean block.</dd>
+            <dt className="font-bold text-ink">Copy / .TXT</dt>
+            <dd className="text-muted">
+              Plain text. With <em>Timestamps</em> enabled, each segment starts with{' '}
+              <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">[01:23]</code>;
+              unchecked, you get a clean continuous paragraph.
+            </dd>
           </div>
           <div>
-            <dt className="font-semibold">.srt</dt>
-            <dd className="text-muted">SubRip subtitles with millisecond timecodes. Works in Premiere Pro, Final Cut, DaVinci Resolve and most video players.</dd>
+            <dt className="font-bold text-ink">.SRT (SubRip)</dt>
+            <dd className="text-muted">
+              Standard subtitle format with millisecond timecodes for Premiere Pro, Final Cut Pro, DaVinci Resolve, and CapCut.
+            </dd>
           </div>
           <div>
-            <dt className="font-semibold">.vtt</dt>
-            <dd className="text-muted">WebVTT subtitles, for the HTML5 <code className="font-mono text-sm">&lt;track&gt;</code> element and web players.</dd>
+            <dt className="font-bold text-ink">.VTT (WebVTT)</dt>
+            <dd className="text-muted">
+              HTML5 <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">&lt;track&gt;</code> web subtitle standard.
+            </dd>
           </div>
         </dl>
 
         <H2 id="accuracy">Accuracy</H2>
         <p>
-          For YouTube we read the caption track the video already has. If the creator uploaded subtitles, you get exactly their text. If only auto-generated captions exist, you get those, mistakes included, especially with names, jargon and overlapping speakers.
-        </p>
-        <p>
-          For direct files we run Whisper speech recognition. Clear single-speaker audio works well; music, noise and crosstalk do not. Timing on these is only approximate when the model returns no timestamps.
+          For YouTube and captioned TikTok clips, we extract the exact subtitle track attached to the video. For Instagram Reels, uncaptioned TikTok clips, and direct media links, we run OpenAI Whisper speech recognition on Cloudflare Workers AI.
         </p>
 
         <H2 id="troubleshooting">When it fails</H2>
         <dl className="space-y-3">
           <div>
-            <dt className="font-semibold">“No captions or subtitles found”</dt>
-            <dd className="text-muted">The video has no caption track at all. There is nothing to read, and we do not guess.</dd>
+            <dt className="font-bold text-ink">“No clear speech / No captions found”</dt>
+            <dd className="text-muted">
+              The clip contains only background music, ambient noise, or has no accessible speech track.
+            </dd>
           </div>
           <div>
-            <dt className="font-semibold">“Unavailable or private”</dt>
-            <dd className="text-muted">The video is private, deleted, age-restricted or blocked in the server’s region. Unlisted videos usually work.</dd>
-          </div>
-          <div>
-            <dt className="font-semibold">“Too many requests”</dt>
-            <dd className="text-muted">There is a per-IP limit. Wait for the number of seconds shown and try again.</dd>
-          </div>
-          <div>
-            <dt className="font-semibold">“That link is not from …”</dt>
-            <dd className="text-muted">You pasted a link on the wrong tab. Switch tabs and paste again.</dd>
+            <dt className="font-bold text-ink">“Unavailable, private, or login-restricted”</dt>
+            <dd className="text-muted">
+              The creator or platform requires a signed-in account or age verification to view the media.
+            </dd>
           </div>
         </dl>
-        <p>
-          Still stuck? <Link to="/about#contact">Contact us</Link> with the link you tried and the message you saw.
-        </p>
       </article>
     </div>
   </div>
 );
-

@@ -7,19 +7,20 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Warm paper palette taken from the approved navigation reference
-        paper: '#F4EEE6',
-        surface: '#FBF8F3',
-        ink: '#1B1814',
-        muted: '#6B635A',
-        rule: '#D9CFC1',
-        accent: '#C4441F',
-        'accent-dark': '#9E3517',
+        // TextFromClip brand palette matched to logo (#021331 + #2868F7 -> #5131ED)
+        paper: '#F8FAFC',
+        surface: '#FFFFFF',
+        ink: '#021331',
+        muted: '#475569',
+        rule: '#E2E8F0',
+        accent: '#2868F7',
+        'accent-dark': '#5131ED',
+        'accent-soft': '#EEF4FF',
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
-        serif: ['"Source Serif 4"', 'Georgia', 'serif'],
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
+        serif: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
     },
   },
