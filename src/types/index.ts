@@ -84,5 +84,6 @@ export interface CloudflareBindings {
   ASSETS?: Fetcher;
   IG_SESSION_ID?: string;
   EXTERNAL_WHISPER_URL?: string;
+  SNAPANY_API_KEY?: string;
 }
 

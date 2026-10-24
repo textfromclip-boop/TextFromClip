@@ -1,6 +1,8 @@
 import { VideoProviderAdapter, ProviderCapability } from './base';
 import { TranscriptResult, TranscriptSegment, CloudflareBindings } from '../../types';
 import { unescapeHtml, generateSrt, generateVtt } from '../utils/formatters';
+import { transcribeMediaWithWhisper } from '../utils/whisper-fallback';
+import { extractMediaWithSnapAny, DEFAULT_SNAPANY_KEY } from '../utils/snapany';
 
 export class YouTubeProvider implements VideoProviderAdapter {
   id = 'youtube';
@@ -76,7 +78,7 @@ export class YouTubeProvider implements VideoProviderAdapter {
   async getTranscript(
     url: string,
     preferredLanguage: string = 'en',
-    _env: CloudflareBindings
+    env: CloudflareBindings
   ): Promise<TranscriptResult> {
     const videoId = this.extractVideoId(url);
     if (!videoId) {
@@ -87,159 +89,191 @@ export class YouTubeProvider implements VideoProviderAdapter {
     const viaApp = await this.getViaInnerTube(videoId, preferredLanguage);
     if (viaApp) return viaApp;
 
-    // 1. Fetch YouTube video watch page to retrieve caption tracks & video metadata
-    const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-    const userAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-
-    const watchRes = await fetch(watchUrl, {
-      headers: {
-        'User-Agent': userAgent,
-        'Accept-Language': 'en-US,en;q=0.9',
-        Cookie: 'CONSENT=YES+cb; SOCS=CAISHAgBEhJnd3NfMjAyNDAzMTMtMF9SQzIaAmVuIAEaBgiA_LyaBg',
-      },
-    });
-
-    if (!watchRes.ok) {
-      if (watchRes.status === 429) {
-        throw new Error(
-          'YouTube is blocking requests from our hosting provider (it asks servers like ours to "sign in to confirm you are not a bot"). This is not a problem with your link. Retrying will usually not help.'
-        );
-      }
-      throw new Error(
-        `Failed to access YouTube video (HTTP ${watchRes.status}). The video may be private, restricted, or deleted.`
-      );
-    }
-
-    const html = await watchRes.text();
-
-    // Check availability from the player's own status.
-    const playability = html.match(/"playabilityStatus":\s*\{\s*"status":\s*"([A-Z_]+)"/);
-    const playabilityStatus = playability ? playability[1] : 'OK';
-    if (playabilityStatus === 'LOGIN_REQUIRED') {
-      throw new Error(
-        'YouTube asked for sign-in (age-restricted, members-only, or a bot check). This video cannot be read without logging in.'
-      );
-    }
-    if (playabilityStatus === 'ERROR' || playabilityStatus === 'UNPLAYABLE') {
-      throw new Error('This YouTube video is unavailable or private.');
-    }
-
-    // Extract title from HTML
+    let nativeError: Error | null = null;
     let videoTitle = 'YouTube Video';
-    const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
-    if (titleMatch && titleMatch[1]) {
-      videoTitle = unescapeHtml(titleMatch[1].replace(/ - YouTube$/, ''));
-    }
-
-    // Extract caption track list from embedded player response
-    const captionTracks = this.extractCaptionTracks(html);
-
     let captionData = '';
     let selectedLang = preferredLanguage;
     let captionFormat: 'xml' | 'json3' = 'xml';
 
-    if (captionTracks && captionTracks.length > 0) {
-      let track = captionTracks.find(
-        (t) => t.languageCode === preferredLanguage || t.languageCode.startsWith(preferredLanguage)
-      );
-      if (!track) {
-        track = captionTracks.find((t) => t.languageCode === 'en' || t.languageCode.startsWith('en'));
-      }
-      if (!track) {
-        track = captionTracks[0];
-      }
+    try {
+      // 1. Fetch YouTube video watch page to retrieve caption tracks & video metadata
+      const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const userAgent =
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-      selectedLang = track.languageCode;
-      const trackUrl = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=json3`;
-
-      const capRes = await fetch(trackUrl, {
-        headers: { 'User-Agent': userAgent },
+      const watchRes = await fetch(watchUrl, {
+        headers: {
+          'User-Agent': userAgent,
+          'Accept-Language': 'en-US,en;q=0.9',
+          Cookie: 'CONSENT=YES+cb; SOCS=CAISHAgBEhJnd3NfMjAyNDAzMTMtMF9SQzIaAmVuIAEaBgiA_LyaBg',
+        },
       });
 
-      if (capRes.ok) {
-        captionData = await capRes.text();
-        captionFormat = trackUrl.includes('fmt=json3') ? 'json3' : 'xml';
+      if (!watchRes.ok) {
+        if (watchRes.status === 429) {
+          throw new Error(
+            'YouTube is blocking requests from our hosting provider (it asks servers like ours to "sign in to confirm you are not a bot"). This is not a problem with your link. Retrying will usually not help.'
+          );
+        }
+        throw new Error(
+          `Failed to access YouTube video (HTTP ${watchRes.status}). The video may be private, restricted, or deleted.`
+        );
       }
-    }
 
-    // Fallback: direct timedtext endpoint if embedded track was not found
-    if (!captionData) {
-      const directTimedTextUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${preferredLanguage}&fmt=json3`;
-      const directRes = await fetch(directTimedTextUrl, {
-        headers: { 'User-Agent': userAgent },
-      });
-      if (directRes.ok) {
-        const text = await directRes.text();
-        if (text && text.trim().length > 0 && !text.includes('error')) {
-          captionData = text;
-          captionFormat = 'json3';
+      const html = await watchRes.text();
+
+      // Check availability from the player's own status.
+      const playability = html.match(/"playabilityStatus":\s*\{\s*"status":\s*"([A-Z_]+)"/);
+      const playabilityStatus = playability ? playability[1] : 'OK';
+      if (playabilityStatus === 'LOGIN_REQUIRED') {
+        throw new Error(
+          'YouTube asked for sign-in (age-restricted, members-only, or a bot check). This video cannot be read without logging in.'
+        );
+      }
+      if (playabilityStatus === 'ERROR' || playabilityStatus === 'UNPLAYABLE') {
+        throw new Error('This YouTube video is unavailable or private.');
+      }
+
+      // Extract title from HTML
+      const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+      if (titleMatch && titleMatch[1]) {
+        videoTitle = unescapeHtml(titleMatch[1].replace(/ - YouTube$/, ''));
+      }
+
+      // Extract caption track list from embedded player response
+      const captionTracks = this.extractCaptionTracks(html);
+
+      if (captionTracks && captionTracks.length > 0) {
+        let track = captionTracks.find(
+          (t) => t.languageCode === preferredLanguage || t.languageCode.startsWith(preferredLanguage)
+        );
+        if (!track) {
+          track = captionTracks.find((t) => t.languageCode === 'en' || t.languageCode.startsWith('en'));
+        }
+        if (!track) {
+          track = captionTracks[0];
+        }
+
+        selectedLang = track.languageCode;
+        const trackUrl = track.baseUrl.includes('fmt=') ? track.baseUrl : `${track.baseUrl}&fmt=json3`;
+
+        const capRes = await fetch(trackUrl, {
+          headers: { 'User-Agent': userAgent },
+        });
+
+        if (capRes.ok) {
+          captionData = await capRes.text();
+          captionFormat = trackUrl.includes('fmt=json3') ? 'json3' : 'xml';
         }
       }
-    }
 
-    // If still no caption data found, try XML format
-    if (!captionData) {
-      const xmlTimedTextUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${preferredLanguage}`;
-      const xmlRes = await fetch(xmlTimedTextUrl, {
-        headers: { 'User-Agent': userAgent },
-      });
-      if (xmlRes.ok) {
-        const text = await xmlRes.text();
-        if (text && text.trim().startsWith('<transcript>')) {
-          captionData = text;
-          captionFormat = 'xml';
+      // Fallback: direct timedtext endpoint if embedded track was not found
+      if (!captionData) {
+        const directTimedTextUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${preferredLanguage}&fmt=json3`;
+        const directRes = await fetch(directTimedTextUrl, {
+          headers: { 'User-Agent': userAgent },
+        });
+        if (directRes.ok) {
+          const text = await directRes.text();
+          if (text && text.trim().length > 0 && !text.includes('error')) {
+            captionData = text;
+            captionFormat = 'json3';
+          }
         }
       }
+
+      // If still no caption data found, try XML format
+      if (!captionData) {
+        const xmlTimedTextUrl = `https://www.youtube.com/api/timedtext?v=${videoId}&lang=${preferredLanguage}`;
+        const xmlRes = await fetch(xmlTimedTextUrl, {
+          headers: { 'User-Agent': userAgent },
+        });
+        if (xmlRes.ok) {
+          const text = await xmlRes.text();
+          if (text && text.trim().startsWith('<transcript>')) {
+            captionData = text;
+            captionFormat = 'xml';
+          }
+        }
+      }
+    } catch (err: any) {
+      nativeError = err;
     }
 
-    if (!captionData) {
-      throw new Error(
-        'No captions or subtitles found for this YouTube video. The creator has not enabled captions, and auto-generated captions are not available for this clip.'
-      );
-    }
-
-    // Parse captions into standardized segments
-    let segments: TranscriptSegment[] = [];
-    if (captionFormat === 'json3') {
-      try {
-        segments = this.parseJson3Captions(captionData);
-      } catch {
+    // If native captions were extracted, parse and return them
+    if (captionData) {
+      let segments: TranscriptSegment[] = [];
+      if (captionFormat === 'json3') {
+        try {
+          segments = this.parseJson3Captions(captionData);
+        } catch {
+          segments = this.parseXmlCaptions(captionData);
+        }
+      } else {
         segments = this.parseXmlCaptions(captionData);
       }
-    } else {
-      segments = this.parseXmlCaptions(captionData);
+
+      if (segments && segments.length > 0) {
+        const lastSeg = segments[segments.length - 1];
+        const duration = Math.ceil(lastSeg.start + lastSeg.duration);
+        const fullText = segments.map((s) => s.text).join(' ');
+        const srt = generateSrt(segments);
+        const vtt = generateVtt(segments);
+
+        const jobId = crypto.randomUUID();
+        const videoThumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+        return {
+          id: jobId,
+          provider: 'youtube',
+          videoId,
+          videoTitle,
+          videoDurationSeconds: duration,
+          videoThumbnailUrl,
+          sourceType: 'captions',
+          language: selectedLang,
+          segments,
+          fullText,
+          srt,
+          vtt,
+          createdAt: Date.now(),
+        };
+      }
     }
 
-    if (!segments || segments.length === 0) {
-      throw new Error('Unable to extract readable transcript lines from the caption track.');
+    // 2. Managed Media Extraction Fallback (SnapAny + Workers AI Whisper)
+    // Invoked when YouTube blocks datacenter IPs with LOGIN_REQUIRED or 429
+    const snapKey = env.SNAPANY_API_KEY || DEFAULT_SNAPANY_KEY;
+    if (snapKey && (env.AI || env.EXTERNAL_WHISPER_URL)) {
+      try {
+        const snap = await extractMediaWithSnapAny(url, snapKey, true);
+        if (snap && (snap.audioUrls.length > 0 || snap.videoUrls.length > 0)) {
+          return await transcribeMediaWithWhisper({
+            provider: 'youtube',
+            videoId,
+            videoTitle: snap.title || videoTitle,
+            channelTitle: snap.author,
+            videoThumbnailUrl: snap.cover || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            language: preferredLanguage,
+            candidateMediaUrls: [...snap.audioUrls, ...snap.videoUrls],
+            mediaHeaders: {},
+            env,
+          });
+        }
+      } catch (snapErr: any) {
+        if (snapErr?.message && snapErr.message.includes('SnapAny')) {
+          throw snapErr;
+        }
+      }
     }
 
-    // Compute duration & full text
-    const lastSeg = segments[segments.length - 1];
-    const duration = Math.ceil(lastSeg.start + lastSeg.duration);
-    const fullText = segments.map((s) => s.text).join(' ');
-    const srt = generateSrt(segments);
-    const vtt = generateVtt(segments);
+    if (nativeError) {
+      throw nativeError;
+    }
 
-    const jobId = crypto.randomUUID();
-    const videoThumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-
-    return {
-      id: jobId,
-      provider: 'youtube',
-      videoId,
-      videoTitle,
-      videoDurationSeconds: duration,
-      videoThumbnailUrl,
-      sourceType: 'captions',
-      language: selectedLang,
-      segments,
-      fullText,
-      srt,
-      vtt,
-      createdAt: Date.now(),
-    };
+    throw new Error(
+      'No captions or subtitles found for this YouTube video. The creator has not enabled captions, and auto-generated captions are not available for this clip.'
+    );
   }
 
   /**

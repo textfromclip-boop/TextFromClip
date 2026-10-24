@@ -2,6 +2,7 @@ import { VideoProviderAdapter, ProviderCapability } from './base';
 import { TranscriptResult, CloudflareBindings } from '../../types';
 import { unescapeHtml } from '../utils/formatters';
 import { transcribeMediaWithWhisper } from '../utils/whisper-fallback';
+import { extractMediaWithSnapAny, DEFAULT_SNAPANY_KEY } from '../utils/snapany';
 
 const HONEST_USER_AGENT = 'Mozilla/5.0 (compatible; TextFromClip/1.0)';
 
@@ -144,8 +145,9 @@ export class InstagramProvider implements VideoProviderAdapter {
       );
     }
 
-    // Public page only. No login, no cookies, no impersonated browser.
-    let html: string;
+    // 1. Try public page fetch first
+    let html: string | null = null;
+    let nativeError: Error | null = null;
     try {
       const res = await fetch(`https://www.instagram.com/reel/${shortcode}/`, {
         headers: {
@@ -165,11 +167,41 @@ export class InstagramProvider implements VideoProviderAdapter {
       }
       html = await res.text();
     } catch (err: any) {
-      throw new Error(err?.message || 'Could not reach Instagram.');
+      nativeError = err;
     }
 
-    const media = parseInstagramReelPage(html, shortcode);
+    let media = html ? parseInstagramReelPage(html, shortcode) : null;
+
+    // 2. Managed Media Extraction Fallback (SnapAny + Workers AI Whisper)
+    // Invoked when Instagram limits our datacenter IPs (HTTP 429) or asks for login
     if (!media) {
+      const snapKey = env.SNAPANY_API_KEY || DEFAULT_SNAPANY_KEY;
+      if (snapKey) {
+        try {
+          const snap = await extractMediaWithSnapAny(url, snapKey, false);
+          if (snap && (snap.audioUrls.length > 0 || snap.videoUrls.length > 0)) {
+            return await transcribeMediaWithWhisper({
+              provider: 'instagram',
+              videoId: shortcode,
+              videoTitle: snap.title || `Instagram Reel ${shortcode}`,
+              videoThumbnailUrl: snap.cover,
+              channelTitle: snap.author ? `@${snap.author}` : 'Instagram',
+              language: preferredLanguage,
+              candidateMediaUrls: [...snap.audioUrls, ...snap.videoUrls],
+              mediaHeaders: { 'User-Agent': HONEST_USER_AGENT },
+              env,
+            });
+          }
+        } catch (snapErr: any) {
+          if (snapErr?.message && snapErr.message.includes('SnapAny')) {
+            throw snapErr;
+          }
+        }
+      }
+    }
+
+    if (!media) {
+      if (nativeError) throw nativeError;
       throw new Error(
         'Instagram did not show this Reel to an anonymous visitor (it asks for a login). The Reel may be private, age-restricted, removed, or Instagram is limiting our server. We do not log in or work around that.'
       );
