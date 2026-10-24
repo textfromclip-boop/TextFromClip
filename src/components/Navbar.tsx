@@ -13,7 +13,7 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => (
         <Logo variant="full" size="md" />
       </Link>
 
-      <nav aria-label="Main" className="flex items-center gap-1 sm:gap-2 overflow-x-auto">
+      <nav aria-label="Main" className="flex items-center gap-1 sm:gap-2">
         {ROUTES.map((r) => {
           const active = r.path === current;
           return (
@@ -21,16 +21,13 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => (
               key={r.path}
               to={r.path}
               aria-current={active ? 'page' : undefined}
-              className={`relative whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors ${
                 active
                   ? 'text-accent bg-accent-soft'
                   : 'text-muted hover:text-ink hover:bg-slate-100/80'
               }`}
             >
               {r.label}
-              {active && (
-                <span className="absolute inset-x-3 -bottom-[15px] h-0.5 bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] rounded-full" />
-              )}
             </Link>
           );
         })}
