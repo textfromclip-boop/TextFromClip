@@ -2,7 +2,7 @@ import { VideoProviderAdapter, ProviderCapability } from './base';
 import { TranscriptResult, TranscriptSegment, CloudflareBindings } from '../../types';
 import { unescapeHtml, generateSrt, generateVtt } from '../utils/formatters';
 import { transcribeMediaWithWhisper } from '../utils/whisper-fallback';
-import { extractMediaWithSnapAny, DEFAULT_SNAPANY_KEY } from '../utils/snapany';
+import { extractMediaWithSnapAny, extractYouTubeProxyWithSnapAny, DEFAULT_SNAPANY_KEY } from '../utils/snapany';
 
 export class YouTubeProvider implements VideoProviderAdapter {
   id = 'youtube';
@@ -241,24 +241,85 @@ export class YouTubeProvider implements VideoProviderAdapter {
       }
     }
 
-    // 2. Managed Media Extraction Fallback (SnapAny + Workers AI Whisper)
+    // 2. Managed Media Extraction Fallback (SnapAny)
     // Invoked when YouTube blocks datacenter IPs with LOGIN_REQUIRED or 429
     const snapKey = env.SNAPANY_API_KEY || DEFAULT_SNAPANY_KEY;
-    if (snapKey && (env.AI || env.EXTERNAL_WHISPER_URL)) {
+    if (snapKey) {
       try {
-        const snap = await extractMediaWithSnapAny(url, snapKey, true);
-        if (snap && (snap.audioUrls.length > 0 || snap.videoUrls.length > 0)) {
-          return await transcribeMediaWithWhisper({
-            provider: 'youtube',
-            videoId,
-            videoTitle: snap.title || videoTitle,
-            channelTitle: snap.author,
-            videoThumbnailUrl: snap.cover || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-            language: preferredLanguage,
-            candidateMediaUrls: [...snap.audioUrls, ...snap.videoUrls],
-            mediaHeaders: {},
-            env,
-          });
+        const snap = await extractMediaWithSnapAny(url, snapKey);
+        if (snap) {
+          const resolvedTitle = snap.title || videoTitle;
+          const resolvedThumb = snap.cover || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+          // 2a. First check if SnapAny extracted signed subtitle tracks (ip=0.0.0.0)
+          if (snap.subtitles && snap.subtitles.length > 0) {
+            let subTrack = snap.subtitles.find(
+              (t) =>
+                t.languageTag === preferredLanguage ||
+                t.languageTag.startsWith(preferredLanguage)
+            );
+            if (!subTrack) {
+              subTrack = snap.subtitles.find(
+                (t) => t.languageTag === 'en' || t.languageTag.startsWith('en')
+              );
+            }
+            if (!subTrack) {
+              subTrack = snap.subtitles[0];
+            }
+
+            if (subTrack.json3Url) {
+              const subRes = await fetch(subTrack.json3Url);
+              if (subRes.ok) {
+                const subText = await subRes.text();
+                const segments = this.parseJson3Captions(subText);
+                if (segments && segments.length > 0) {
+                  const lastSeg = segments[segments.length - 1];
+                  const duration =
+                    snap.durationSeconds || Math.ceil(lastSeg.start + lastSeg.duration);
+                  const fullText = segments.map((s) => s.text).join(' ');
+                  return {
+                    id: crypto.randomUUID(),
+                    provider: 'youtube',
+                    videoId,
+                    videoTitle: resolvedTitle,
+                    videoDurationSeconds: duration,
+                    videoThumbnailUrl: resolvedThumb,
+                    channelTitle: snap.author,
+                    sourceType: 'captions',
+                    language: subTrack.languageTag || preferredLanguage,
+                    segments,
+                    fullText,
+                    srt: generateSrt(segments),
+                    vtt: generateVtt(segments),
+                    createdAt: Date.now(),
+                  };
+                }
+              }
+            }
+          }
+
+          // 2b. If video has no subtitles, use proxied audio download + Workers AI Whisper
+          if (env.AI || env.EXTERNAL_WHISPER_URL) {
+            const proxySnap = await extractYouTubeProxyWithSnapAny(url, snapKey);
+            const candidateUrls = proxySnap
+              ? [...proxySnap.audioUrls, ...proxySnap.videoUrls]
+              : [...snap.audioUrls, ...snap.videoUrls];
+
+            if (candidateUrls.length > 0) {
+              return await transcribeMediaWithWhisper({
+                provider: 'youtube',
+                videoId,
+                videoTitle: resolvedTitle,
+                videoDurationSeconds: snap.durationSeconds,
+                channelTitle: snap.author,
+                videoThumbnailUrl: resolvedThumb,
+                language: preferredLanguage,
+                candidateMediaUrls: candidateUrls,
+                mediaHeaders: {},
+                env,
+              });
+            }
+          }
         }
       } catch (snapErr: any) {
         if (snapErr?.message && snapErr.message.includes('SnapAny')) {

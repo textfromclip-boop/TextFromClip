@@ -178,14 +178,23 @@ export class InstagramProvider implements VideoProviderAdapter {
       const snapKey = env.SNAPANY_API_KEY || DEFAULT_SNAPANY_KEY;
       if (snapKey) {
         try {
-          const snap = await extractMediaWithSnapAny(url, snapKey, false);
+          const snap = await extractMediaWithSnapAny(url, snapKey);
           if (snap && (snap.audioUrls.length > 0 || snap.videoUrls.length > 0)) {
+            const authorHandle = snap.authorUsername
+              ? `@${snap.authorUsername}`
+              : snap.author || 'Instagram';
+            const authorPrefix = snap.authorUsername || snap.author || 'Instagram';
+            const resolvedTitle = snap.title
+              ? `${authorPrefix}: ${snap.title}`
+              : `${authorPrefix} — Instagram Reel ${shortcode}`;
+
             return await transcribeMediaWithWhisper({
               provider: 'instagram',
               videoId: shortcode,
-              videoTitle: snap.title || `Instagram Reel ${shortcode}`,
+              videoTitle: resolvedTitle,
+              videoDurationSeconds: snap.durationSeconds,
               videoThumbnailUrl: snap.cover,
-              channelTitle: snap.author ? `@${snap.author}` : 'Instagram',
+              channelTitle: authorHandle,
               language: preferredLanguage,
               candidateMediaUrls: [...snap.audioUrls, ...snap.videoUrls],
               mediaHeaders: { 'User-Agent': HONEST_USER_AGENT },
