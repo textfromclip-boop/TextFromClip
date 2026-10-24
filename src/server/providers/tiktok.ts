@@ -2,6 +2,7 @@ import { VideoProviderAdapter, ProviderCapability } from './base';
 import { TranscriptResult, TranscriptSegment, CloudflareBindings } from '../../types';
 import { unescapeHtml, generateSrt, generateVtt } from '../utils/formatters';
 import { transcribeMediaWithWhisper } from '../utils/whisper-fallback';
+import { extractMediaWithSnapAny, DEFAULT_SNAPANY_KEY } from '../utils/snapany';
 
 const HONEST_USER_AGENT = 'Mozilla/5.0 (compatible; TextFromClip/1.0)';
 
@@ -334,33 +335,92 @@ export class TikTokProvider implements VideoProviderAdapter {
     }
 
     // 2. Fallback path: Cloudflare Workers AI Whisper (@cf/openai/whisper) when native captions are missing
-    const candidateMediaUrls = [
-      itemStruct.video?.playAddr,
-      itemStruct.video?.downloadAddr,
-      itemStruct.music?.original ? itemStruct.music?.playUrl : undefined,
-    ].filter((u): u is string => typeof u === 'string' && u.startsWith('http'));
-
-    if (candidateMediaUrls.length === 0 || (!env.AI && !env.EXTERNAL_WHISPER_URL)) {
+    if (!env.AI && !env.EXTERNAL_WHISPER_URL) {
       throw new Error(
         'No captions or subtitles were found on this TikTok video, and Cloudflare Workers AI (env.AI) is not active in this runtime to transcribe the raw audio track.'
       );
     }
 
-    return transcribeMediaWithWhisper({
-      provider: 'tiktok',
-      videoId,
-      videoTitle,
-      videoDurationSeconds: durationSeconds,
-      videoThumbnailUrl,
-      channelTitle,
-      language: preferredLanguage,
-      candidateMediaUrls,
-      mediaHeaders: {
-        'User-Agent': HONEST_USER_AGENT,
-        Referer: 'https://www.tiktok.com/',
-        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-      },
-      env,
-    });
+    const extractUrlField = (val: any): string | undefined => {
+      if (typeof val === 'string' && val.startsWith('http')) return val;
+      if (val && typeof val === 'object') {
+        if (Array.isArray(val.UrlList) && typeof val.UrlList[0] === 'string') return val.UrlList[0];
+        if (Array.isArray(val.urlList) && typeof val.urlList[0] === 'string') return val.urlList[0];
+      }
+      return undefined;
+    };
+
+    const bitrateUrls: string[] = Array.isArray(itemStruct.video?.bitrateInfo)
+      ? itemStruct.video.bitrateInfo
+          .map((b: any) => extractUrlField(b?.PlayAddr))
+          .filter((u: any): u is string => typeof u === 'string' && u.startsWith('http'))
+      : [];
+
+    const candidateMediaUrls = [
+      extractUrlField(itemStruct.music?.playUrl),
+      extractUrlField(itemStruct.video?.playAddr),
+      extractUrlField(itemStruct.video?.PlayAddrStruct),
+      extractUrlField(itemStruct.video?.downloadAddr),
+      ...bitrateUrls,
+    ].filter((u): u is string => typeof u === 'string' && u.startsWith('http'));
+
+    // 2a. Try direct TikTok media streams with Whisper first (0 credits)
+    let whisperDirectError: Error | null = null;
+    if (candidateMediaUrls.length > 0) {
+      try {
+        return await transcribeMediaWithWhisper({
+          provider: 'tiktok',
+          videoId,
+          videoTitle,
+          videoDurationSeconds: durationSeconds,
+          videoThumbnailUrl,
+          channelTitle,
+          language: preferredLanguage,
+          candidateMediaUrls,
+          mediaHeaders: {
+            'User-Agent': HONEST_USER_AGENT,
+            Referer: 'https://www.tiktok.com/',
+            ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+          },
+          env,
+        });
+      } catch (err: any) {
+        whisperDirectError = err;
+      }
+    }
+
+    // 2b. If TikTok hid the raw stream or blocked direct download, extract via SnapAny + Whisper
+    const snapKey = env.SNAPANY_API_KEY || DEFAULT_SNAPANY_KEY;
+    if (snapKey) {
+      try {
+        const snap = await extractMediaWithSnapAny(url, snapKey);
+        if (snap && (snap.audioUrls.length > 0 || snap.videoUrls.length > 0)) {
+          return await transcribeMediaWithWhisper({
+            provider: 'tiktok',
+            videoId,
+            videoTitle: snap.title || videoTitle,
+            videoDurationSeconds: snap.durationSeconds || durationSeconds,
+            videoThumbnailUrl: snap.cover || videoThumbnailUrl,
+            channelTitle: snap.authorUsername ? `@${snap.authorUsername}` : channelTitle,
+            language: preferredLanguage,
+            candidateMediaUrls: [...snap.audioUrls, ...snap.videoUrls],
+            mediaHeaders: { 'User-Agent': HONEST_USER_AGENT },
+            env,
+          });
+        }
+      } catch (snapErr: any) {
+        if (snapErr?.message && snapErr.message.includes('SnapAny')) {
+          throw snapErr;
+        }
+      }
+    }
+
+    if (whisperDirectError) {
+      throw whisperDirectError;
+    }
+
+    throw new Error(
+      'No captions or downloadable audio stream were found on this TikTok video (it may be a silent slideshow or restricted clip).'
+    );
   }
 }
