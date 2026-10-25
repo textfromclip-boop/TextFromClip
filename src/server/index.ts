@@ -8,7 +8,17 @@ import {
   cleanTranscriptForAi,
   budgetTranscriptForPrompt,
   buildTransformPrompt,
+  buildTranslateMessages,
   postProcessTransformOutput,
+  validateTransformOutput,
+  isValidTransformMode,
+  executeBoundedAiChat,
+  BoundedAiError,
+  sanitizePublicErrorMessage,
+  MAX_TRANSCRIPT_INPUT_CHARS,
+  DEFAULT_PROMPT_BUDGET_CHARS,
+  DEFAULT_TRANSLATE_BUDGET_CHARS,
+  VALID_TRANSFORM_MODES,
 } from './utils/aiTransform';
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
@@ -30,8 +40,8 @@ app.use('/api/*', cors({
   maxAge: 86400,
 }));
 
-// Rate Limiting Middleware
-app.use('/api/transcript', async (c, next) => {
+// Rate Limiting Middleware (protects transcript extraction and AI compute endpoints)
+const rateLimitMiddleware = async (c: any, next: () => Promise<void>) => {
   const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || '127.0.0.1';
   const maxReqs = parseInt(c.env.MAX_REQUESTS_PER_MINUTE || '30', 10);
   
@@ -55,7 +65,11 @@ app.use('/api/transcript', async (c, next) => {
   }
 
   await next();
-});
+};
+
+app.use('/api/transcript', rateLimitMiddleware);
+app.use('/api/transform', rateLimitMiddleware);
+app.use('/api/translate', rateLimitMiddleware);
 
 // Health check endpoint
 app.get('/api/health', (c) => {
@@ -266,99 +280,154 @@ app.post('/api/transcript', async (c) => {
   }
 });
 
-// Helper to run Cloudflare Workers AI text generation across active (non-deprecated) models
-const ACTIVE_TEXT_MODELS = [
-  '@cf/meta/llama-3.1-8b-instruct-fast',
-  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-  '@cf/meta/llama-3.2-3b-instruct',
-];
-
-async function runWorkersAiChat(
-  ai: any,
-  messages: Array<{ role: string; content: string }>,
-  maxTokens = 1024,
-  temperature = 0.2
-): Promise<{ text: string; modelUsed: string }> {
-  let lastError: any = null;
-  for (const model of ACTIVE_TEXT_MODELS) {
-    try {
-      const res = await ai.run(model, {
-        messages,
-        max_tokens: maxTokens,
-        temperature,
-      });
-      const text = (res?.response ?? res?.result?.response ?? '').trim();
-      if (text) return { text, modelUsed: model };
-    } catch (err: any) {
-      lastError = err;
-    }
-  }
-  throw lastError || new Error('Workers AI returned an empty response.');
-}
-
 // AI Transform endpoint (Summary, Viral Script, Blog Post, Thread, Study Notes) — 0 SnapAny credits
 app.post('/api/transform', async (c) => {
+  let body: any;
   try {
-    const body = await c.req.json();
-    const rawText = typeof body?.text === 'string' ? body.text.trim() : '';
-    const rawMode = typeof body?.mode === 'string' ? body.mode : 'summary';
-    const videoTitle = typeof body?.videoTitle === 'string' ? body.videoTitle : 'Video';
+    body = await c.req.json();
+  } catch {
+    return c.json(
+      { success: false, error: { code: 'INVALID_JSON', message: 'Malformed JSON payload in request body.' } },
+      400
+    );
+  }
 
-    if (!rawText) {
-      return c.json(
-        { success: false, error: { code: 'EMPTY_TEXT', message: 'Transcript text is required.' } },
-        400
-      );
-    }
+  const rawText = typeof body?.text === 'string' ? body.text.trim() : '';
+  const rawSegments = Array.isArray(body?.segments) ? body.segments : undefined;
+  const rawMode = body?.mode === undefined ? 'summary' : body.mode;
+  const videoTitle = typeof body?.videoTitle === 'string' ? body.videoTitle.trim().slice(0, 300) : 'Video';
 
-    const { cleanedText, wordCount } = cleanTranscriptForAi(rawText);
-    if (!cleanedText) {
-      return c.json(
-        { success: false, error: { code: 'EMPTY_TEXT', message: 'Transcript contains no spoken words.' } },
-        400
-      );
-    }
+  if (!isValidTransformMode(rawMode)) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'INVALID_MODE',
+          message: `Unsupported transformation mode. Valid modes: ${VALID_TRANSFORM_MODES.join(', ')}.`,
+        },
+      },
+      400
+    );
+  }
 
-    const { text: budgetedText } = budgetTranscriptForPrompt(cleanedText, 14000);
-    const spec = buildTransformPrompt(rawMode, videoTitle, budgetedText, wordCount);
+  if (!rawText && (!rawSegments || rawSegments.length === 0)) {
+    return c.json(
+      { success: false, error: { code: 'EMPTY_TEXT', message: 'Transcript text is required.' } },
+      400
+    );
+  }
 
-    if (c.env.AI) {
-      const { text: rawOutput, modelUsed } = await runWorkersAiChat(
-        c.env.AI,
-        spec.messages,
-        spec.maxTokens,
-        spec.temperature
-      );
+  if (
+    rawText.length > MAX_TRANSCRIPT_INPUT_CHARS ||
+    (rawSegments && rawSegments.length > 10_000)
+  ) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message: `Transcript exceeds the maximum supported size (${MAX_TRANSCRIPT_INPUT_CHARS.toLocaleString()} characters).`,
+        },
+      },
+      413
+    );
+  }
 
-      const processed = postProcessTransformOutput(rawOutput, spec.mode, cleanedText);
-      if (processed) {
-        return c.json({
-          success: true,
-          data: { result: processed, mode: spec.mode, model: modelUsed },
-        });
-      }
-    }
+  const { cleanedText, timelineText, wordCount } = cleanTranscriptForAi(rawText, rawSegments);
+  if (!cleanedText || wordCount === 0) {
+    return c.json(
+      { success: false, error: { code: 'EMPTY_TEXT', message: 'Transcript contains no spoken words.' } },
+      400
+    );
+  }
 
-    // Fallback extractive summary if AI binding is unavailable in local dev
-    const sentences = budgetedText
+  // Use timeline-anchored text when timestamps are relevant (summary, notes); plain cleaned text otherwise
+  const sourceForPrompt =
+    rawMode === 'summary' || rawMode === 'notes' ? timelineText : cleanedText;
+  const budgeted = budgetTranscriptForPrompt(sourceForPrompt, DEFAULT_PROMPT_BUDGET_CHARS);
+  const spec = buildTransformPrompt(
+    rawMode,
+    videoTitle,
+    budgeted.text,
+    wordCount,
+    budgeted.truncated
+  );
+
+  // Local development fallback ONLY when Cloudflare Workers AI binding is absent
+  if (!c.env.AI) {
+    const sentences = budgeted.text
+      .replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]\s*/g, '')
       .split(/(?<=[.?!])\s+/)
       .map((s: string) => s.trim())
-      .filter((s: string) => s.length > 25);
+      .filter((s: string) => s.length > 20);
     const topSentences = sentences.slice(0, 5).map((s: string) => `• ${s}`).join('\n');
+    const localDraft = postProcessTransformOutput(
+      `${videoTitle}\n\nKey Takeaways\n${topSentences || `• ${cleanedText.slice(0, 400)}`}`,
+      spec.mode,
+      cleanedText,
+      { truncated: budgeted.truncated, wordCount }
+    );
     return c.json({
       success: true,
       data: {
-        result: `${videoTitle}\n\nKey Points:\n${topSentences || budgetedText.slice(0, 600)}`,
+        result: localDraft,
         mode: spec.mode,
+        model: 'local_extractive_fallback',
+        truncated: budgeted.truncated,
       },
     });
-  } catch (err: any) {
+  }
+
+  try {
+    const { text: verifiedOutput, modelUsed, attempts } = await executeBoundedAiChat({
+      ai: c.env.AI,
+      messages: spec.messages,
+      maxTokens: spec.maxTokens,
+      temperature: spec.temperature,
+      maxTotalCalls: 3,
+      processAndValidate: (draft) => {
+        const processed = postProcessTransformOutput(draft, spec.mode, cleanedText, {
+          truncated: budgeted.truncated,
+          wordCount,
+        });
+        const validation = validateTransformOutput(processed, spec.mode, wordCount);
+        return { processed, validation };
+      },
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        result: verifiedOutput,
+        mode: spec.mode,
+        model: modelUsed,
+        truncated: budgeted.truncated,
+        attempts,
+      },
+    });
+  } catch (err: unknown) {
+    if (err instanceof BoundedAiError) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: err.classified.code,
+            message: err.classified.publicMessage,
+          },
+        },
+        err.classified.httpStatus
+      );
+    }
+
     return c.json(
       {
         success: false,
         error: {
           code: 'TRANSFORM_FAILED',
-          message: err?.message || 'Could not transform transcript right now.',
+          message: sanitizePublicErrorMessage(
+            (err as any)?.message,
+            'Could not transform transcript right now.'
+          ),
         },
       },
       500
@@ -368,71 +437,129 @@ app.post('/api/transform', async (c) => {
 
 // AI Translate endpoint — 0 SnapAny credits
 app.post('/api/translate', async (c) => {
+  let body: any;
   try {
-    const body = await c.req.json();
-    const rawText = typeof body?.text === 'string' ? body.text.trim() : '';
-    const targetLanguage = typeof body?.targetLanguage === 'string' ? body.targetLanguage.trim() : '';
-
-    if (!rawText || !targetLanguage) {
-      return c.json(
-        {
-          success: false,
-          error: { code: 'INVALID_INPUT', message: 'Transcript text and target language are required.' },
-        },
-        400
-      );
-    }
-
-    const { cleanedText } = cleanTranscriptForAi(rawText);
-    const clipped = (cleanedText || rawText).slice(0, 12000);
-
-    if (!c.env.AI) {
-      return c.json(
-        {
-          success: false,
-          error: {
-            code: 'AI_UNAVAILABLE',
-            message: 'Translation requires Cloudflare Workers AI in production.',
-          },
-        },
-        503
-      );
-    }
-
-    const { text: translated } = await runWorkersAiChat(
-      c.env.AI,
-      [
-        {
-          role: 'system',
-          content: `You are a professional translator. Translate the user's transcript accurately and naturally into ${targetLanguage}. Output ONLY the translated text without any introductory or concluding remarks.`,
-        },
-        {
-          role: 'user',
-          content: clipped,
-        },
-      ],
-      1536,
-      0.15
+    body = await c.req.json();
+  } catch {
+    return c.json(
+      { success: false, error: { code: 'INVALID_JSON', message: 'Malformed JSON payload in request body.' } },
+      400
     );
+  }
 
-    if (!translated) {
-      throw new Error('Empty translation returned.');
-    }
+  const rawText = typeof body?.text === 'string' ? body.text.trim() : '';
+  const targetLanguage = typeof body?.targetLanguage === 'string' ? body.targetLanguage.trim() : '';
+
+  if (!rawText || !targetLanguage) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'INVALID_INPUT', message: 'Transcript text and target language are required.' },
+      },
+      400
+    );
+  }
+
+  if (!/^[\p{L}\s()-]{2,45}$/u.test(targetLanguage)) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'INVALID_LANGUAGE', message: 'Invalid target language specified.' },
+      },
+      400
+    );
+  }
+
+  if (rawText.length > MAX_TRANSCRIPT_INPUT_CHARS) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'PAYLOAD_TOO_LARGE',
+          message: `Transcript exceeds the maximum supported size (${MAX_TRANSCRIPT_INPUT_CHARS.toLocaleString()} characters).`,
+        },
+      },
+      413
+    );
+  }
+
+  const { cleanedText } = cleanTranscriptForAi(rawText);
+  if (!cleanedText) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'EMPTY_TEXT', message: 'Transcript contains no spoken words.' },
+      },
+      400
+    );
+  }
+
+  if (!c.env.AI) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'AI_UNAVAILABLE',
+          message: 'Translation requires Cloudflare Workers AI in production.',
+        },
+      },
+      503
+    );
+  }
+
+  const isTruncated = cleanedText.length > DEFAULT_TRANSLATE_BUDGET_CHARS;
+  let clipped = cleanedText;
+  if (isTruncated) {
+    const cut = cleanedText.slice(0, DEFAULT_TRANSLATE_BUDGET_CHARS);
+    const lastSpace = cut.lastIndexOf(' ');
+    clipped = (lastSpace > DEFAULT_TRANSLATE_BUDGET_CHARS - 80 ? cut.slice(0, lastSpace) : cut).trim();
+  }
+
+  try {
+    const { text: translated, modelUsed } = await executeBoundedAiChat({
+      ai: c.env.AI,
+      messages: buildTranslateMessages(clipped, targetLanguage),
+      maxTokens: 1536,
+      temperature: 0.15,
+      maxTotalCalls: 3,
+    });
+
+    const finalTranslated = isTruncated
+      ? `${translated}\n\n[Note: Transcript exceeded maximum single-pass translation length (${DEFAULT_TRANSLATE_BUDGET_CHARS.toLocaleString()} characters); remaining text was omitted.]`
+      : translated;
 
     return c.json({
       success: true,
       data: {
-        translatedText: translated,
+        translatedText: finalTranslated,
         targetLanguage,
+        model: modelUsed,
+        truncated: isTruncated,
       },
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    if (err instanceof BoundedAiError) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: err.classified.code,
+            message: err.classified.publicMessage,
+          },
+        },
+        err.classified.httpStatus
+      );
+    }
+
     return c.json(
       {
         success: false,
         error: {
           code: 'TRANSLATE_FAILED',
-          message: err?.message || 'Could not translate transcript right now.',
+          message: sanitizePublicErrorMessage(
+            (err as any)?.message,
+            'Could not translate transcript right now.'
+          ),
         },
       },
       500

@@ -1,15 +1,43 @@
-// Pragmatic, zero-extra-cost AI Transform preprocessing, prompt builder, and lightweight post-validation.
+// Domain-general, cost-controlled AI Transform & Translation pipeline:
+// 1. Safe transcript cleaning & timeline formatting (preserves [inaudible] & speaker attribution)
+// 2. Explicit head/middle/conclusion budgeting for long transcripts
+// 3. Closed-book, stance-faithful, proportional prompts
+// 4. Contiguous passage quote verification (guards negation, qualifiers, attribution & invented words)
+// 5. Code-safe & multilingual-safe post-processing + deterministic output validation
+// 6. Bounded model execution with strict error classification (prevents 70B escalation on 4xx/429/quota)
 
-export type TransformMode = 'summary' | 'script' | 'blog' | 'thread' | 'notes';
+import { formatTimestamp } from './formatters';
+
+export const VALID_TRANSFORM_MODES = ['summary', 'script', 'blog', 'thread', 'notes'] as const;
+export type TransformMode = (typeof VALID_TRANSFORM_MODES)[number];
+
+export const MAX_TRANSCRIPT_INPUT_CHARS = 300_000;
+export const DEFAULT_PROMPT_BUDGET_CHARS = 14_000;
+export const DEFAULT_TRANSLATE_BUDGET_CHARS = 12_000;
+
+export const ACTIVE_TEXT_MODELS = [
+  '@cf/meta/llama-3.1-8b-instruct-fast',
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  '@cf/meta/llama-3.2-3b-instruct',
+] as const;
+
+export interface RawSegmentLike {
+  start?: unknown;
+  duration?: unknown;
+  text?: unknown;
+}
 
 export interface CleanedTranscript {
   cleanedText: string;
+  timelineText: string;
   wordCount: number;
+  hasTimestamps: boolean;
 }
 
 export interface BudgetedTranscript {
   text: string;
   truncated: boolean;
+  omittedChars: number;
 }
 
 export interface TransformPromptSpec {
@@ -19,29 +47,118 @@ export interface TransformPromptSpec {
   messages: Array<{ role: 'system' | 'user'; content: string }>;
 }
 
-const CAPTION_NOISE_REGEX =
-  /\[(?:music|applause|laughter|cheering|silence|inaudible|sound[^\]]*|sfx[^\]]*|♪+|\s*)\]/gi;
-const PAREN_NOISE_REGEX = /\((?:music|applause|laughter|cheering|upbeat music[^)]*)\)/gi;
+export interface OutputValidationResult {
+  valid: boolean;
+  reason?: string;
+}
+
+export type AiErrorCategory =
+  | 'invalid_input'
+  | 'rate_or_quota'
+  | 'auth_error'
+  | 'retriable_upstream';
+
+export interface ClassifiedAiError {
+  category: AiErrorCategory;
+  httpStatus: 400 | 422 | 429 | 502 | 503;
+  code: string;
+  publicMessage: string;
+  allowModelFallback: boolean;
+}
+
+// Matches ONLY non-spoken audio/stage caption tags while preserving [inaudible], [unclear],
+// speaker tags like [Speaker 1], timestamps like [01:20], and code/math like arr[0].
+const BRACKET_STAGE_NOISE_REGEX =
+  /\[\s*(?:(?:background|upbeat|soft|loud|dramatic|sad|happy|instrumental|intro|outro)\s+)?(?:music(?:\s+(?:playing|starts|fades|ends|continues|stops))?|applause|laughter|laughs|laughing|chuckles|chuckling|cheering|cheers|sighs|sighing|coughs|coughing|gasps|groans|silence|sound\s*effects?|sfx|crowd\s+(?:cheering|laughing|applauding)|audience\s+(?:laughing|applauding|cheering)|♪+)\s*\]|\[\s*\]/gi;
+
+const PAREN_STAGE_NOISE_REGEX =
+  /\(\s*(?:(?:background|upbeat|soft|loud|dramatic|instrumental)\s+)?(?:music(?:\s+(?:playing|starts|fades|ends))?|applause|laughter|laughs|cheering|sound\s*effects?|sfx)\s*\)/gi;
+
 const MUSIC_GLYPH_REGEX = /[♪♫♬]+/g;
 
-/**
- * Strips non-speech caption artifacts ([Music], [Applause], ♪) and normalizes whitespace
- * so speech-to-text noise does not split phrases mid-sentence.
- */
-export function cleanTranscriptForAi(rawText: string): CleanedTranscript {
-  if (!rawText) {
-    return { cleanedText: '', wordCount: 0 };
-  }
+export function isValidTransformMode(mode: unknown): mode is TransformMode {
+  return typeof mode === 'string' && (VALID_TRANSFORM_MODES as readonly string[]).includes(mode);
+}
 
-  const cleanedText = rawText
-    .replace(CAPTION_NOISE_REGEX, ' ')
-    .replace(PAREN_NOISE_REGEX, ' ')
+function stripNonSpokenNoise(input: string): string {
+  return input
+    .replace(BRACKET_STAGE_NOISE_REGEX, ' ')
+    .replace(PAREN_STAGE_NOISE_REGEX, ' ')
     .replace(MUSIC_GLYPH_REGEX, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
 
-  const wordCount = cleanedText ? cleanedText.split(/\s+/).filter(Boolean).length : 0;
-  return { cleanedText, wordCount };
+/**
+ * Strips non-spoken caption stage artifacts ([Music], [Applause], [Laughter], ♪) while
+ * preserving original word order, speaker labels, and uncertainty markers like [inaudible].
+ * Optionally incorporates valid segment timestamps (~30s intervals) for timeline context.
+ */
+export function cleanTranscriptForAi(
+  rawText: unknown,
+  rawSegments?: unknown
+): CleanedTranscript {
+  const safeRaw = typeof rawText === 'string' ? rawText : '';
+
+  // Safely sanitize optional segments array if provided
+  let timelineParts: string[] = [];
+  let plainFromSegments: string[] = [];
+  let hasTimestamps = false;
+  let lastAnchorSec = -Infinity;
+
+  if (Array.isArray(rawSegments) && rawSegments.length > 0) {
+    for (const item of rawSegments) {
+      if (!item || typeof item !== 'object') continue;
+      const seg = item as RawSegmentLike;
+      if (typeof seg.text !== 'string') continue;
+
+      const cleanedSegText = stripNonSpokenNoise(seg.text);
+      if (!cleanedSegText) continue;
+
+      plainFromSegments.push(cleanedSegText);
+
+      const startNum =
+        typeof seg.start === 'number' && Number.isFinite(seg.start) && seg.start >= 0
+          ? seg.start
+          : null;
+
+      if (startNum !== null && startNum - lastAnchorSec >= 30) {
+        timelineParts.push(`[${formatTimestamp(startNum)}] ${cleanedSegText}`);
+        lastAnchorSec = startNum;
+        hasTimestamps = true;
+      } else {
+        timelineParts.push(cleanedSegText);
+      }
+    }
+  }
+
+  const cleanedFromRaw = stripNonSpokenNoise(safeRaw);
+  const cleanedText = cleanedFromRaw || plainFromSegments.join(' ').replace(/\s+/g, ' ').trim();
+
+  if (!cleanedText) {
+    return { cleanedText: '', timelineText: '', wordCount: 0, hasTimestamps: false };
+  }
+
+  // Only use segment-derived timelineText if its plain content matches the supplied rawText length closely
+  // (ensuring inline user edits in rawText are always respected).
+  const joinedSegPlain = plainFromSegments.join(' ').replace(/\s+/g, ' ').trim();
+  const useTimeline =
+    hasTimestamps &&
+    joinedSegPlain.length > 0 &&
+    Math.abs(joinedSegPlain.length - cleanedText.length) <= 16;
+
+  const timelineText = useTimeline
+    ? timelineParts.join(' ').replace(/\s+/g, ' ').trim()
+    : cleanedText;
+
+  const wordCount = cleanedText.split(/\s+/).filter(Boolean).length;
+
+  return {
+    cleanedText,
+    timelineText,
+    wordCount,
+    hasTimestamps: useTimeline,
+  };
 }
 
 function sliceAtWordBoundary(text: string, start: number, end: number): string {
@@ -51,13 +168,13 @@ function sliceAtWordBoundary(text: string, start: number, end: number): string {
 
   if (safeStart > 0) {
     const firstSpace = chunk.indexOf(' ');
-    if (firstSpace > 0 && firstSpace < 40) {
+    if (firstSpace > 0 && firstSpace < 45) {
       chunk = chunk.slice(firstSpace + 1);
     }
   }
   if (safeEnd < text.length) {
     const lastSpace = chunk.lastIndexOf(' ');
-    if (lastSpace > chunk.length - 40 && lastSpace > 0) {
+    if (lastSpace > chunk.length - 45 && lastSpace > 0) {
       chunk = chunk.slice(0, lastSpace);
     }
   }
@@ -65,19 +182,19 @@ function sliceAtWordBoundary(text: string, start: number, end: number): string {
 }
 
 /**
- * Preserves head (40%), middle (30%), and conclusion (30%) when a transcript exceeds maxChars,
- * avoiding naive .slice(0, 14000) truncation that drops video conclusions on long lectures.
+ * Retains beginning (40%), middle (30%), and conclusion (30%) when a transcript exceeds maxChars,
+ * marking omitted spans explicitly so downstream logic never mistakes excerpts for a full transcript.
  */
 export function budgetTranscriptForPrompt(
   cleanedText: string,
-  maxChars = 14000
+  maxChars = DEFAULT_PROMPT_BUDGET_CHARS
 ): BudgetedTranscript {
-  if (cleanedText.length <= maxChars) {
-    return { text: cleanedText, truncated: false };
+  if (!cleanedText || cleanedText.length <= maxChars) {
+    return { text: cleanedText || '', truncated: false, omittedChars: 0 };
   }
 
-  const separator = '\n[...]\n';
-  const usable = maxChars - separator.length * 2;
+  const separator = '\n[... OMITTED TRANSCRIPT SECTION ...]\n';
+  const usable = Math.max(120, maxChars - separator.length * 2);
   const headLen = Math.floor(usable * 0.4);
   const midLen = Math.floor(usable * 0.3);
   const tailLen = usable - headLen - midLen;
@@ -88,33 +205,36 @@ export function budgetTranscriptForPrompt(
   const mid = sliceAtWordBoundary(cleanedText, midStart, midStart + midLen);
   const tail = sliceAtWordBoundary(cleanedText, cleanedText.length - tailLen, cleanedText.length);
 
+  const combined = `${head}${separator}${mid}${separator}${tail}`;
+  const includedLen = head.length + mid.length + tail.length;
+
   return {
-    text: `${head}${separator}${mid}${separator}${tail}`,
+    text: combined,
     truncated: true,
+    omittedChars: Math.max(0, cleanedText.length - includedLen),
   };
 }
 
-const SHARED_SYSTEM_PROMPT = `You are a precise editorial analyst working strictly from a video transcript.
+const SHARED_SYSTEM_PROMPT = `You are a careful editorial analyst working strictly from a supplied video transcript.
 
-STRICT GROUNDING & FIDELITY RULES:
-1. CLOSED-BOOK SOURCE: Base every claim, concept, reason, and takeaway ONLY on what is explicitly stated in the Transcript.
-2. TITLE USAGE: Use the Video Title only to spell proper nouns (such as speaker or subject names). Do NOT import outside biography, textbook definitions, or external facts that are absent from the Transcript. If the Transcript mentions a claim without explaining it (e.g., "says altruism is evil, but we'll get back to that"), report only what was stated—never invent the unstated explanation.
-3. STANCE FIDELITY: Preserve the speaker's actual argument accurately, including controversial claims, using clear attribution ("According to the video...", "Rand argues..."). Never soften, sanitize, or contradict the speaker's thesis (for example, if the speaker advocates selfishness, NEVER rewrite it as "not a selfish act").
-4. ASR TYPO REPAIR: Silently fix obvious speech-to-text split-word typos (e.g., "self nness" -> "selfishness") using immediate sentence context without altering meaning.
-5. PLAIN TEXT ONLY: Output clean plain text. Do NOT use Markdown bold or heading symbols (no **, __, or ###). Do NOT include introductory or closing meta-commentary.`;
+STRICT GROUNDING & STANCE RULES:
+1. SOURCE BOUNDARY: Use ONLY claims, definitions, examples, numbers, and conclusions explicitly stated in the Transcript. Use the Video Title only for proper-noun spelling—never import outside biography, textbook definitions, historical facts, or external context. If a concept is mentioned without explanation, report only what was said and do NOT speculate or add "implying that..." interpretations.
+2. NEUTRAL STANCE FIDELITY: Represent the speaker's actual position faithfully—including controversial, unconventional, or strong claims—without softening, reversing, exaggerating, or endorsing them. Clearly distinguish the speaker's claims ("The speaker argues...", "According to the video...") from established facts and avoid editorializing.
+3. UNCERTAINTY & ASR ARTIFACTS: Preserve uncertainty when the transcript is ambiguous, marked [inaudible]/[unclear], or potentially mistranscribed. Never invent facts to fill gaps.
+4. QUOTATION INTEGRITY: Never invent quotations, never attribute paraphrases as direct quotes, and never claim a quotation has been independently verified beyond the transcript.
+5. PROPORTIONAL PLAIN TEXT: Match output length to the source's word count and information density—never pad short transcripts with filler. Output clean plain text without Markdown **bold** or ### heading markers (preserve code syntax unchanged if the transcript discusses code).`;
 
 export function buildTransformPrompt(
   rawMode: string,
   videoTitle: string,
   transcriptText: string,
-  wordCount: number
+  wordCount: number,
+  isTruncated = false
 ): TransformPromptSpec {
-  const validModes: TransformMode[] = ['summary', 'script', 'blog', 'thread', 'notes'];
-  const mode: TransformMode = validModes.includes(rawMode as TransformMode)
-    ? (rawMode as TransformMode)
-    : 'summary';
+  const mode: TransformMode = isValidTransformMode(rawMode) ? rawMode : 'summary';
 
-  const isShort = wordCount < 260;
+  const isVeryShort = wordCount < 90;
+  const isShort = wordCount >= 90 && wordCount < 260;
   const isLong = wordCount >= 900;
 
   let temperature = 0.15;
@@ -124,104 +244,121 @@ export function buildTransformPrompt(
   switch (mode) {
     case 'summary': {
       temperature = 0.15;
-      maxTokens = isShort ? 450 : 750;
-      const bulletRange = isShort ? '4 to 5' : isLong ? '6 to 8' : '5 to 6';
-      taskInstruction = `Produce a faithful, zero-repetition summary scaled to this ${wordCount}-word transcript using these exact plain-text headings:
+      maxTokens = isVeryShort ? 300 : isShort ? 480 : 780;
+      const overviewLen = isVeryShort ? '1 concise sentence' : '2 concise sentences';
+      const bulletRange = isVeryShort
+        ? '2 to 3'
+        : isShort
+          ? '3 to 5'
+          : isLong
+            ? '5 to 7'
+            : '4 to 6';
+
+      taskInstruction = `Produce a faithful, non-repetitive summary scaled to this ${wordCount}-word transcript using these exact plain-text headings:
 
 Executive Summary
-Write 2 crisp sentences stating what the subject is and why the speaker says we need it.
+Write ${overviewLen} stating the central subject and principal claim attributed to the speaker.
 
 Key Takeaways
 Provide ${bulletRange} bullet points starting with "• <Short Label>: ".
-Cover EVERY distinct claim, tension, or step in the transcript in sequence—do not skip why an idea is controversial, core conditions or rules, how key terms are defined vs. misunderstood, or the stated outcome. Keep cause-and-effect relationships strictly faithful to the speaker's logic, and do not repeat the Executive Summary.
+Capture the principal argument, key supporting points, important qualifications, and any stated controversies or conditions in logical order. Preserve timestamps or speaker names when present and helpful. Every bullet must add distinct substance not already stated in the Executive Summary.
 
 Bottom Line
-Write 1 sharp closing sentence capturing the transcript's final takeaway or closing question without repeating the phrasing of the Executive Summary.`;
+Write 1 concise sentence stating the speaker's final conclusion or closing question without repeating the wording of the Executive Summary.`;
       break;
     }
 
     case 'script': {
-      temperature = 0.35;
-      maxTokens = 600;
-      taskInstruction = `Rewrite this transcript into a punchy, high-retention spoken voiceover script (35–50 seconds, ~115–145 words) for TikTok, Reels, or YouTube Shorts.
+      temperature = 0.3;
+      maxTokens = isVeryShort ? 320 : 600;
+      const wordTarget = isVeryShort
+        ? '45 to 75 spoken words'
+        : isShort
+          ? '95 to 135 spoken words'
+          : '130 to 165 spoken words';
+
+      taskInstruction = `Rewrite this transcript into a natural spoken narration script (${wordTarget}) grounded strictly in the source.
 
 STRICT SCRIPT RULES:
-- Write 100% spoken teleprompter sentences meant to be read aloud word-for-word by a creator.
-- Speak directly to the viewer ("you") in vivid, conversational rhythm—NEVER use dry book-report phrasing like "Her philosophy also states that" or "According to the transcript".
-- Keep every factual claim faithful to the transcript (for example, do not confuse which concept the speaker calls "evil" vs. moral).
-- NO bullet points, NO stage or camera directions like "(Cut to...)" or "(Music plays)", NO speaker labels like "Narrator:", and NO placeholders like "(insert link)".
-- BANNED CLICHÉS: Never use "Meet [Name]", "dared to challenge the status quo", "not for the faint of heart", "on your own terms", "in today's world", or "join the conversation".
-- Open HOOK with the boldest claim, tension, or question directly from the transcript so viewers stop scrolling in the first 2 seconds.
-- End CTA with a sharp debate question rooted in the transcript's closing line.
+- Write 100% spoken narration sentences—NO bullet points, NO stage/camera directions like "(Cut to...)" or "(Music plays)", NO speaker labels like "Narrator:", and NO placeholders like "(insert link)".
+- Open HOOK with a compelling, source-faithful claim, tension, or question drawn directly from the transcript (avoid generic clichés like "Meet [Name]", "dared to challenge the status quo", "not for the faint of heart", or "in today's world").
+- Preserve the speaker's central argument, important qualifications, and conclusion accurately without reversing which ideas the speaker defends vs. criticizes.
+- Do not promise a video duration unsupported by the script's actual word count.
 
 Use these exact plain-text section headers:
-HOOK (0-3s)
+HOOK
 <1 to 2 spoken sentences>
 
-BODY (3-42s)
-<2 to 3 short spoken paragraphs—sentences only, zero bullets>
+BODY
+<1 to 3 short spoken paragraphs—sentences only, zero bullets>
 
-CTA (42-50s)
-<1 to 2 spoken sentences ending with a viewer question>`;
+CTA
+<1 to 2 spoken sentences ending with a viewer question grounded in the transcript>`;
       break;
     }
 
     case 'blog': {
       temperature = 0.25;
-      maxTokens = isShort ? 550 : 950;
-      const lengthGuide = isShort
-        ? '190 to 250 words total (tight editorial brief—do NOT pad or inflate beyond the source material)'
-        : isLong
-          ? '450 to 650 words total'
-          : '280 to 420 words total';
+      maxTokens = isVeryShort ? 320 : isShort ? 550 : 950;
+      const lengthGuide = isVeryShort
+        ? '80 to 130 words total (brief note—do not inflate beyond the source)'
+        : isShort
+          ? '175 to 245 words total (tight brief—do not pad with filler)'
+          : isLong
+            ? '450 to 650 words total'
+            : '280 to 420 words total';
 
-      taskInstruction = `Turn this transcript into a sharp, faithful article (${lengthGuide}).
+      taskInstruction = `Turn this transcript into a clear, well-structured article (${lengthGuide}).
 
 STRICT ARTICLE RULES:
-- Every sentence must convey concrete substance from the transcript. Never pad short transcripts with repetitive adjectives.
-- If your opening raises a question (such as why the topic is controversial), answer it immediately using the exact reasons stated in the transcript.
-- Attribute controversial claims accurately to the speaker ("Rand argues...", "Objectivism holds...")—never soften, apologize for, or contradict the speaker's actual thesis.
-- Cover every core concept in the transcript (including non-contradiction, how key terms are defined, and the final conclusion).
-- BANNED FILLER: Never write "this concept is crucial", "sets the stage", "from all walks of life", "meaningful and fulfilling", "fulfilling and meaningful", "live authentically", or "on one's own terms".
-- Structure: Line 1 is a specific Headline, followed by a brief Introduction, 2 to 3 clear Subheadings, and a concise Conclusion grounded in the transcript's closing line.`;
+- Match article length to the transcript's actual information density—avoid generic essay introductions, filler transitions, repeated arguments, and unsupported background facts.
+- Attribute claims and controversial positions accurately to the speaker ("The speaker argues...", "According to the video...") while preserving all important qualifications.
+- If the introduction raises a question or tension, answer it directly using the reasons stated in the transcript.
+- Structure: Line 1 is a specific Headline, followed by a concise Introduction, ${isVeryShort ? '1 to 2' : '2 to 3'} Subheadings, and a short Conclusion reflecting the speaker's closing point.`;
       break;
     }
 
     case 'thread': {
-      temperature = 0.3;
-      maxTokens = 650;
-      const postCount = isShort ? 5 : 6;
-      taskInstruction = `Turn this transcript into a sharp ${postCount}-post X / LinkedIn thread.
+      temperature = 0.25;
+      maxTokens = isVeryShort ? 380 : 650;
+      const postCount = isVeryShort ? 3 : isShort ? 5 : 6;
+      taskInstruction = `Turn this transcript into a ${postCount}-post social thread.
 - Number each post (1/${postCount}, 2/${postCount}, etc.).
-- Post 1/${postCount} must open with the boldest claim or tension in the transcript (no "Thread 🧵" or "Meet [Name]" clichés).
-- Posts 2 through ${postCount - 1} must each unpack one distinct principle from the transcript without outside padding.
-- Post ${postCount}/${postCount} must close with the transcript's final takeaway or question.`;
+- Post 1/${postCount} must open with a source-faithful hook drawn from the transcript's central claim.
+- Middle posts must unpack distinct supporting points and qualifications attributed accurately to the speaker without external filler.
+- Post ${postCount}/${postCount} must end with the speaker's conclusion or closing question.`;
       break;
     }
 
     case 'notes': {
       temperature = 0.1;
-      maxTokens = isShort ? 600 : 850;
-      const quoteCount = isShort ? '3 to 4' : '4 to 5';
-      taskInstruction = `Create high-precision Study Notes strictly from the transcript using these exact plain-text headings:
+      maxTokens = isVeryShort ? 420 : isShort ? 620 : 880;
+      const quoteRange = isVeryShort ? '1 to 2' : isShort ? '2 to 4' : '3 to 5';
+      const qaCount = isVeryShort ? '2' : '3';
+
+      taskInstruction = `Create faithful Study Notes strictly from the transcript using these exact plain-text headings:
 
 Core Topic
-1 concise sentence stating the topic, author/speaker (if named), and purpose described in the transcript.
+1 concise sentence attributing the central topic and purpose to the speaker/video.
 
 Key Concepts & Definitions
-• <Concept>: <Exact definition, premise, or role stated in the transcript. Include why the topic is controversial, foundational premises, non-contradiction, ethical definitions, and stated outcomes. Do NOT add outside explanations.>
+• <Concept>: <Concise attributed definition, premise, or qualification stated in the transcript. Keep these paraphrased notes strictly grounded in the source—do NOT invent unstated definitions, editorial speculations, or unsupported action items.>
 
-Verbatim Quotes
-• "<Exact word-for-word sentence or clause from the transcript—keep the exact words unchanged, only fixing obvious speech-to-text typos and standardizing capitalization/punctuation>"
-(Include ${quoteCount} quotes. NEVER paraphrase or swap words inside quotation marks.)
+Exact Quotations
+• "<Exact contiguous passage copied word-for-word from the transcript>"
+(Include ${quoteRange} quotations ONLY if exact wording is clear in the transcript. Keep exact quotations strictly separate from paraphrases. Do NOT alter words, drop negations/qualifiers, or silently rewrite mistranscribed words inside quotation marks.)
 
-Self-Test Questions
-• Q: <Specific comprehension question testing a key argument or distinction in the transcript>
+Comprehension Questions
+• Q: <Specific question testing a core claim, condition, or distinction in the transcript>
   A: <Concise 1-sentence answer grounded strictly in the transcript>
-(Include 3 Q&A pairs.)`;
+(Include ${qaCount} Q&A pairs.)`;
       break;
     }
   }
+
+  const truncationNotice = isTruncated
+    ? `\nSOURCE LIMITATION: This ${wordCount}-word transcript exceeded the single-pass context budget and contains sampled excerpts from the beginning, middle, and conclusion separated by "[... OMITTED TRANSCRIPT SECTION ...]". Base your output strictly on the provided excerpts and do NOT claim complete coverage of omitted middle sections.\n`
+    : '';
 
   return {
     mode,
@@ -231,82 +368,248 @@ Self-Test Questions
       { role: 'system', content: SHARED_SYSTEM_PROMPT },
       {
         role: 'user',
-        content: `Video Title (for proper-noun spelling only): ${videoTitle || 'Untitled Video'}\nTranscript Word Count: ${wordCount} words\n\nTask:\n${taskInstruction}\n\nTranscript:\n${transcriptText}`,
+        content: `Video Title (proper-noun spelling reference only): ${videoTitle || 'Untitled Video'}\nTranscript Word Count: ${wordCount} words${truncationNotice}\n\nTask:\n${taskInstruction}\n\nTranscript:\n${transcriptText}`,
       },
     ],
   };
 }
 
-function normalizeTokens(text: string): string[] {
-  return text
+export function buildTranslateMessages(
+  transcriptText: string,
+  targetLanguage: string
+): Array<{ role: 'system' | 'user'; content: string }> {
+  return [
+    {
+      role: 'system',
+      content: `You are an accurate translator. Translate the supplied transcript faithfully into ${targetLanguage}. Preserve the speaker's exact meaning, stance, negations, qualifiers, speaker labels, and uncertainty markers (such as [inaudible]) without softening, summarizing, or adding commentary. Output ONLY the translated text.`,
+    },
+    {
+      role: 'user',
+      content: transcriptText,
+    },
+  ];
+}
+
+// Negation and attribution/counterfactual tokens that must NOT be silently clipped immediately before a quote
+const NEGATION_AND_COUNTERFACTUAL_GUARDS = new Set([
+  'not',
+  'never',
+  'no',
+  'neither',
+  'nor',
+  'without',
+  'nobody',
+  'nothing',
+  'nowhere',
+  'hardly',
+  'barely',
+  'scarcely',
+  'doesnt',
+  'dont',
+  'didnt',
+  'cant',
+  'cannot',
+  'wont',
+  'wouldnt',
+  'shouldnt',
+  'couldnt',
+  'isnt',
+  'arent',
+  'wasnt',
+  'werent',
+  'hasnt',
+  'havent',
+  'hadnt',
+  'mustnt',
+  'false',
+  'falsely',
+  'wrong',
+  'wrongly',
+  'untrue',
+  'myth',
+  'misinterpreted',
+  'misunderstanding',
+  'unlikely',
+  'impossible',
+  'deny',
+  'denies',
+  'denied',
+  'reject',
+  'rejects',
+  'rejected',
+]);
+
+const IMMEDIATE_QUALIFIER_GUARDS = new Set([
+  'if',
+  'unless',
+  'whether',
+  'suppose',
+  'assuming',
+  'allegedly',
+  'supposedly',
+  'claim',
+  'claims',
+  'claimed',
+  'allege',
+  'alleges',
+  'alleged',
+  'rumor',
+]);
+
+interface NormalizedTokenStream {
+  tokens: string[];
+  hasSentenceBreakBefore: boolean[];
+}
+
+function tokenizeForContiguousMatch(input: string): NormalizedTokenStream {
+  // Strip timestamp markers like [01:23] or [01:02:03] before tokenizing
+  const withoutTimestamps = input.replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]/g, ' ');
+  // Normalize intra-letter/number apostrophes (e.g., can't / can’t -> cant) so contractions stay distinct from non-negated forms
+  const unifiedApostrophes = withoutTimestamps
     .toLowerCase()
-    .replace(/['’]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean);
+    .replace(/([\p{L}\p{N}])['’ʼ]([\p{L}\p{N}])/gu, '$1$2');
+
+  // Split into raw chunks keeping sentence-ending punctuation awareness
+  const chunks = unifiedApostrophes.split(/\s+/).filter(Boolean);
+  const tokens: string[] = [];
+  const hasSentenceBreakBefore: boolean[] = [];
+  let boundaryPending = true;
+
+  for (const chunk of chunks) {
+    const startsAfterBreak = boundaryPending;
+    const endsSentence = /[.?!;]["”')\]}]*$/.test(chunk);
+    const subTokens = chunk.match(/[\p{L}\p{N}]+/gu);
+
+    if (subTokens && subTokens.length > 0) {
+      for (let i = 0; i < subTokens.length; i++) {
+        tokens.push(subTokens[i]);
+        hasSentenceBreakBefore.push(i === 0 ? startsAfterBreak : false);
+      }
+      boundaryPending = endsSentence;
+    } else if (endsSentence) {
+      boundaryPending = true;
+    }
+  }
+
+  return { tokens, hasSentenceBreakBefore };
 }
 
 /**
- * Checks whether a candidate quote in Study Notes is genuinely grounded in the source transcript
- * (guards against fabricated quotes while tolerating minor ASR typo fixes like "self nness" -> "selfishness").
+ * Verifies that a quotation matches an exact contiguous passage in the source transcript
+ * after safe whitespace/punctuation/case normalization, while guarding against clipped
+ * leading negations, counterfactuals, or critic-attribution qualifiers.
  */
-export function isQuoteGroundedInTranscript(quote: string, cleanedTranscript: string): boolean {
-  const quoteTokens = normalizeTokens(quote);
-  if (quoteTokens.length === 0) return false;
+export function verifyQuoteAgainstTranscript(quote: string, sourceTranscript: string): boolean {
+  if (!quote || !sourceTranscript) return false;
 
-  const transcriptTokens = normalizeTokens(cleanedTranscript);
-  const transcriptNormalized = transcriptTokens.join(' ');
-  const transcriptTokenSet = new Set(transcriptTokens);
+  const qStream = tokenizeForContiguousMatch(quote);
+  const qTokens = qStream.tokens;
+  if (qTokens.length < 3) return false;
 
-  const matched = quoteTokens.filter((t) => transcriptTokenSet.has(t)).length;
-  const tokenOverlap = matched / quoteTokens.length;
+  const tStream = tokenizeForContiguousMatch(sourceTranscript);
+  const tTokens = tStream.tokens;
+  if (qTokens.length > tTokens.length) return false;
 
-  if (quoteTokens.length >= 5) {
-    let hasContiguousSpan = false;
-    for (let i = 0; i <= quoteTokens.length - 4; i++) {
-      const span = quoteTokens.slice(i, i + 4).join(' ');
-      if (transcriptNormalized.includes(span)) {
-        hasContiguousSpan = true;
+  const limit = tTokens.length - qTokens.length;
+
+  for (let idx = 0; idx <= limit; idx++) {
+    let allMatch = true;
+    for (let j = 0; j < qTokens.length; j++) {
+      if (tTokens[idx + j] !== qTokens[j]) {
+        allMatch = false;
         break;
       }
     }
-    return tokenOverlap >= 0.8 && hasContiguousSpan;
+    if (!allMatch) continue;
+
+    // Check preceding tokens within the same clause/sentence so we never pass a quote
+    // that clipped off an immediately governing negation ("doesn't mean [exploit others...]")
+    // or conditional/attribution qualifier ("critics claim [...]").
+    let blockedByLeadingGuard = false;
+    if (idx > 0 && !tStream.hasSentenceBreakBefore[idx]) {
+      for (let back = 1; back <= 3 && idx - back >= 0; back++) {
+        const prevIdx = idx - back;
+        const prevToken = tTokens[prevIdx];
+
+        if (NEGATION_AND_COUNTERFACTUAL_GUARDS.has(prevToken)) {
+          blockedByLeadingGuard = true;
+          break;
+        }
+        if (back <= 2 && IMMEDIATE_QUALIFIER_GUARDS.has(prevToken)) {
+          blockedByLeadingGuard = true;
+          break;
+        }
+        if (tStream.hasSentenceBreakBefore[prevIdx]) {
+          break;
+        }
+      }
+    }
+
+    if (!blockedByLeadingGuard) {
+      return true;
+    }
   }
 
-  return tokenOverlap >= 0.8;
+  return false;
+}
+
+// Keep alias exported so existing callers/imports remain compatible
+export const isQuoteGroundedInTranscript = verifyQuoteAgainstTranscript;
+
+const STAGE_DIRECTION_LINE_REGEX =
+  /^\([^)\n]*(?:\b(?:cut to|camera|shot|fade in|fade out|music|sfx|sound|on screen|split-screen|b-roll|graphic|graphics|illustration|illustrations|visual|insert link|hashtag|closing shot|opening shot)\b)[^)\n]*\)$/i;
+
+function cleanNonCodeSegment(segment: string, isFirstSegment: boolean): string {
+  let out = segment;
+  if (isFirstSegment) {
+    // Only strip chatty preambles that end with a colon on line 1 (protects headlines like "Here Is Why...")
+    out = out.replace(/^(?:here is|sure[,!]?\s+here is|below is)\s+(?:the|a|an|your)\b[^\n]*:\s*\n+/i, '');
+  }
+  // Strip Markdown **bold** only when wrapping non-space boundaries on a single line (preserves Python `2 ** 3 ** 4`)
+  out = out.replace(/\*\*([^\s*](?:[^\n*]*?[^\s*])?)\*\*/g, '$1');
+  // Strip Markdown ATX headings when followed by Unicode letters/digits
+  out = out.replace(/^#{1,4}\s+(?=[\p{L}\p{N}])/gmu, '');
+  return out;
 }
 
 /**
- * Lightweight, <1ms deterministic post-processor to strip Markdown artifacts,
- * remove accidental screenplay stage directions in scripts, and filter ungrounded quotes in notes.
+ * Deterministic post-processor that preserves code blocks and multilingual scripts,
+ * cleans screenplay stage cues in script mode, verifies exact quotations in notes mode,
+ * and appends an explicit excerpt disclosure when the source transcript was truncated.
  */
 export function postProcessTransformOutput(
   rawOutput: string,
   mode: TransformMode,
-  cleanedTranscript: string
+  cleanedTranscript: string,
+  options?: { truncated?: boolean; wordCount?: number }
 ): string {
-  if (!rawOutput) return '';
+  if (!rawOutput || typeof rawOutput !== 'string') return '';
 
-  let text = rawOutput
-    .replace(/^(?:here is|sure,? here is|below is)[^\n]*\n+/i, '')
-    .replace(/\*\*([^*]+)\*\*/g, '$1')
-    .replace(/^#{1,4}\s+/gm, '')
+  // Preserve fenced code blocks untouched while cleaning prose segments
+  const parts = rawOutput.split(/(```[\s\S]*?```)/g);
+  let text = parts
+    .map((part, idx) =>
+      part.startsWith('```') && part.endsWith('```')
+        ? part
+        : cleanNonCodeSegment(part, idx === 0)
+    )
+    .join('')
     .trim();
 
   if (mode === 'script') {
     const cleanedLines = text
       .split('\n')
       .map((line) => {
-        const hadSpeakerLabel = /^(?:Narrator|Speaker|Host|Voiceover)\s*:/i.test(line.trim());
-        let next = line.trim().replace(/^(?:Narrator|Speaker|Host|Voiceover)\s*:\s*/i, '');
+        if (line.trim().startsWith('```')) return line;
+        const trimmed = line.trim();
+        const hadSpeakerLabel = /^(?:Narrator|Speaker|Host|Voiceover)\s*:/i.test(trimmed);
+        let next = trimmed.replace(/^(?:Narrator|Speaker|Host|Voiceover)\s*:\s*/i, '');
         if (hadSpeakerLabel) {
           next = next.replace(/^["“](.+)["”]$/, '$1');
         }
         return next;
       })
-      // Drop standalone parenthetical stage directions like "(Upbeat music...)" or "(Cut to...)"
-      .filter((line) => !/^\([^)]*\)$/.test(line))
-      // Convert accidental bullet lines in voiceover body into plain spoken lines
+      .filter((line) => !STAGE_DIRECTION_LINE_REGEX.test(line.trim()))
       .map((line) => line.replace(/^[•*-]\s+/, ''));
 
     text = cleanedLines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
@@ -315,38 +618,389 @@ export function postProcessTransformOutput(
   if (mode === 'notes' && cleanedTranscript) {
     const lines = text.split('\n');
     let inQuotesSection = false;
+    let quotesSectionHeaderSeen = false;
+    let verifiedQuotesCount = 0;
+    let quotesInsertIndex = -1;
     const filtered: string[] = [];
 
     for (const line of lines) {
       const trimmed = line.trim();
-      if (/^Verbatim Quotes$/i.test(trimmed)) {
+      if (/^(?:Exact Quotations|Verbatim Quotes)\s*:?\s*$/i.test(trimmed)) {
         inQuotesSection = true;
-        filtered.push(line);
+        quotesSectionHeaderSeen = true;
+        filtered.push('Exact Quotations');
+        quotesInsertIndex = filtered.length;
         continue;
       }
+
       if (
         inQuotesSection &&
         trimmed.length > 0 &&
         !/^[•*-]/.test(trimmed) &&
-        !/^["“]/.test(trimmed)
+        !/^["“]/.test(trimmed) &&
+        !/^\(Include\b/i.test(trimmed)
       ) {
         inQuotesSection = false;
       }
 
       if (inQuotesSection) {
-        const quoteMatch = trimmed.match(/^[•*-]?\s*["“](.+?)["”]\s*$/);
-        if (quoteMatch) {
-          const candidate = quoteMatch[1];
-          if (!isQuoteGroundedInTranscript(candidate, cleanedTranscript)) {
-            continue; // Drop hallucinated or heavily paraphrased quote
-          }
+        if (!trimmed) {
+          filtered.push(line);
+          continue;
         }
+        const quoteMatch = trimmed.match(
+          /^[•*-]?\s*["“]([^"”]+)["”](?:\s*(\[\d{1,2}:\d{2}(?::\d{2})?\]))?\s*$/
+        );
+        if (quoteMatch) {
+          const candidate = quoteMatch[1].trim();
+          const tsSuffix = quoteMatch[2] ? ` ${quoteMatch[2]}` : '';
+          if (verifyQuoteAgainstTranscript(candidate, cleanedTranscript)) {
+            filtered.push(`• "${candidate}"${tsSuffix}`);
+            verifiedQuotesCount++;
+          }
+          // Omit unverified or altered quotations rather than presenting paraphrases as exact quotes
+          continue;
+        }
+        // Drop stray non-quoted instruction echoes or unverified bullets inside Exact Quotations
+        continue;
       }
+
       filtered.push(line);
+    }
+
+    if (quotesSectionHeaderSeen && verifiedQuotesCount === 0 && quotesInsertIndex >= 0) {
+      filtered.splice(
+        quotesInsertIndex,
+        0,
+        '• None verified word-for-word from transcript (see paraphrased Key Concepts above).'
+      );
     }
 
     text = filtered.join('\n').replace(/\n{3,}/g, '\n\n').trim();
   }
 
+  if (options?.truncated && text.length > 0) {
+    const countLabel = options.wordCount ? `${options.wordCount.toLocaleString()}-word ` : '';
+    const disclosure = `[Note: Generated from beginning, middle, and conclusion excerpts of a long ${countLabel}transcript.]`;
+    if (!text.includes('Generated from beginning, middle, and conclusion excerpts')) {
+      text = `${text}\n\n${disclosure}`;
+    }
+  }
+
   return text;
+}
+
+/**
+ * Deterministic usability & structure check to prevent returning empty, refusal-only,
+ * or structurally broken responses as apparent successes.
+ */
+export function validateTransformOutput(
+  output: string,
+  mode: TransformMode,
+  sourceWordCount = 100
+): OutputValidationResult {
+  const trimmed = (output || '').trim();
+  if (!trimmed) {
+    return { valid: false, reason: 'Empty model output.' };
+  }
+
+  // Strip truncation disclosure footer before measuring content length
+  const contentOnly = trimmed
+    .replace(/\[Note: Generated from beginning, middle, and conclusion excerpts[^\]]*\]/g, '')
+    .trim();
+
+  const minChars = sourceWordCount < 20 ? 15 : 35;
+  const words = contentOnly.split(/\s+/).filter(Boolean);
+  const minWords = sourceWordCount < 20 ? 3 : 7;
+
+  if (contentOnly.length < minChars || words.length < minWords) {
+    return { valid: false, reason: 'Model output is too short to be usable.' };
+  }
+
+  if (/^(?:i cannot fulfill|i am sorry,? i cannot|as an ai language model)/i.test(contentOnly)) {
+    return { valid: false, reason: 'Model returned a refusal instead of a transformation.' };
+  }
+
+  const nonEmptyLines = contentOnly
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  switch (mode) {
+    case 'summary':
+      if (nonEmptyLines.length < 3 || !/[•*-]\s+\S/.test(contentOnly)) {
+        return { valid: false, reason: 'Summary is missing structured bullet takeaways.' };
+      }
+      break;
+    case 'script':
+      if (nonEmptyLines.length < 2) {
+        return { valid: false, reason: 'Script output lacks spoken body lines.' };
+      }
+      break;
+    case 'blog':
+      if (nonEmptyLines.length < 2) {
+        return { valid: false, reason: 'Article output lacks body paragraphs.' };
+      }
+      break;
+    case 'thread':
+      if (!/\b1\s*\/\s*\d+/.test(contentOnly) && nonEmptyLines.length < 2) {
+        return { valid: false, reason: 'Thread output lacks numbered posts.' };
+      }
+      break;
+    case 'notes':
+      if (!/[•*-]\s+\S/.test(contentOnly) || !/(?:\bQ\s*:|[?؟？])/.test(contentOnly)) {
+        return { valid: false, reason: 'Study notes output is missing concepts or comprehension questions.' };
+      }
+      break;
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Redacts potential secrets, tokens, or internal URLs from error strings.
+ */
+export function sanitizePublicErrorMessage(rawMessage: unknown, fallback: string): string {
+  if (typeof rawMessage !== 'string' || !rawMessage.trim()) return fallback;
+  const redacted = rawMessage
+    .replace(/\b(?:sk_[a-zA-Z0-9_-]+|Bearer\s+[a-zA-Z0-9._-]+)\b/gi, '[REDACTED]')
+    .replace(/https?:\/\/[^\s)]+/gi, '[URL]');
+  return redacted.length > 220 ? fallback : redacted;
+}
+
+/**
+ * Classifies Cloudflare Workers AI errors so invalid inputs, rate limits, quota exhaustion,
+ * and auth failures NEVER escalate to expensive 70B fallback calls.
+ */
+export function classifyWorkersAiError(err: unknown): ClassifiedAiError {
+  const rawMsg =
+    typeof (err as any)?.message === 'string'
+      ? (err as any).message
+      : typeof err === 'string'
+        ? err
+        : '';
+  const status = typeof (err as any)?.status === 'number' ? (err as any).status : 0;
+  const lower = rawMsg.toLowerCase();
+
+  // 1. Account rate limit, daily neuron quota, or billing cap -> NEVER escalate to 70B
+  if (
+    status === 429 ||
+    status === 402 ||
+    lower.includes('rate limit') ||
+    lower.includes('too many requests') ||
+    lower.includes('quota') ||
+    lower.includes('daily limit') ||
+    lower.includes('neurons') ||
+    lower.includes('billing') ||
+    lower.includes('capacity exceeded for account')
+  ) {
+    return {
+      category: 'rate_or_quota',
+      httpStatus: 429,
+      code: 'AI_RATE_LIMITED',
+      publicMessage:
+        'AI processing limit reached or temporarily busy. Please wait a moment and try again.',
+      allowModelFallback: false,
+    };
+  }
+
+  // 2. Authentication / permission / binding misconfiguration -> NEVER escalate to 70B
+  if (
+    status === 401 ||
+    status === 403 ||
+    lower.includes('unauthorized') ||
+    lower.includes('forbidden') ||
+    lower.includes('authentication') ||
+    lower.includes('invalid api token') ||
+    lower.includes('not authorized')
+  ) {
+    return {
+      category: 'auth_error',
+      httpStatus: 503,
+      code: 'AI_CONFIGURATION_ERROR',
+      publicMessage: 'The AI service is temporarily unavailable due to a configuration issue.',
+      allowModelFallback: false,
+    };
+  }
+
+  // 3. Invalid request / bad parameter / context window exceeded -> NEVER escalate to 70B
+  // (Note: 5028 model deprecation is NOT an input error—it IS eligible for model fallback!)
+  const isModelDeprecationOrMissing =
+    lower.includes('5028') ||
+    lower.includes('deprecated') ||
+    lower.includes('model not found') ||
+    lower.includes('no such model') ||
+    lower.includes('unsupported model') ||
+    status === 404;
+
+  if (
+    !isModelDeprecationOrMissing &&
+    (status === 400 ||
+      status === 413 ||
+      lower.includes('invalid parameter') ||
+      lower.includes('invalid input') ||
+      lower.includes('bad request') ||
+      lower.includes('context length') ||
+      lower.includes('maximum context') ||
+      lower.includes('prompt is too long'))
+  ) {
+    return {
+      category: 'invalid_input',
+      httpStatus: 400,
+      code: 'AI_INVALID_INPUT',
+      publicMessage: 'The transcript could not be processed due to an invalid input format or size.',
+      allowModelFallback: false,
+    };
+  }
+
+  // 4. Model deprecation / 404 / transient 5xx / timeout -> eligible for bounded fallback
+  return {
+    category: 'retriable_upstream',
+    httpStatus: 502,
+    code: 'AI_UPSTREAM_ERROR',
+    publicMessage: 'The AI service encountered a temporary error. Please try again shortly.',
+    allowModelFallback: true,
+  };
+}
+
+export class BoundedAiError extends Error {
+  public readonly classified: ClassifiedAiError;
+  public readonly attempts: number;
+
+  constructor(classified: ClassifiedAiError, attempts: number) {
+    super(classified.publicMessage);
+    this.name = 'BoundedAiError';
+    this.classified = classified;
+    this.attempts = attempts;
+  }
+}
+
+/**
+ * Executes chat inference starting on @cf/meta/llama-3.1-8b-instruct-fast with strict bounds:
+ * - Hard cap of maxTotalCalls (default 3) across the entire request.
+ * - Falls back to secondary models ONLY when classifyWorkersAiError allows fallback
+ *   (model deprecation / 404 / transient 5xx), NEVER on 400/401/403/429/quota errors.
+ * - Optional outputValidator: if the primary model returns empty or invalid structure,
+ *   retries ONCE on the same cheap primary model before failing cleanly (without escalating to 70B).
+ */
+export async function executeBoundedAiChat(options: {
+  ai: any;
+  messages: Array<{ role: 'system' | 'user'; content: string }>;
+  maxTokens: number;
+  temperature: number;
+  models?: readonly string[];
+  maxTotalCalls?: number;
+  processAndValidate?: (rawText: string) => { processed: string; validation: OutputValidationResult };
+}): Promise<{ text: string; modelUsed: string; attempts: number }> {
+  const models = options.models ?? ACTIVE_TEXT_MODELS;
+  const maxCalls = Math.min(Math.max(options.maxTotalCalls ?? 3, 1), 3);
+
+  let attempts = 0;
+  let lastClassified: ClassifiedAiError | null = null;
+
+  for (let mIdx = 0; mIdx < models.length && attempts < maxCalls; mIdx++) {
+    const model = models[mIdx];
+
+    try {
+      attempts++;
+      const res = await options.ai.run(model, {
+        messages: options.messages,
+        max_tokens: options.maxTokens,
+        temperature: options.temperature,
+      });
+
+      const rawText = (res?.response ?? res?.result?.response ?? '').trim();
+
+      if (!options.processAndValidate) {
+        if (rawText) {
+          return { text: rawText, modelUsed: model, attempts };
+        }
+        // Empty response: allow at most 1 retry on the SAME model (do NOT jump to 70B)
+        if (attempts < maxCalls) {
+          attempts++;
+          const retryRes = await options.ai.run(model, {
+            messages: options.messages,
+            max_tokens: options.maxTokens,
+            temperature: 0.1,
+          });
+          const retryText = (retryRes?.response ?? retryRes?.result?.response ?? '').trim();
+          if (retryText) {
+            return { text: retryText, modelUsed: model, attempts };
+          }
+        }
+        throw new BoundedAiError(
+          {
+            category: 'retriable_upstream',
+            httpStatus: 502,
+            code: 'EMPTY_AI_RESPONSE',
+            publicMessage: 'The AI model returned an empty response. Please try again.',
+            allowModelFallback: false,
+          },
+          attempts
+        );
+      }
+
+      const firstCheck = options.processAndValidate(rawText);
+      if (firstCheck.validation.valid) {
+        return { text: firstCheck.processed, modelUsed: model, attempts };
+      }
+
+      // Controlled single validation retry on the SAME model (never escalates to 70B for format slip)
+      if (attempts < maxCalls) {
+        attempts++;
+        const strictMessages: Array<{ role: 'system' | 'user'; content: string }> = [
+          ...options.messages.slice(0, -1),
+          {
+            role: 'user',
+            content: `${options.messages[options.messages.length - 1].content}\n\nIMPORTANT: Your previous draft was rejected (${firstCheck.validation.reason || 'invalid format'}). Follow all required section headings, bullet formatting, and source-grounding rules strictly.`,
+          },
+        ];
+
+        const retryRes = await options.ai.run(model, {
+          messages: strictMessages,
+          max_tokens: options.maxTokens,
+          temperature: 0.1,
+        });
+        const retryRaw = (retryRes?.response ?? retryRes?.result?.response ?? '').trim();
+        const secondCheck = options.processAndValidate(retryRaw);
+        if (secondCheck.validation.valid) {
+          return { text: secondCheck.processed, modelUsed: model, attempts };
+        }
+      }
+
+      throw new BoundedAiError(
+        {
+          category: 'invalid_input',
+          httpStatus: 422,
+          code: 'OUTPUT_VALIDATION_FAILED',
+          publicMessage:
+            'The generated output did not pass quality validation. Please try running the transformation again.',
+          allowModelFallback: false,
+        },
+        attempts
+      );
+    } catch (err: unknown) {
+      if (err instanceof BoundedAiError) {
+        throw err;
+      }
+      const classified = classifyWorkersAiError(err);
+      lastClassified = classified;
+
+      if (!classified.allowModelFallback) {
+        throw new BoundedAiError(classified, attempts);
+      }
+      // Otherwise continue loop to next fallback model (bounded by maxCalls)
+    }
+  }
+
+  throw new BoundedAiError(
+    lastClassified ?? {
+      category: 'retriable_upstream',
+      httpStatus: 502,
+      code: 'AI_UPSTREAM_ERROR',
+      publicMessage: 'The AI service is temporarily unavailable. Please try again shortly.',
+      allowModelFallback: false,
+    },
+    attempts
+  );
 }

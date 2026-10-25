@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { TranscriptResult, TranscriptSegment } from '../types';
 import { formatTimestamp, generateSrt, generateVtt } from '../server/utils/formatters';
+import { buildTranscriptScopeKey, createScopedResultCache } from '../utils/transformCache';
 
 interface Props {
   result: TranscriptResult;
@@ -66,8 +67,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
   const [translatedLang, setTranslatedLang] = useState<string>('');
 
   const toolbarRef = useRef<HTMLDivElement>(null);
-  const transformCacheRef = useRef<Record<string, string>>({});
-  const translateCacheRef = useRef<Record<string, string>>({});
+  const aiCacheRef = useRef(createScopedResultCache(30));
 
   // Sync segments when a new result arrives
   useEffect(() => {
@@ -78,9 +78,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     setTransformedText(null);
     setTranslatedText(null);
     setAiError(null);
-    transformCacheRef.current = {};
-    translateCacheRef.current = {};
-  }, [result.id]);
+  }, [result.id, result.videoId, result.provider]);
 
   // Close dropdown menus when clicking outside
   useEffect(() => {
@@ -101,6 +99,13 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     () => segments.map((s) => s.text.trim()).filter(Boolean).join(' '),
     [segments]
   );
+
+  const scopeKey = useMemo(
+    () => buildTranscriptScopeKey(result.provider, result.videoId, fullText),
+    [result.provider, result.videoId, fullText]
+  );
+  const latestScopeRef = useRef(scopeKey);
+  latestScopeRef.current = scopeKey;
 
   const srtContent = useMemo(
     () => (hasEdits ? generateSrt(segments) : result.srt),
@@ -147,8 +152,8 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     const next = segments.map((s) => (s.id === id ? { ...s, text: newText } : s));
     setSegments(next);
     setHasEdits(true);
-    transformCacheRef.current = {};
-    translateCacheRef.current = {};
+    setTransformedText(null);
+    setTranslatedText(null);
     if (onUpdateResult) {
       onUpdateResult({
         ...result,
@@ -163,8 +168,8 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
   const resetEdits = () => {
     setSegments(result.segments);
     setHasEdits(false);
-    transformCacheRef.current = {};
-    translateCacheRef.current = {};
+    setTransformedText(null);
+    setTranslatedText(null);
   };
 
   const copy = async () => {
@@ -201,13 +206,15 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     setTransformLabel(opt.label);
     setActiveTab('transform');
 
-    const cached = transformCacheRef.current[opt.id];
+    const reqScope = scopeKey;
+    const cached = aiCacheRef.current.get(reqScope, 'transform', opt.id);
     if (cached) {
       setTransformedText(cached);
       setAiLoading(false);
       return;
     }
 
+    setTransformedText(null);
     setAiLoading(true);
 
     try {
@@ -216,20 +223,33 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text: fullText,
+          segments,
           videoTitle: result.videoTitle,
           mode: opt.id,
         }),
       });
       const json: any = await res.json();
-      if (!res.ok || !json?.success) {
+      const outputText = typeof json?.data?.result === 'string' ? json.data.result.trim() : '';
+      if (!res.ok || !json?.success || !outputText) {
         throw new Error(json?.error?.message || 'Failed to generate AI transformation.');
       }
-      transformCacheRef.current[opt.id] = json.data.result;
-      setTransformedText(json.data.result);
+
+      // Guard against stale in-flight completions if the user switched videos or edited text
+      if (latestScopeRef.current !== reqScope) {
+        return;
+      }
+
+      aiCacheRef.current.set(reqScope, 'transform', opt.id, outputText);
+      setTransformedText(outputText);
     } catch (err: any) {
-      setAiError(err?.message || 'Could not transform transcript right now.');
+      if (latestScopeRef.current === reqScope) {
+        setTransformedText(null);
+        setAiError(err?.message || 'Could not transform transcript right now.');
+      }
     } finally {
-      setAiLoading(false);
+      if (latestScopeRef.current === reqScope) {
+        setAiLoading(false);
+      }
     }
   };
 
@@ -239,13 +259,15 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     setTranslatedLang(lang);
     setActiveTab('translate');
 
-    const cached = translateCacheRef.current[lang];
+    const reqScope = scopeKey;
+    const cached = aiCacheRef.current.get(reqScope, 'translate', lang);
     if (cached) {
       setTranslatedText(cached);
       setAiLoading(false);
       return;
     }
 
+    setTranslatedText(null);
     setAiLoading(true);
 
     try {
@@ -258,15 +280,27 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
         }),
       });
       const json: any = await res.json();
-      if (!res.ok || !json?.success) {
+      const outputText =
+        typeof json?.data?.translatedText === 'string' ? json.data.translatedText.trim() : '';
+      if (!res.ok || !json?.success || !outputText) {
         throw new Error(json?.error?.message || 'Failed to translate transcript.');
       }
-      translateCacheRef.current[lang] = json.data.translatedText;
-      setTranslatedText(json.data.translatedText);
+
+      if (latestScopeRef.current !== reqScope) {
+        return;
+      }
+
+      aiCacheRef.current.set(reqScope, 'translate', lang, outputText);
+      setTranslatedText(outputText);
     } catch (err: any) {
-      setAiError(err?.message || 'Could not translate transcript right now.');
+      if (latestScopeRef.current === reqScope) {
+        setTranslatedText(null);
+        setAiError(err?.message || 'Could not translate transcript right now.');
+      }
     } finally {
-      setAiLoading(false);
+      if (latestScopeRef.current === reqScope) {
+        setAiLoading(false);
+      }
     }
   };
 
