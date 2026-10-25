@@ -21,7 +21,7 @@ const TRANSFORM_OPTIONS: TransformOption[] = [
   { id: 'script', label: 'Viral Video Script', desc: 'Hook + body + CTA for Reels/TikTok' },
   { id: 'blog', label: 'Blog Post / Article', desc: 'Structured article with headings' },
   { id: 'thread', label: 'X / LinkedIn Thread', desc: 'Ready-to-post 6-part thread' },
-  { id: 'notes', label: 'Study Notes & Quotes', desc: 'Core concepts, quotes & action items' },
+  { id: 'notes', label: 'Study Notes & Quotes', desc: 'Concepts, verbatim quotes & Q&A' },
 ];
 
 const TRANSLATE_LANGUAGES = [
@@ -66,6 +66,8 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
   const [translatedLang, setTranslatedLang] = useState<string>('');
 
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const transformCacheRef = useRef<Record<string, string>>({});
+  const translateCacheRef = useRef<Record<string, string>>({});
 
   // Sync segments when a new result arrives
   useEffect(() => {
@@ -76,6 +78,8 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     setTransformedText(null);
     setTranslatedText(null);
     setAiError(null);
+    transformCacheRef.current = {};
+    translateCacheRef.current = {};
   }, [result.id]);
 
   // Close dropdown menus when clicking outside
@@ -143,6 +147,8 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     const next = segments.map((s) => (s.id === id ? { ...s, text: newText } : s));
     setSegments(next);
     setHasEdits(true);
+    transformCacheRef.current = {};
+    translateCacheRef.current = {};
     if (onUpdateResult) {
       onUpdateResult({
         ...result,
@@ -157,6 +163,8 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
   const resetEdits = () => {
     setSegments(result.segments);
     setHasEdits(false);
+    transformCacheRef.current = {};
+    translateCacheRef.current = {};
   };
 
   const copy = async () => {
@@ -189,10 +197,18 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
 
   const runTransform = async (opt: TransformOption) => {
     setTransformMenuOpen(false);
-    setAiLoading(true);
     setAiError(null);
     setTransformLabel(opt.label);
     setActiveTab('transform');
+
+    const cached = transformCacheRef.current[opt.id];
+    if (cached) {
+      setTransformedText(cached);
+      setAiLoading(false);
+      return;
+    }
+
+    setAiLoading(true);
 
     try {
       const res = await fetch('/api/transform', {
@@ -208,6 +224,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
       if (!res.ok || !json?.success) {
         throw new Error(json?.error?.message || 'Failed to generate AI transformation.');
       }
+      transformCacheRef.current[opt.id] = json.data.result;
       setTransformedText(json.data.result);
     } catch (err: any) {
       setAiError(err?.message || 'Could not transform transcript right now.');
@@ -218,10 +235,18 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
 
   const runTranslate = async (lang: string) => {
     setTranslateMenuOpen(false);
-    setAiLoading(true);
     setAiError(null);
     setTranslatedLang(lang);
     setActiveTab('translate');
+
+    const cached = translateCacheRef.current[lang];
+    if (cached) {
+      setTranslatedText(cached);
+      setAiLoading(false);
+      return;
+    }
+
+    setAiLoading(true);
 
     try {
       const res = await fetch('/api/translate', {
@@ -236,6 +261,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
       if (!res.ok || !json?.success) {
         throw new Error(json?.error?.message || 'Failed to translate transcript.');
       }
+      translateCacheRef.current[lang] = json.data.translatedText;
       setTranslatedText(json.data.translatedText);
     } catch (err: any) {
       setAiError(err?.message || 'Could not translate transcript right now.');

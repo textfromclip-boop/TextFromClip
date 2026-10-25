@@ -4,6 +4,12 @@ import { CloudflareBindings, TranscriptRequest } from '../types';
 import { validateSafeUrl } from './utils/ssrf';
 import { checkRateLimit } from './utils/rate-limiter';
 import { ProviderRegistry } from './providers/registry';
+import {
+  cleanTranscriptForAi,
+  budgetTranscriptForPrompt,
+  buildTransformPrompt,
+  postProcessTransformOutput,
+} from './utils/aiTransform';
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
@@ -270,17 +276,19 @@ const ACTIVE_TEXT_MODELS = [
 async function runWorkersAiChat(
   ai: any,
   messages: Array<{ role: string; content: string }>,
-  maxTokens = 1024
-): Promise<string> {
+  maxTokens = 1024,
+  temperature = 0.2
+): Promise<{ text: string; modelUsed: string }> {
   let lastError: any = null;
   for (const model of ACTIVE_TEXT_MODELS) {
     try {
       const res = await ai.run(model, {
         messages,
         max_tokens: maxTokens,
+        temperature,
       });
       const text = (res?.response ?? res?.result?.response ?? '').trim();
-      if (text) return text;
+      if (text) return { text, modelUsed: model };
     } catch (err: any) {
       lastError = err;
     }
@@ -293,7 +301,7 @@ app.post('/api/transform', async (c) => {
   try {
     const body = await c.req.json();
     const rawText = typeof body?.text === 'string' ? body.text.trim() : '';
-    const mode = typeof body?.mode === 'string' ? body.mode : 'summary';
+    const rawMode = typeof body?.mode === 'string' ? body.mode : 'summary';
     const videoTitle = typeof body?.videoTitle === 'string' ? body.videoTitle : 'Video';
 
     if (!rawText) {
@@ -303,56 +311,45 @@ app.post('/api/transform', async (c) => {
       );
     }
 
-    const clipped = rawText.slice(0, 14000);
+    const { cleanedText, wordCount } = cleanTranscriptForAi(rawText);
+    if (!cleanedText) {
+      return c.json(
+        { success: false, error: { code: 'EMPTY_TEXT', message: 'Transcript contains no spoken words.' } },
+        400
+      );
+    }
 
-    const instructions: Record<string, string> = {
-      summary:
-        'Provide a concise Executive Summary followed by 5 to 7 bullet-point Key Takeaways and a 1-sentence Bottom Line.',
-      script:
-        'Rewrite this transcript into a high-retention short-form video script (for TikTok, Reels, or Shorts). Include: [HOOK (0-3s)], [BODY / STORY], and [CALL TO ACTION]. Keep sentences punchy and spoken-word friendly.',
-      blog:
-        'Turn this transcript into a well-structured, engaging blog post / article. Include a compelling Headline, Introduction, clear Subheadings, and a Conclusion.',
-      thread:
-        'Turn this transcript into a viral 6-post X / LinkedIn thread. Number each post (1/6, 2/6, etc.), start with a strong hook in 1/6, and end with a takeaway in 6/6.',
-      notes:
-        'Create structured Study Notes from this transcript. Include: Core Topic, Key Concepts & Definitions, Memorable Quotes, and Action Items.',
-    };
-
-    const promptInstruction = instructions[mode] || instructions.summary;
+    const { text: budgetedText } = budgetTranscriptForPrompt(cleanedText, 14000);
+    const spec = buildTransformPrompt(rawMode, videoTitle, budgetedText, wordCount);
 
     if (c.env.AI) {
-      const output = await runWorkersAiChat(
+      const { text: rawOutput, modelUsed } = await runWorkersAiChat(
         c.env.AI,
-        [
-          {
-            role: 'system',
-            content:
-              'You are an expert content strategist and editor. Output clean, well-formatted plain text using clear headings and bullet points (•). Do not add meta-commentary like "Here is the summary".',
-          },
-          {
-            role: 'user',
-            content: `Video Title: ${videoTitle}\n\nTask: ${promptInstruction}\n\nTranscript:\n${clipped}`,
-          },
-        ],
-        1024
+        spec.messages,
+        spec.maxTokens,
+        spec.temperature
       );
 
-      if (output) {
-        return c.json({ success: true, data: { result: output, mode } });
+      const processed = postProcessTransformOutput(rawOutput, spec.mode, cleanedText);
+      if (processed) {
+        return c.json({
+          success: true,
+          data: { result: processed, mode: spec.mode, model: modelUsed },
+        });
       }
     }
 
     // Fallback extractive summary if AI binding is unavailable in local dev
-    const sentences = clipped
+    const sentences = budgetedText
       .split(/(?<=[.?!])\s+/)
       .map((s: string) => s.trim())
       .filter((s: string) => s.length > 25);
-    const topSentences = sentences.slice(0, 6).map((s: string) => `• ${s}`).join('\n');
+    const topSentences = sentences.slice(0, 5).map((s: string) => `• ${s}`).join('\n');
     return c.json({
       success: true,
       data: {
-        result: `${videoTitle}\n\nKey Points:\n${topSentences || clipped.slice(0, 600)}`,
-        mode,
+        result: `${videoTitle}\n\nKey Points:\n${topSentences || budgetedText.slice(0, 600)}`,
+        mode: spec.mode,
       },
     });
   } catch (err: any) {
@@ -386,7 +383,8 @@ app.post('/api/translate', async (c) => {
       );
     }
 
-    const clipped = rawText.slice(0, 12000);
+    const { cleanedText } = cleanTranscriptForAi(rawText);
+    const clipped = (cleanedText || rawText).slice(0, 12000);
 
     if (!c.env.AI) {
       return c.json(
@@ -401,7 +399,7 @@ app.post('/api/translate', async (c) => {
       );
     }
 
-    const translated = await runWorkersAiChat(
+    const { text: translated } = await runWorkersAiChat(
       c.env.AI,
       [
         {
@@ -413,7 +411,8 @@ app.post('/api/translate', async (c) => {
           content: clipped,
         },
       ],
-      1536
+      1536,
+      0.15
     );
 
     if (!translated) {
