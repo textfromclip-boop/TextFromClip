@@ -30,7 +30,6 @@ const TRANSLATE_LANGUAGES = [
   'French',
   'German',
   'Turkish',
-  'Somali',
   'Portuguese',
   'Hindi',
   'Chinese (Simplified)',
