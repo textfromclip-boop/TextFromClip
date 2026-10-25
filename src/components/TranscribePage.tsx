@@ -1,8 +1,34 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TranscriptResult, ApiResponse } from '../types';
 import { TranscriptResultView } from './TranscriptResultView';
 import { Link, RoutePath } from '../router';
 import { validateUrlForPlatform } from '../utils/validation';
+
+const HISTORY_STORAGE_KEY = 'textfromclip_history_v1';
+
+interface HistoryEntry {
+  sourceUrl: string;
+  data: TranscriptResult;
+}
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.slice(0, 10) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(entries: HistoryEntry[]) {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(entries.slice(0, 10)));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
 
 export interface PreviewCue {
   time: string;
@@ -38,6 +64,11 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TranscriptResult | null>(null);
+  const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
+
+  useEffect(() => {
+    setHistory(loadHistory());
+  }, [config.id]);
 
   const run = async (target: string) => {
     const value = target.trim();
@@ -50,6 +81,18 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
     const validation = validateUrlForPlatform(value, config.id);
     if (!validation.isValid) {
       setError(validation.error || 'Please enter a valid video link.');
+      return;
+    }
+
+    // Check local cache first so re-running a link loads in 0ms and costs 0 credits
+    const cached = history.find(
+      (entry) =>
+        entry.data.provider === config.id &&
+        entry.sourceUrl.trim().toLowerCase() === value.toLowerCase()
+    );
+    if (cached) {
+      setError(null);
+      setResult(cached.data);
       return;
     }
 
@@ -70,11 +113,38 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
         );
       }
       setResult(data.data);
+      setHistory((prev) => {
+        const filtered = prev.filter(
+          (item) =>
+            !(item.data.provider === data.data.provider && item.data.videoId === data.data.videoId)
+        );
+        const updated = [{ sourceUrl: value, data: data.data }, ...filtered].slice(0, 10);
+        saveHistory(updated);
+        return updated;
+      });
     } catch (e: any) {
       setError(e?.message || 'Network error. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleUpdateResult = (updated: TranscriptResult) => {
+    setResult(updated);
+    setHistory((prev) => {
+      const next = prev.map((item) =>
+        item.data.provider === updated.provider && item.data.videoId === updated.videoId
+          ? { ...item, data: updated }
+          : item
+      );
+      saveHistory(next);
+      return next;
+    });
+  };
+
+  const clearHistory = () => {
+    setHistory([]);
+    saveHistory([]);
   };
 
   const reset = () => {
@@ -447,7 +517,78 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
         </div>
 
         {/* LIVE TRANSCRIPT RESULT WORKSPACE */}
-        {result && <TranscriptResultView result={result} onReset={reset} />}
+        {result && (
+          <TranscriptResultView
+            result={result}
+            onReset={reset}
+            onUpdateResult={handleUpdateResult}
+          />
+        )}
+
+        {/* RECENT TRANSCRIPTS SHELF (INSTANT 0ms LOCAL CACHE) */}
+        {!result && history.filter((h) => h.data.provider === config.id).length > 0 && (
+          <section
+            aria-label="Recent transcripts"
+            className="mt-10 pt-8 border-t border-rule"
+          >
+            <div className="flex items-center justify-between mb-3.5">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-accent" />
+                <h2 className="text-xs font-mono font-bold uppercase tracking-wider text-ink">
+                  Recent {config.name} Transcripts
+                </h2>
+                <span className="text-[11px] font-medium text-muted">
+                  (Instant reload · 0 wait)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={clearHistory}
+                className="text-xs font-semibold text-muted hover:text-ink transition-colors"
+              >
+                Clear history
+              </button>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {history
+                .filter((h) => h.data.provider === config.id)
+                .slice(0, 6)
+                .map((item, idx) => (
+                  <button
+                    key={`${item.data.provider}-${item.data.videoId}-${idx}`}
+                    type="button"
+                    onClick={() => {
+                      setUrl(item.sourceUrl);
+                      setError(null);
+                      setResult(item.data);
+                    }}
+                    className="group flex items-center gap-3 p-3 rounded-xl bg-surface border border-rule hover:border-accent/50 hover:shadow-md transition-all text-left"
+                  >
+                    {item.data.videoThumbnailUrl ? (
+                      <img
+                        src={item.data.videoThumbnailUrl}
+                        alt={item.data.videoTitle || 'Video thumbnail'}
+                        className="w-12 h-12 rounded-lg object-cover shrink-0 bg-slate-100 border border-rule"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-lg bg-accent-soft text-accent flex items-center justify-center font-bold text-xs shrink-0">
+                        TXT
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-bold text-ink truncate group-hover:text-accent transition-colors">
+                        {item.data.videoTitle || 'Untitled video'}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-muted truncate">
+                        {item.data.segments.length} segments ·{' '}
+                        {item.data.fullText.trim().split(/\s+/).filter(Boolean).length} words
+                      </p>
+                    </div>
+                  </button>
+                ))}
+            </div>
+          </section>
+        )}
 
         {/* STRATEGIC SPECIFICATION STRIP */}
         {!result && (

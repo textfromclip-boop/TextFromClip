@@ -260,6 +260,159 @@ app.post('/api/transcript', async (c) => {
   }
 });
 
+// AI Transform endpoint (Summary, Viral Script, Blog Post, Thread, Study Notes) — 0 SnapAny credits
+app.post('/api/transform', async (c) => {
+  try {
+    const body = await c.req.json();
+    const rawText = typeof body?.text === 'string' ? body.text.trim() : '';
+    const mode = typeof body?.mode === 'string' ? body.mode : 'summary';
+    const videoTitle = typeof body?.videoTitle === 'string' ? body.videoTitle : 'Video';
+
+    if (!rawText) {
+      return c.json(
+        { success: false, error: { code: 'EMPTY_TEXT', message: 'Transcript text is required.' } },
+        400
+      );
+    }
+
+    const clipped = rawText.slice(0, 14000);
+
+    const instructions: Record<string, string> = {
+      summary:
+        'Provide a concise Executive Summary followed by 5 to 7 bullet-point Key Takeaways and a 1-sentence Bottom Line.',
+      script:
+        'Rewrite this transcript into a high-retention short-form video script (for TikTok, Reels, or Shorts). Include: [HOOK (0-3s)], [BODY / STORY], and [CALL TO ACTION]. Keep sentences punchy and spoken-word friendly.',
+      blog:
+        'Turn this transcript into a well-structured, engaging blog post / article. Include a compelling Headline, Introduction, clear Subheadings, and a Conclusion.',
+      thread:
+        'Turn this transcript into a viral 6-post X / LinkedIn thread. Number each post (1/6, 2/6, etc.), start with a strong hook in 1/6, and end with a takeaway in 6/6.',
+      notes:
+        'Create structured Study Notes from this transcript. Include: Core Topic, Key Concepts & Definitions, Memorable Quotes, and Action Items.',
+    };
+
+    const promptInstruction = instructions[mode] || instructions.summary;
+
+    if (c.env.AI) {
+      const aiRes = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+        messages: [
+          {
+            role: 'system',
+            content:
+              'You are an expert content strategist and editor. Output clean, well-formatted plain text using clear headings and bullet points (•). Do not add meta-commentary like "Here is the summary".',
+          },
+          {
+            role: 'user',
+            content: `Video Title: ${videoTitle}\n\nTask: ${promptInstruction}\n\nTranscript:\n${clipped}`,
+          },
+        ],
+        max_tokens: 1024,
+      });
+
+      const output = (aiRes?.response ?? '').trim();
+      if (output) {
+        return c.json({ success: true, data: { result: output, mode } });
+      }
+    }
+
+    // Fallback extractive summary if AI binding is unavailable in local dev
+    const sentences = clipped
+      .split(/(?<=[.?!])\s+/)
+      .map((s: string) => s.trim())
+      .filter((s: string) => s.length > 25);
+    const topSentences = sentences.slice(0, 6).map((s: string) => `• ${s}`).join('\n');
+    return c.json({
+      success: true,
+      data: {
+        result: `${videoTitle}\n\nKey Points:\n${topSentences || clipped.slice(0, 600)}`,
+        mode,
+      },
+    });
+  } catch (err: any) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'TRANSFORM_FAILED',
+          message: err?.message || 'Could not transform transcript right now.',
+        },
+      },
+      500
+    );
+  }
+});
+
+// AI Translate endpoint — 0 SnapAny credits
+app.post('/api/translate', async (c) => {
+  try {
+    const body = await c.req.json();
+    const rawText = typeof body?.text === 'string' ? body.text.trim() : '';
+    const targetLanguage = typeof body?.targetLanguage === 'string' ? body.targetLanguage.trim() : '';
+
+    if (!rawText || !targetLanguage) {
+      return c.json(
+        {
+          success: false,
+          error: { code: 'INVALID_INPUT', message: 'Transcript text and target language are required.' },
+        },
+        400
+      );
+    }
+
+    const clipped = rawText.slice(0, 12000);
+
+    if (!c.env.AI) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'AI_UNAVAILABLE',
+            message: 'Translation requires Cloudflare Workers AI in production.',
+          },
+        },
+        503
+      );
+    }
+
+    const aiRes = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        {
+          role: 'system',
+          content: `You are a professional translator. Translate the user's transcript accurately and naturally into ${targetLanguage}. Output ONLY the translated text without any introductory or concluding remarks.`,
+        },
+        {
+          role: 'user',
+          content: clipped,
+        },
+      ],
+      max_tokens: 1536,
+    });
+
+    const translated = (aiRes?.response ?? '').trim();
+    if (!translated) {
+      throw new Error('Empty translation returned.');
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        translatedText: translated,
+        targetLanguage,
+      },
+    });
+  } catch (err: any) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'TRANSLATE_FAILED',
+          message: err?.message || 'Could not translate transcript right now.',
+        },
+      },
+      500
+    );
+  }
+});
+
 // SEO: robots.txt
 app.get('/robots.txt', (c) => {
   return c.text(
