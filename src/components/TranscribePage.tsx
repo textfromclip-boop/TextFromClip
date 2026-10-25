@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { TranscriptResult, ApiResponse } from '../types';
 import { TranscriptResultView } from './TranscriptResultView';
 import { Link, RoutePath } from '../router';
@@ -65,10 +65,25 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TranscriptResult | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
+  const resultSectionRef = useRef<HTMLDivElement>(null);
+
+  const scrollToTranscript = () => {
+    window.setTimeout(() => {
+      resultSectionRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 90);
+  };
 
   useEffect(() => {
     setHistory(loadHistory());
   }, [config.id]);
+
+  useEffect(() => {
+    if (!result) return;
+    scrollToTranscript();
+  }, [result?.id, result?.videoId]);
 
   const run = async (target: string) => {
     const value = target.trim();
@@ -93,6 +108,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
     if (cached) {
       setError(null);
       setResult(cached.data);
+      scrollToTranscript();
       return;
     }
 
@@ -151,6 +167,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
     setResult(null);
     setError(null);
     setUrl('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -518,11 +535,16 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
 
         {/* LIVE TRANSCRIPT RESULT WORKSPACE */}
         {result && (
-          <TranscriptResultView
-            result={result}
-            onReset={reset}
-            onUpdateResult={handleUpdateResult}
-          />
+          <div
+            ref={resultSectionRef}
+            className="scroll-mt-24 animate-transcript-reveal"
+          >
+            <TranscriptResultView
+              result={result}
+              onReset={reset}
+              onUpdateResult={handleUpdateResult}
+            />
+          </div>
         )}
 
         {/* RECENT TRANSCRIPTS SHELF (INSTANT 0ms LOCAL CACHE) */}
