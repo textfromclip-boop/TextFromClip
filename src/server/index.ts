@@ -260,6 +260,34 @@ app.post('/api/transcript', async (c) => {
   }
 });
 
+// Helper to run Cloudflare Workers AI text generation across active (non-deprecated) models
+const ACTIVE_TEXT_MODELS = [
+  '@cf/meta/llama-3.1-8b-instruct-fast',
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  '@cf/meta/llama-3.2-3b-instruct',
+];
+
+async function runWorkersAiChat(
+  ai: any,
+  messages: Array<{ role: string; content: string }>,
+  maxTokens = 1024
+): Promise<string> {
+  let lastError: any = null;
+  for (const model of ACTIVE_TEXT_MODELS) {
+    try {
+      const res = await ai.run(model, {
+        messages,
+        max_tokens: maxTokens,
+      });
+      const text = (res?.response ?? res?.result?.response ?? '').trim();
+      if (text) return text;
+    } catch (err: any) {
+      lastError = err;
+    }
+  }
+  throw lastError || new Error('Workers AI returned an empty response.');
+}
+
 // AI Transform endpoint (Summary, Viral Script, Blog Post, Thread, Study Notes) — 0 SnapAny credits
 app.post('/api/transform', async (c) => {
   try {
@@ -293,8 +321,9 @@ app.post('/api/transform', async (c) => {
     const promptInstruction = instructions[mode] || instructions.summary;
 
     if (c.env.AI) {
-      const aiRes = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-        messages: [
+      const output = await runWorkersAiChat(
+        c.env.AI,
+        [
           {
             role: 'system',
             content:
@@ -305,10 +334,9 @@ app.post('/api/transform', async (c) => {
             content: `Video Title: ${videoTitle}\n\nTask: ${promptInstruction}\n\nTranscript:\n${clipped}`,
           },
         ],
-        max_tokens: 1024,
-      });
+        1024
+      );
 
-      const output = (aiRes?.response ?? '').trim();
       if (output) {
         return c.json({ success: true, data: { result: output, mode } });
       }
@@ -373,8 +401,9 @@ app.post('/api/translate', async (c) => {
       );
     }
 
-    const aiRes = await c.env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [
+    const translated = await runWorkersAiChat(
+      c.env.AI,
+      [
         {
           role: 'system',
           content: `You are a professional translator. Translate the user's transcript accurately and naturally into ${targetLanguage}. Output ONLY the translated text without any introductory or concluding remarks.`,
@@ -384,10 +413,9 @@ app.post('/api/translate', async (c) => {
           content: clipped,
         },
       ],
-      max_tokens: 1536,
-    });
+      1536
+    );
 
-    const translated = (aiRes?.response ?? '').trim();
     if (!translated) {
       throw new Error('Empty translation returned.');
     }
