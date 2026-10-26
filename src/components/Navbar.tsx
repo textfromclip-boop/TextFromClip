@@ -16,17 +16,35 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => (
       <nav aria-label="Main" className="flex items-center gap-1 sm:gap-2">
         {ROUTES.map((r) => {
           const active = r.path === current;
+          const isUpload = r.path === '/upload';
           return (
             <Link
               key={r.path}
               to={r.path}
               aria-current={active ? 'page' : undefined}
-              className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              className={`whitespace-nowrap inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors ${
                 active
                   ? 'text-accent bg-accent-soft'
+                  : isUpload
+                  ? 'text-ink bg-slate-100/90 hover:bg-accent-soft hover:text-accent border border-rule/80'
                   : 'text-muted hover:text-ink hover:bg-slate-100/80'
               }`}
             >
+              {isUpload && (
+                <svg
+                  className="w-4 h-4 text-accent shrink-0"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                  />
+                </svg>
+              )}
               {r.label}
             </Link>
           );

@@ -327,11 +327,34 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     ? uploadStage
                     : 'Drop an audio or video file here, or click to browse'}
                 </p>
-                <p className="mt-1 text-xs text-muted">
-                  MP4, MOV, WEBM, MKV, MP3, WAV, M4A, OGG, AAC, FLAC up to 200 MB · 16 kHz audio extracted locally
-                </p>
-                <span className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] shadow-sm">
-                  {loading && uploadStage ? 'Processing File…' : 'Select Audio / Video File'}
+                <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-xs text-muted">
+                  {['MP4', 'MP3', 'WAV', 'MOV', 'M4A', 'WEBM'].map((fmt) => (
+                    <span
+                      key={fmt}
+                      className="px-2 py-0.5 rounded bg-slate-100 border border-rule font-mono text-[10px] font-bold text-ink"
+                    >
+                      {fmt}
+                    </span>
+                  ))}
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                    Up to 200 MB
+                  </span>
+                </div>
+                <span className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] shadow-md">
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.2}
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                    />
+                  </svg>
+                  <span>{loading && uploadStage ? 'Processing File…' : 'Choose Audio / Video File'}</span>
                 </span>
               </div>
             )}
@@ -411,53 +434,127 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
               </div>
 
               {config.id !== 'upload' && (
-                <div
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    if (!loading) setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setIsDragging(false);
-                    if (!loading && e.dataTransfer.files?.[0]) {
-                      handleFileUpload(e.dataTransfer.files[0]);
-                    }
-                  }}
-                  className={`mt-2.5 flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 rounded-xl border border-dashed text-xs transition-all ${
-                    isDragging
-                      ? 'border-accent bg-accent-soft/60 text-ink'
-                      : 'border-rule bg-surface/80 text-muted hover:border-accent/50'
-                  }`}
-                >
-                  <span className="inline-flex items-center gap-2">
-                    <svg
-                      className="w-4 h-4 text-accent shrink-0"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                      />
-                    </svg>
-                    <span>
-                      {loading && uploadStage
-                        ? uploadStage
-                        : 'Have a local video or audio file? Drop MP4, MOV, MP3, WAV, or M4A here'}
+                <div className="mt-3.5">
+                  {/* Clear "OR" separator so users immediately see File Upload as a primary option */}
+                  <div className="flex items-center gap-3 mb-2.5">
+                    <div className="h-px flex-1 bg-rule" />
+                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-muted">
+                      or upload from your device
                     </span>
-                  </span>
-                  <button
-                    type="button"
-                    disabled={loading}
-                    onClick={() => fileInputRef.current?.click()}
-                    className="font-semibold text-accent hover:text-accent-dark underline underline-offset-2 disabled:opacity-50"
+                    <div className="h-px flex-1 bg-rule" />
+                  </div>
+
+                  {/* Tactile, Unmistakable File Upload Dropzone Card */}
+                  <div
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      if (!loading) setIsDragging(true);
+                    }}
+                    onDragLeave={() => setIsDragging(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDragging(false);
+                      if (!loading && e.dataTransfer.files?.[0]) {
+                        handleFileUpload(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    onClick={() => {
+                      if (!loading) fileInputRef.current?.click();
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if ((e.key === 'Enter' || e.key === ' ') && !loading) {
+                        e.preventDefault();
+                        fileInputRef.current?.click();
+                      }
+                    }}
+                    className={`group relative flex flex-col sm:flex-row items-center justify-between gap-3.5 p-3.5 sm:px-4 sm:py-3.5 rounded-2xl border-2 border-dashed cursor-pointer transition-all ${
+                      isDragging
+                        ? 'border-accent bg-accent-soft/70 scale-[1.01] shadow-md'
+                        : 'border-[#0F8CFA]/45 bg-gradient-to-r from-[#0F8CFA]/[0.05] via-[#2868F7]/[0.04] to-[#5131ED]/[0.06] hover:border-accent hover:from-[#0F8CFA]/[0.09] hover:to-[#5131ED]/[0.10] shadow-sm hover:shadow-md'
+                    } ${loading ? 'opacity-60 cursor-wait' : ''}`}
                   >
-                    Upload File →
-                  </button>
+                    <div className="flex items-center gap-3.5 min-w-0 w-full sm:w-auto">
+                      {/* Gradient Cloud/File Upload Icon */}
+                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                        {loading && uploadStage ? (
+                          <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                            />
+                            <path
+                              className="opacity-90"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                            />
+                          </svg>
+                        ) : (
+                          <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2.2}
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                            />
+                          </svg>
+                        )}
+                      </div>
+
+                      <div className="min-w-0 flex-1 text-left">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-bold text-ink group-hover:text-accent transition-colors">
+                            {loading && uploadStage
+                              ? uploadStage
+                              : 'Upload Video or Audio File'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                            Up to 200 MB
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                          <span>Drag & drop or browse</span>
+                          <span className="text-slate-300">·</span>
+                          {['MP4', 'MP3', 'WAV', 'MOV', 'M4A'].map((fmt) => (
+                            <span
+                              key={fmt}
+                              className="px-1.5 py-0.5 rounded bg-white/90 border border-rule font-mono text-[10px] font-semibold text-ink"
+                            >
+                              {fmt}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Prominent Choose File Button */}
+                    <span className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-[#021331] group-hover:bg-gradient-to-r group-hover:from-[#0F8CFA] group-hover:via-[#2868F7] group-hover:to-[#5131ED] shadow-sm transition-all shrink-0">
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2.2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                        />
+                      </svg>
+                      <span>{loading && uploadStage ? 'Uploading…' : 'Choose File'}</span>
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -565,7 +662,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                         : 'bg-surface border-rule text-muted hover:text-ink'
                     }`}
                   >
-                    <span className="w-4 h-4 rounded bg-gradient-to-r from-[#0F8CFA] to-[#5131ED] text-white inline-flex items-center justify-center">
+                    <span className="w-4 h-4 rounded bg-emerald-600 text-white inline-flex items-center justify-center">
                       <svg
                         className="w-2.5 h-2.5"
                         viewBox="0 0 24 24"
@@ -580,7 +677,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                         />
                       </svg>
                     </span>
-                    Upload (.mp4 / .mp3)
+                    Local Files
                   </Link>
                 </div>
 
