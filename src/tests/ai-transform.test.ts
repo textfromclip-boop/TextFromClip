@@ -927,4 +927,73 @@ describe('10. Multilingual translation formatting, source selection, and structu
       ).valid
     ).toBe(false);
   });
+
+  it('7. guides idiomatic translation over literal calques, repairs cross-timestamp orphan punctuation, and handles multilingual scripts cleanly', () => {
+    for (const lang of ['Spanish', 'French', 'German', 'Arabic', 'Hindi', 'Japanese']) {
+      const msgs = buildTranslateMessages(englishExecutiveSummary, lang);
+      const sys = msgs[0].content;
+      expect(sys).toContain(`native-level ${lang} translator`);
+      expect(sys).toMatch(/Never translate English idioms, phrasal verbs, or section headings word-for-word/i);
+      expect(sys).toMatch(/singular "they\/them/i);
+      expect(sys).toMatch(/standard .+ software\/domain terminology/i);
+      expect(sys).toMatch(/strict 1-to-1 line mapping/i);
+      expect(sys).toMatch(/NEVER guess or invent missing names, frameworks, numbers, or facts/i);
+    }
+
+    // Ensure target-language convention hints never leak third-language vocabulary across languages
+    const frenchSys = buildTranslateMessages(englishExecutiveSummary, 'French')[0].content;
+    expect(frenchSys).toContain('Points clés');
+    expect(frenchSys).not.toContain('Puntos clave');
+    expect(frenchSys).not.toContain('reintentos');
+
+    const spanishSys = buildTranslateMessages(englishExecutiveSummary, 'Spanish')[0].content;
+    expect(spanishSys).toContain('Puntos clave');
+    expect(spanishSys).not.toContain('Points clés');
+    expect(spanishSys).not.toContain('nouvelles tentatives');
+
+    // Strips unsolicited **bold** wrappers ONLY when source had zero ** markers, while preserving Markdown **bold**
+    expect(
+      postProcessTranslateOutput('**Zusammenfassung**\nKleine Caches helfen.', 'Executive Summary\nSmall caches help.')
+    ).toBe('Zusammenfassung\nKleine Caches helfen.');
+    expect(
+      postProcessTranslateOutput('Usa **OpenCV** aquí.', 'Use **OpenCV** here.')
+    ).toBe('Usa **OpenCV** aquí.');
+
+    // Repairs orphan leading punctuation stranded after a timestamp when a sentence wraps across segments
+    const crossLineSource = [
+      '[00:08] comparing myself to everyone else, I will never be able to do',
+      '[00:14] that. My parents always sat me down and said look, Nick.',
+    ].join('\n');
+    const crossLineFrenchDraft = [
+      '[00:08] je me comparais à tout le monde, je ne serai jamais capable de le faire',
+      "[00:14] . Mes parents m'ont toujours fait asseoir et m'ont dit : écoute, Nick.",
+    ].join('\n');
+
+    const cleanedCrossLine = postProcessTranslateOutput(crossLineFrenchDraft, crossLineSource);
+    expect(cleanedCrossLine).toBe(
+      [
+        '[00:08] je me comparais à tout le monde, je ne serai jamais capable de le faire.',
+        "[00:14] Mes parents m'ont toujours fait asseoir et m'ont dit : écoute, Nick.",
+      ].join('\n')
+    );
+
+    // Hindi Devanagari danda (।), French guillemets (« »), and unindented translated Q&A ("R: ...") render cleanly
+    const hindiAndQaSample = [
+      'सफलता आत्मविश्वास से शुरू होती है।',
+      '',
+      '« Croire en soi change tout »',
+      '',
+      'Preguntas de comprensión',
+      '• P: ¿Por qué mantener pequeña la caché?',
+      'R: Para no saturar la memoria disponible.',
+    ].join('\n');
+
+    const html = renderToStaticMarkup(React.createElement(FormattedContent, { text: hindiAndQaSample }));
+    // Neither the Hindi sentence ending in "।" nor the guillemet quote is misclassified as a heading
+    expect((html.match(/<h[34]/g) ?? []).length).toBe(1);
+    expect(html).toContain('Preguntas de comprensión');
+    // "R: ..." stays inside the single <li> item under "• P: ..."
+    expect((html.match(/<li/g) ?? []).length).toBe(1);
+    expect(html).toContain('R: Para no saturar la memoria disponible.');
+  });
 });

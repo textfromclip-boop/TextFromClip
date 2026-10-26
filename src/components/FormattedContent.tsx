@@ -146,11 +146,11 @@ function isPlainHeadingCandidate(line: string): boolean {
     NUMBERED_ITEM_REGEX.test(t) ||
     /^\d+\s*\/\s*\d+\b/.test(t) ||
     TIMESTAMP_LINE_REGEX.test(t) ||
-    /^["“'‘\[]/.test(t)
+    /^["“'‘«„「『\[]/.test(t)
   ) {
     return false;
   }
-  return !/[.。!！;]$/.test(t);
+  return !/[.。।!！;؛]$/.test(t);
 }
 
 export function renderInlineFormatting(text: string): React.ReactNode {
@@ -276,10 +276,11 @@ function parseStructuredNodes(rawText: string): StructuredNode[] {
             if (bm) {
               items.push((bm[1] ?? bm[2] ?? '').trim());
               i++;
-              // Attach indented continuation lines (such as "  A: ..." in Study Notes)
+              // Attach indented continuation lines or translated Q&A answer lines (e.g. "  A: ...", "R: ...", "ج: ...")
               while (
                 i < lines.length &&
-                /^[ \t]{2,}\S/.test(lines[i]) &&
+                (/^[ \t]{2,}\S/.test(lines[i]) ||
+                  /^[ \t]*(?:A|R|ج|答|Ответ|उत्तर)\s*[:：]\s*\S/iu.test(lines[i])) &&
                 !BULLET_ITEM_REGEX.test(lines[i]) &&
                 !NUMBERED_ITEM_REGEX.test(lines[i])
               ) {

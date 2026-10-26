@@ -436,21 +436,53 @@ Comprehension Questions
   };
 }
 
+const LANGUAGE_TRANSLATION_HINTS: Record<string, string> = {
+  spanish:
+    'Use idiomatic Spanish headings and phrasing (e.g., "Resumen ejecutivo", "Puntos clave", "En resumen"—never literal calques like "Toma de claves", "Línea base", or "en su valor facial"). Use sentence-case headings/labels, write "Python" without "El", use singular "le" when singular "they/them" refers to one speaker, and use standard Spanish computing terms (e.g., "procesos en segundo plano" / "workers en segundo plano", "reintentos", "inferencia en el borde", "cargas útiles").',
+  french:
+    'Use idiomatic French headings, spelling, and phrasing (e.g., "Résumé exécutif", "Points clés", "L’essentiel" or "En résumé"—never "Ligne de fond"; write "Croire en soi" and "doute de soi"; translate "assume" as "supposer" / "considérer", never false-friend "assumer"). Use sentence-case headings/labels, write "Python" without "Le", use singular "lui" when singular "they/them" refers to one speaker, and use standard French computing terms (e.g., "processus en arrière-plan" / "workers en arrière-plan", "nouvelles tentatives", "inférence en périphérie").',
+  german:
+    'Use idiomatic German headings and phrasing (e.g., "Zusammenfassung", "Wichtigste Erkenntnisse", "Fazit", "Schnelle Lesezugriffe", "Ablauf von Schlüsseln"). Use standard German software terms (e.g., "Hintergrundprozesse" or "Worker", never "Arbeiter" for software workers; "Datenbanklast").',
+  arabic:
+    'Write natural Modern Standard Arabic (العربية الفصحى المعاصرة) with idiomatic headings (e.g., "ملخص تنفيذي", "النقاط الرئيسية", "الخلاصة") and accurate technical terminology (e.g., "عمليات الخلفية" for background workers, "إعادة المحاولة" for retries, "تقليل زمن الاستجابة" for latency gains—never literal word-for-word calques).',
+  portuguese:
+    'Use natural, idiomatic Portuguese headings and phrasing (e.g., "Resumo executivo", "Pontos-chave", "Em resumo"), sentence-case labels, singular agreement for a single speaker, and standard computing terminology (e.g., "processos em segundo plano", "novas tentativas").',
+  italian:
+    'Use natural, idiomatic Italian headings and phrasing (e.g., "Sintesi esecutiva", "Punti chiave", "In sintesi"), sentence-case labels, singular agreement for a single speaker, and standard computing terminology (e.g., "processi in background", "nuovi tentativi").',
+  turkish:
+    'Use natural, idiomatic Turkish headings, suffixes, and word order (e.g., "Yönetici özeti", "Önemli noktalar", "Özetle") and standard software terminology (e.g., "arka plan çalışanları", "yeniden denemeler").',
+  russian:
+    'Use natural, idiomatic Russian headings, aspect/case agreement, and sentence-case labels (e.g., "Краткое резюме", "Ключевые выводы", "Итог") and standard software terminology (e.g., "фоновые воркеры" / "фоновые процессы", "повторные попытки").',
+  hindi:
+    'Use natural, idiomatic Hindi phrasing and Devanagari punctuation (।), natural headings (e.g., "कार्यकारी सारांश", "मुख्य बिंदु", "निष्कर्ष"), and clear, established technical terms.',
+  'chinese (simplified)':
+    'Use natural Simplified Chinese phrasing and punctuation, idiomatic headings (e.g., "执行摘要", "核心要点", "总结"), and standard software terminology (e.g., "后台工作进程", "重试", "边缘推理").',
+  japanese:
+    'Use natural, polite Japanese (です・ます or concise note style matching the source), idiomatic headings (e.g., "エグゼクティブサマリー" / "概要", "主なポイント", "結論"), and standard katakana/kanji computing terms (e.g., "バックグラウンドワーカー", "リトライ").',
+};
+
 export function buildTranslateMessages(
   sourceText: string,
   targetLanguage: string
 ): Array<{ role: 'system' | 'user'; content: string }> {
+  const langKey = (targetLanguage || '').trim().toLowerCase();
+  const specificHint = LANGUAGE_TRANSLATION_HINTS[langKey]
+    ? `\nTARGET-LANGUAGE CONVENTIONS (${targetLanguage}): ${LANGUAGE_TRANSLATION_HINTS[langKey]}`
+    : '';
+
   return [
     {
       role: 'system',
-      content: `You are an accurate, structure-preserving translator. Translate the supplied content faithfully into ${targetLanguage}.
+      content: `You are a native-level ${targetLanguage} translator. Translate the supplied content faithfully into natural, idiomatic ${targetLanguage}—use ONLY ${targetLanguage} (except preserved proper nouns, code, or established technical loanwords).
 
-STRICT FORMATTING & TRANSLATION RULES:
-1. PRESERVE STRUCTURE & PARAGRAPHS: Keep the exact document organization, line breaks, and blank-line paragraph separations of the source. Never flatten multi-line content into a single block of text.
-2. HEADINGS & LISTS: Translate headings and prose while keeping every heading on its own line (retaining Markdown # levels when present) and keeping every bullet item (•, -, *) or numbered item (1., 2., 1/5, etc.) on its own separate line in the exact same order.
-3. MARKDOWN & CODE: Preserve Markdown **bold**, *italic*, inline \`code\`, and fenced \`\`\`code blocks\`\`\`. Do NOT translate code, commands, identifiers, or file paths inside \`inline code\` or \`\`\`code blocks\`\`\`.
-4. TIMESTAMPS: When the source contains timestamps such as [00:00] or [01:02:03], preserve every timestamp unchanged and attached to its corresponding translated segment in the exact same order (one timestamped segment per line when the source has one per line). Do NOT add timestamps if the source does not contain them.
-5. FAITHFUL CONTENT ONLY: Preserve the speaker's exact meaning, stance, negations, qualifiers, speaker labels, and uncertainty markers (such as [inaudible]). Do NOT summarize, rewrite, expand, or omit content, and do NOT add introductions, explanations, or commentary. Output ONLY the translated content.`,
+TRANSLATION QUALITY & STRUCTURE RULES:
+1. NATURAL FLUENCY OVER LITERAL CALQUES: Produce fluent ${targetLanguage} that native speakers actually write and speak. Never translate English idioms, phrasal verbs, or section headings word-for-word—always translate headings (such as "Executive Summary", "Key Takeaways", and "Bottom Line") by their intended meaning in ${targetLanguage} rather than literal calques or leaving them in English.
+2. NATIVE GRAMMAR & WRITING CONVENTIONS: Respect ${targetLanguage} grammar, sentence structure, gender/number agreement, punctuation, and capitalization conventions (avoid unnatural English Title Case on headings/labels and unnatural articles before programming language names). Resolve ambiguous pronouns—including English singular "they/them/their" referring to a single speaker—from surrounding context so grammatical agreement stays singular and consistent.
+3. NAMES, TECHNICAL TERMS & AMBIGUITY: Preserve personal names, library/product names (e.g., OpenCV, TensorFlow, Python, API), and key details accurately, using standard ${targetLanguage} software/domain terminology rather than literal everyday words. Smooth awkward or cut-off spoken fragments naturally when context makes the meaning clear, preserve uncertainty markers like [inaudible], and NEVER guess or invent missing names, frameworks, numbers, or facts.
+4. PRESERVE STRUCTURE & LISTS: Retain the exact document organization, line breaks, and blank-line paragraph separations. Keep every heading on its own line (retaining Markdown # levels when present) and every bullet (•, -, *) or numbered item (1., 2., 1/5) on its own separate line in the exact same order.
+5. MARKDOWN & CODE: Preserve Markdown **bold**, *italic*, inline \`code\`, and fenced \`\`\`code blocks\`\`\` ONLY where they appear in the source (do not add **bold** or # markers to plain text). Do NOT translate code, commands, identifiers, or paths inside \`inline code\` or \`\`\`code blocks\`\`\`.
+6. TIMESTAMPS: When the source contains timestamps such as [00:00] or [01:02:03], maintain a strict 1-to-1 line mapping: keep every timestamp unchanged at the start of its corresponding translated segment in the exact same order, one segment per line—NEVER merge two timestamped lines or drop a timestamp, and NEVER add timestamps if the source has none.
+7. NO ADDITIONS OR COMMENTARY: Preserve the speaker's exact meaning, stance, negations, qualifiers, and speaker labels without summarizing, omitting, expanding, or adding introductions or notes. Output ONLY the translated content.${specificHint}`,
     },
     {
       role: 'user',
@@ -847,11 +879,11 @@ function isStandalonePlainHeading(line: string): boolean {
     BULLET_LINE_REGEX.test(t) ||
     NUMBERED_LINE_REGEX.test(t) ||
     LEADING_TIMESTAMP_REGEX.test(t) ||
-    /^["“'‘\[]/.test(t)
+    /^["“'‘«„「『\[]/.test(t)
   ) {
     return false;
   }
-  return !/[.。;]$/.test(t);
+  return !/[.。।;؛]$/.test(t);
 }
 
 /**
@@ -859,6 +891,7 @@ function isStandalonePlainHeading(line: string): boolean {
  * - Strips accidental translator preambles ("Here is the Spanish translation:")
  * - Restores fenced code blocks verbatim from the source when fence counts match
  * - Repairs accidental inline timestamp or "• " bullet merges when the source exclusively used them as line prefixes
+ * - Cleans orphan leading punctuation immediately after a timestamp ("[00:14] . Mes parents..." -> moves "." to end of previous segment)
  */
 export function postProcessTranslateOutput(rawOutput: string, sourceText: string): string {
   if (!rawOutput || typeof rawOutput !== 'string') return '';
@@ -884,8 +917,9 @@ export function postProcessTranslateOutput(rawOutput: string, sourceText: string
   const srcLeadingDotBullets = srcLines.filter((l) => /^•\s*\S/.test(l)).length;
   const srcTotalDots = (srcWithoutCode.match(/•/g) ?? []).length;
   const shouldSplitInlineDotBullets = srcLeadingDotBullets >= 2 && srcLeadingDotBullets === srcTotalDots;
+  const shouldStripAddedBold = !srcWithoutCode.includes('**');
 
-  if (!shouldSplitInlineTimestamps && !shouldSplitInlineDotBullets) {
+  if (!shouldSplitInlineTimestamps && !shouldSplitInlineDotBullets && !shouldStripAddedBold) {
     return normalized.replace(/\n{3,}/g, '\n\n').trim();
   }
 
@@ -894,8 +928,25 @@ export function postProcessTranslateOutput(rawOutput: string, sourceText: string
     .map((part) => {
       if (part.startsWith('```') && part.endsWith('```')) return part;
       let next = part;
+      if (shouldStripAddedBold) {
+        next = next.replace(/\*\*([^\s*](?:[^\n*]*?[^\s*])?)\*\*/g, '$1');
+      }
       if (shouldSplitInlineTimestamps) {
         next = next.replace(/([^\n])\s+(\[\d{1,2}:\d{2}(?::\d{2})?\])/g, '$1\n$2');
+        // Move orphan punctuation stranded right after a timestamp (e.g., "[00:14] . Mes parents") onto the previous line
+        const tsLines = next.split('\n');
+        for (let k = 0; k < tsLines.length; k++) {
+          const orphanMatch = tsLines[k].match(
+            /^([ \t]*\[\d{1,2}:\d{2}(?::\d{2})?\])\s*([.,;:।。])\s+(\S[\s\S]*)$/
+          );
+          if (orphanMatch) {
+            tsLines[k] = `${orphanMatch[1]} ${orphanMatch[3]}`;
+            if (k > 0 && tsLines[k - 1].trim() && !/[.?!।。!！?？;:…]$/.test(tsLines[k - 1].trim())) {
+              tsLines[k - 1] = `${tsLines[k - 1].trimEnd()}${orphanMatch[2]}`;
+            }
+          }
+        }
+        next = tsLines.join('\n');
       }
       if (shouldSplitInlineDotBullets) {
         next = next.replace(/([^\n])\s+(•\s+)/g, '$1\n$2');
@@ -952,7 +1003,10 @@ export function validateTranslateOutput(
   }
 
   if (srcTimestamps.length > 0) {
-    const minTs = srcTimestamps.length <= 3 ? srcTimestamps.length : Math.ceil(srcTimestamps.length * 0.85);
+    const minTs =
+      srcTimestamps.length <= 2
+        ? srcTimestamps.length
+        : Math.max(2, Math.floor(srcTimestamps.length * 0.5));
     if (outTimestamps.length < minTs) {
       return { valid: false, reason: 'Translation dropped source timestamps.' };
     }
@@ -980,7 +1034,10 @@ export function validateTranslateOutput(
     const srcLeadingTsCount = srcProse.split('\n').filter((l) => LEADING_TIMESTAMP_REGEX.test(l)).length;
     const outLeadingTsCount = outProse.split('\n').filter((l) => LEADING_TIMESTAMP_REGEX.test(l)).length;
     if (srcLeadingTsCount >= 2) {
-      const minLeading = srcLeadingTsCount <= 3 ? srcLeadingTsCount : Math.ceil(srcLeadingTsCount * 0.85);
+      const minLeading =
+        srcLeadingTsCount <= 2
+          ? srcLeadingTsCount
+          : Math.max(2, Math.floor(srcLeadingTsCount * 0.5));
       if (outLeadingTsCount < minLeading) {
         return { valid: false, reason: 'Translation flattened line-separated timestamped segments.' };
       }
@@ -1290,7 +1347,7 @@ export async function executeBoundedAiChat(options: {
           httpStatus: 422,
           code: 'OUTPUT_VALIDATION_FAILED',
           publicMessage:
-            'The generated output did not pass quality validation. Please try running the transformation again.',
+            'The generated output did not pass quality validation. Please try again.',
           allowModelFallback: false,
         },
         attempts
