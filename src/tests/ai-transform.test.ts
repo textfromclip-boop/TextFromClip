@@ -471,3 +471,117 @@ describe('7 & 8. Bounded fallback, cost controls, and HTTP endpoint behavior wit
     expect(neverCalledSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('9. Meaning preservation, incomplete speech, and exact-quote regressions', () => {
+  const cvTranscript =
+    'We capture camera frames with OpenCV and run classification with TensorFlow. Python is commonly used to build server-side applications like web apps with the framework. Keep the request payload small so latency stays low.';
+
+  const analogyTranscript =
+    'A cache is basically a sticky note on your monitor so you do not walk down to the basement filing cabinet every five minutes. Keep the sticky note small or it covers your screen.';
+
+  it('1 & 2. instructs prompts against absent libraries/entities and against guessing missing details in incomplete phrases', () => {
+    for (const mode of ['summary', 'script', 'blog', 'thread', 'notes'] as const) {
+      const spec = buildTransformPrompt(mode, 'Vision Pipeline', cvTranscript, 36);
+      const sys = spec.messages[0].content;
+
+      // Forbids introducing absent libraries, frameworks, or named entities
+      expect(sys).toMatch(/Do NOT introduce any facts, examples, named entities, libraries, frameworks/i);
+      // Instructs rewriting incomplete speech naturally without guessing omitted frameworks/names
+      expect(sys).toMatch(/omit or generalize unrecoverable fragments/i);
+      expect(sys).toMatch(/NEVER guess which framework or name was omitted/i);
+    }
+
+    // Exact-quote validator also rejects quotes injecting absent libraries (RAPIDS) or guessed frameworks (Django)
+    expect(
+      verifyQuoteAgainstTranscript(
+        'We capture camera frames with OpenCV, TensorFlow, and RAPIDS',
+        cvTranscript
+      )
+    ).toBe(false);
+    expect(
+      verifyQuoteAgainstTranscript(
+        'build server-side applications like web apps with the Django framework',
+        cvTranscript
+      )
+    ).toBe(false);
+  });
+
+  it('3. instructs prompts to preserve the speaker’s own explanations rather than replacing them with textbook definitions', () => {
+    const notesSpec = buildTransformPrompt('notes', 'Caching Intro', analogyTranscript, 35);
+    const sys = notesSpec.messages[0].content;
+    const userTask = notesSpec.messages[1].content;
+
+    expect(sys).toMatch(
+      /Do NOT silently correct, challenge, or replace the speaker's explanations with textbook definitions/i
+    );
+    expect(userTask).toMatch(
+      /preserving what the speaker actually taught—do NOT silently replace the speaker's explanations or analogies with independent textbook definitions/i
+    );
+  });
+
+  it('4. rejects combined/spliced statements inside Exact Quotations while keeping genuine continuous quotes', () => {
+    // Spliced across non-adjacent sentences without ellipsis
+    expect(
+      verifyQuoteAgainstTranscript(
+        'We capture camera frames with OpenCV Keep the request payload small',
+        cvTranscript
+      )
+    ).toBe(false);
+
+    // Spliced using mid-quote ellipsis
+    expect(
+      verifyQuoteAgainstTranscript(
+        'We capture camera frames with OpenCV ... and run classification with TensorFlow',
+        cvTranscript
+      )
+    ).toBe(false);
+
+    const rawNotes = [
+      'Core Topic',
+      'The speaker explains caching using a monitor sticky-note analogy.',
+      '',
+      'Key Concepts & Definitions',
+      '• Cache: Described by the speaker as a sticky note on your monitor that avoids trips to a basement filing cabinet.',
+      '',
+      'Exact Quotations',
+      '• "A cache is basically a sticky note on your monitor"',
+      '• "A cache is basically a sticky note ... Keep the sticky note small"',
+      '• "A CPU L1 cache stores 64-byte cache lines using LRU eviction"',
+      '',
+      'Comprehension Questions',
+      '• Q: Why does the speaker say to keep the sticky note small?',
+      '  A: Otherwise it covers up your monitor screen.',
+    ].join('\n');
+
+    const processed = postProcessTransformOutput(rawNotes, 'notes', analogyTranscript);
+    expect(processed).toContain('• "A cache is basically a sticky note on your monitor"');
+    expect(processed).not.toContain('sticky note ... Keep');
+    expect(processed).not.toContain('CPU L1 cache');
+  });
+
+  it('5. keeps all five output formats (summary, script, blog, thread, notes) working end-to-end', async () => {
+    const threadResponse = [
+      '1/3 Most slow apps repeat the same expensive lookup over and over.',
+      '2/3 Think of a cache like a sticky note on your monitor so you avoid walking to the basement filing cabinet every five minutes.',
+      '3/3 Keep that sticky note small so it never clutters your screen.',
+    ].join('\n\n');
+
+    const runSpy = vi.fn().mockResolvedValue({ response: threadResponse });
+    const res = await app.request(
+      '/api/transform',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: analogyTranscript, videoTitle: 'Caching Analogy', mode: 'thread' }),
+      },
+      { AI: { run: runSpy } } as any
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.data.mode).toBe('thread');
+    expect(json.data.result).toContain('1/3');
+    expect(json.data.result).toContain('sticky note on your monitor');
+  });
+});

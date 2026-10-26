@@ -215,14 +215,14 @@ export function budgetTranscriptForPrompt(
   };
 }
 
-const SHARED_SYSTEM_PROMPT = `You are a careful editorial analyst working strictly from a supplied video transcript.
+const SHARED_SYSTEM_PROMPT = `You transform video transcripts into clear, useful written formats while faithfully preserving the speaker's meaning.
 
-STRICT GROUNDING & STANCE RULES:
-1. SOURCE BOUNDARY: Use ONLY claims, definitions, examples, numbers, and conclusions explicitly stated in the Transcript. Use the Video Title only for proper-noun spelling—never import outside biography, textbook definitions, historical facts, or external context. If a concept is mentioned without explanation, report only what was said and do NOT speculate or add "implying that..." interpretations.
-2. NEUTRAL STANCE FIDELITY: Represent the speaker's actual position faithfully—including controversial, unconventional, or strong claims—without softening, reversing, exaggerating, or endorsing them. Clearly distinguish the speaker's claims ("The speaker argues...", "According to the video...") from established facts and avoid editorializing.
-3. UNCERTAINTY & ASR ARTIFACTS: Preserve uncertainty when the transcript is ambiguous, marked [inaudible]/[unclear], or potentially mistranscribed. Never invent facts to fill gaps.
-4. QUOTATION INTEGRITY: Never invent quotations, never attribute paraphrases as direct quotes, and never claim a quotation has been independently verified beyond the transcript.
-5. PROPORTIONAL PLAIN TEXT: Match output length to the source's word count and information density—never pad short transcripts with filler. Output clean plain text without Markdown **bold** or ### heading markers (preserve code syntax unchanged if the transcript discusses code).`;
+CORE TRANSFORMATION RULES:
+1. SOURCE OF TRUTH: Treat the supplied Transcript as your sole source of facts. Preserve the speaker's claims, explanations, analogies, opinions, technical terms, names, and intended meaning. Reorganize, condense, and rewrite naturally to fit the requested format—do NOT copy the transcript word-for-word except inside labeled exact quotations.
+2. NO UNSUPPORTED ADDITIONS OR SILENT CORRECTIONS: Do NOT introduce any facts, examples, named entities, libraries, frameworks, tools, products, people, statistics, or technical details absent from the Transcript—even if they are commonly associated with the topic. Do NOT silently correct, challenge, or replace the speaker's explanations with textbook definitions or your own outside knowledge.
+3. INCOMPLETE SPEECH & FRAGMENTS: Transcripts often contain cut-off phrases, missing words, and speech-recognition stumbles. Rewrite incomplete sentences naturally when the intended meaning is clear from surrounding context, and omit or generalize unrecoverable fragments when that preserves the main point (for example, rewrite "build server-side apps like web apps with the framework" as "build server-side web applications"—NEVER guess which framework or name was omitted).
+4. QUOTATION INTEGRITY: Never invent quotations, never combine separate statements into one quotation, and never present a paraphrase inside quotation marks as a direct quote.
+5. PROPORTIONAL PLAIN TEXT: Match length to the transcript's substance without padding. Output clean plain text without Markdown **bold** or ### heading markers (preserve code syntax unchanged if the transcript discusses code).`;
 
 export function buildTransformPrompt(
   rawMode: string,
@@ -254,22 +254,22 @@ export function buildTransformPrompt(
             ? '5 to 7'
             : '4 to 6';
 
-      taskInstruction = `Produce a faithful, non-repetitive summary scaled to this ${wordCount}-word transcript using these exact plain-text headings:
+      taskInstruction = `Produce a clear, non-repetitive Executive Summary scaled to this ${wordCount}-word transcript using these exact plain-text headings:
 
 Executive Summary
-Write ${overviewLen} stating the central subject and principal claim attributed to the speaker.
+Write ${overviewLen} capturing the central topic and main message of the speaker.
 
 Key Takeaways
 Provide ${bulletRange} bullet points starting with "• <Short Label>: ".
-Capture the principal argument, key supporting points, important qualifications, and any stated controversies or conditions in logical order. Preserve timestamps or speaker names when present and helpful. Every bullet must add distinct substance not already stated in the Executive Summary.
+Capture the main points, the speaker's own explanations, and important qualifications in logical order without adding outside details. Every bullet must add distinct substance not already stated in the Executive Summary.
 
 Bottom Line
-Write 1 concise sentence stating the speaker's final conclusion or closing question without repeating the wording of the Executive Summary.`;
+Write 1 concise sentence capturing the speaker's final takeaway or closing thought without repeating the wording of the Executive Summary.`;
       break;
     }
 
     case 'script': {
-      temperature = 0.3;
+      temperature = 0.35;
       maxTokens = isVeryShort ? 320 : 600;
       const wordTarget = isVeryShort
         ? '45 to 75 spoken words'
@@ -277,13 +277,13 @@ Write 1 concise sentence stating the speaker's final conclusion or closing quest
           ? '95 to 135 spoken words'
           : '130 to 165 spoken words';
 
-      taskInstruction = `Rewrite this transcript into a natural spoken narration script (${wordTarget}) grounded strictly in the source.
+      taskInstruction = `Adapt this transcript into an engaging spoken narration script (${wordTarget}) with strong spoken flow.
 
-STRICT SCRIPT RULES:
-- Write 100% spoken narration sentences—NO bullet points, NO stage/camera directions like "(Cut to...)" or "(Music plays)", NO speaker labels like "Narrator:", and NO placeholders like "(insert link)".
-- Open HOOK with a compelling, source-faithful claim, tension, or question drawn directly from the transcript (avoid generic clichés like "Meet [Name]", "dared to challenge the status quo", "not for the faint of heart", or "in today's world").
-- Preserve the speaker's central argument, important qualifications, and conclusion accurately without reversing which ideas the speaker defends vs. criticizes.
-- Do not promise a video duration unsupported by the script's actual word count.
+SCRIPT GUIDELINES:
+- Write 100% natural spoken sentences—NO bullet points, NO stage/camera directions like "(Cut to...)" or "(Music plays)", NO speaker labels like "Narrator:", and NO placeholders like "(insert link)".
+- Open HOOK with a compelling question, tension, or bold point rooted in the speaker's message (avoid generic clichés like "Meet [Name]", "dared to challenge the status quo", or "in today's world").
+- Creative transitions, pacing, and conversational framing suited to short-form voiceover are welcome, provided they preserve the speaker's intended meaning and never invent facts, entities, or claims absent from the transcript.
+- Preserve the central argument and conclusion without promising a video duration unsupported by the script's word count.
 
 Use these exact plain-text section headers:
 HOOK
@@ -293,7 +293,7 @@ BODY
 <1 to 3 short spoken paragraphs—sentences only, zero bullets>
 
 CTA
-<1 to 2 spoken sentences ending with a viewer question grounded in the transcript>`;
+<1 to 2 spoken sentences ending with an engaging viewer question tied to the speaker's message>`;
       break;
     }
 
@@ -301,19 +301,19 @@ CTA
       temperature = 0.25;
       maxTokens = isVeryShort ? 320 : isShort ? 550 : 950;
       const lengthGuide = isVeryShort
-        ? '80 to 130 words total (brief note—do not inflate beyond the source)'
+        ? '80 to 130 words total (concise note—do not inflate beyond the source)'
         : isShort
-          ? '175 to 245 words total (tight brief—do not pad with filler)'
+          ? '175 to 245 words total (tight article—do not pad with filler)'
           : isLong
             ? '450 to 650 words total'
             : '280 to 420 words total';
 
-      taskInstruction = `Turn this transcript into a clear, well-structured article (${lengthGuide}).
+      taskInstruction = `Organize this transcript into a clear, readable blog article (${lengthGuide}).
 
-STRICT ARTICLE RULES:
-- Match article length to the transcript's actual information density—avoid generic essay introductions, filler transitions, repeated arguments, and unsupported background facts.
-- Attribute claims and controversial positions accurately to the speaker ("The speaker argues...", "According to the video...") while preserving all important qualifications.
-- If the introduction raises a question or tension, answer it directly using the reasons stated in the transcript.
+ARTICLE GUIDELINES:
+- Group related ideas into logical, easy-to-scan sections without generic essay introductions, filler transitions, repeated arguments, or unsupported background information.
+- Preserve the speaker's actual explanations, opinions, and qualifications rather than replacing them with outside knowledge or adding unnamed tools/examples.
+- Rewrite incomplete spoken fragments smoothly without guessing missing specifics.
 - Structure: Line 1 is a specific Headline, followed by a concise Introduction, ${isVeryShort ? '1 to 2' : '2 to 3'} Subheadings, and a short Conclusion reflecting the speaker's closing point.`;
       break;
     }
@@ -322,11 +322,12 @@ STRICT ARTICLE RULES:
       temperature = 0.25;
       maxTokens = isVeryShort ? 380 : 650;
       const postCount = isVeryShort ? 3 : isShort ? 5 : 6;
-      taskInstruction = `Turn this transcript into a ${postCount}-post social thread.
+      taskInstruction = `Adapt this transcript into a ${postCount}-post social media thread.
 - Number each post (1/${postCount}, 2/${postCount}, etc.).
-- Post 1/${postCount} must open with a source-faithful hook drawn from the transcript's central claim.
-- Middle posts must unpack distinct supporting points and qualifications attributed accurately to the speaker without external filler.
-- Post ${postCount}/${postCount} must end with the speaker's conclusion or closing question.`;
+- Give every post a distinct purpose so no two posts repeat the same point.
+- Post 1/${postCount} must hook readers with the speaker's central claim or question.
+- Middle posts must each cover a separate supporting point or explanation from the speaker without introducing outside facts or unnamed entities.
+- Post ${postCount}/${postCount} must wrap up with the speaker's conclusion or closing takeaway.`;
       break;
     }
 
@@ -336,21 +337,21 @@ STRICT ARTICLE RULES:
       const quoteRange = isVeryShort ? '1 to 2' : isShort ? '2 to 4' : '3 to 5';
       const qaCount = isVeryShort ? '2' : '3';
 
-      taskInstruction = `Create faithful Study Notes strictly from the transcript using these exact plain-text headings:
+      taskInstruction = `Create clear Study Notes to help users review what the speaker taught, using these exact plain-text headings:
 
 Core Topic
-1 concise sentence attributing the central topic and purpose to the speaker/video.
+1 concise sentence summarizing what the speaker teaches or argues in the video.
 
 Key Concepts & Definitions
-• <Concept>: <Concise attributed definition, premise, or qualification stated in the transcript. Keep these paraphrased notes strictly grounded in the source—do NOT invent unstated definitions, editorial speculations, or unsupported action items.>
+• <Concept or Term>: <Clear, concise study-note explanation preserving what the speaker actually taught—do NOT silently replace the speaker's explanations or analogies with independent textbook definitions, do NOT invent missing details, and save direct quotes for the section below.>
 
 Exact Quotations
-• "<Exact contiguous passage copied word-for-word from the transcript>"
-(Include ${quoteRange} quotations ONLY if exact wording is clear in the transcript. Keep exact quotations strictly separate from paraphrases. Do NOT alter words, drop negations/qualifiers, or silently rewrite mistranscribed words inside quotation marks.)
+• "<Single continuous passage copied word-for-word from the transcript>"
+(Include ${quoteRange} quotations ONLY where exact wording appears clearly in the transcript. Do NOT invent quotes, do NOT combine separate statements into one quote, and do NOT place paraphrases inside quotation marks.)
 
 Comprehension Questions
-• Q: <Specific question testing a core claim, condition, or distinction in the transcript>
-  A: <Concise 1-sentence answer grounded strictly in the transcript>
+• Q: <Specific review question testing a key concept, explanation, or distinction taught by the speaker>
+  A: <Concise 1-sentence answer reflecting the speaker's explanation>
 (Include ${qaCount} Q&A pairs.)`;
       break;
     }
@@ -501,6 +502,11 @@ function tokenizeForContiguousMatch(input: string): NormalizedTokenStream {
  */
 export function verifyQuoteAgainstTranscript(quote: string, sourceTranscript: string): boolean {
   if (!quote || !sourceTranscript) return false;
+
+  // Reject quotes that splice separate statements together using mid-quote ellipses
+  if (/\S\s*(?:\.\.\.|…)\s*\S/.test(quote) && !/\S\s*(?:\.\.\.|…)\s*\S/.test(sourceTranscript)) {
+    return false;
+  }
 
   const qStream = tokenizeForContiguousMatch(quote);
   const qTokens = qStream.tokens;
