@@ -6,11 +6,14 @@ import { checkRateLimit } from './utils/rate-limiter';
 import { ProviderRegistry } from './providers/registry';
 import {
   cleanTranscriptForAi,
+  cleanTextForTranslation,
   budgetTranscriptForPrompt,
   buildTransformPrompt,
   buildTranslateMessages,
   postProcessTransformOutput,
+  postProcessTranslateOutput,
   validateTransformOutput,
+  validateTranslateOutput,
   isValidTransformMode,
   executeBoundedAiChat,
   BoundedAiError,
@@ -483,8 +486,8 @@ app.post('/api/translate', async (c) => {
     );
   }
 
-  const { cleanedText } = cleanTranscriptForAi(rawText);
-  if (!cleanedText) {
+  const { cleanedText, hasMeaningfulContent } = cleanTextForTranslation(rawText);
+  if (!cleanedText || !hasMeaningfulContent) {
     return c.json(
       {
         success: false,
@@ -511,17 +514,36 @@ app.post('/api/translate', async (c) => {
   let clipped = cleanedText;
   if (isTruncated) {
     const cut = cleanedText.slice(0, DEFAULT_TRANSLATE_BUDGET_CHARS);
+    const lastNewline = cut.lastIndexOf('\n');
     const lastSpace = cut.lastIndexOf(' ');
-    clipped = (lastSpace > DEFAULT_TRANSLATE_BUDGET_CHARS - 80 ? cut.slice(0, lastSpace) : cut).trim();
+    if (lastNewline > DEFAULT_TRANSLATE_BUDGET_CHARS - 350) {
+      clipped = cut.slice(0, lastNewline).trim();
+    } else if (lastSpace > DEFAULT_TRANSLATE_BUDGET_CHARS - 80) {
+      clipped = cut.slice(0, lastSpace).trim();
+    } else {
+      clipped = cut.trim();
+    }
+    // Close any trailing unclosed Markdown code fence caused by length truncation
+    const fenceMarkers = clipped.match(/```/g) ?? [];
+    if (fenceMarkers.length % 2 === 1) {
+      clipped = `${clipped}\n\`\`\``;
+    }
   }
 
+  const translateMaxTokens = Math.min(3072, Math.max(768, Math.ceil(clipped.length / 2.2)));
+
   try {
-    const { text: translated, modelUsed } = await executeBoundedAiChat({
+    const { text: translated, modelUsed, attempts } = await executeBoundedAiChat({
       ai: c.env.AI,
       messages: buildTranslateMessages(clipped, targetLanguage),
-      maxTokens: 1536,
+      maxTokens: translateMaxTokens,
       temperature: 0.15,
       maxTotalCalls: 3,
+      processAndValidate: (draft) => {
+        const processed = postProcessTranslateOutput(draft, clipped);
+        const validation = validateTranslateOutput(processed, clipped);
+        return { processed, validation };
+      },
     });
 
     const finalTranslated = isTruncated
@@ -535,6 +557,7 @@ app.post('/api/translate', async (c) => {
         targetLanguage,
         model: modelUsed,
         truncated: isTruncated,
+        attempts,
       },
     });
   } catch (err: unknown) {

@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { TranscriptResult, TranscriptSegment } from '../types';
 import { formatTimestamp, generateSrt, generateVtt } from '../server/utils/formatters';
-import { buildTranscriptScopeKey, createScopedResultCache } from '../utils/transformCache';
+import { buildTranscriptScopeKey, createScopedResultCache, fnv1aHash } from '../utils/transformCache';
+import {
+  ContentTabKind,
+  FormattedContent,
+  parseTimestampedTranscript,
+  resolveTranslationSource,
+} from './FormattedContent';
 
 interface Props {
   result: TranscriptResult;
@@ -53,6 +59,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
 
   // Active tab & AI state
   const [activeTab, setActiveTab] = useState<ActiveTab>('original');
+  const [lastContentTab, setLastContentTab] = useState<ContentTabKind>('original');
   const [transformMenuOpen, setTransformMenuOpen] = useState(false);
   const [translateMenuOpen, setTranslateMenuOpen] = useState(false);
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
@@ -65,6 +72,8 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
 
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [translatedLang, setTranslatedLang] = useState<string>('');
+  const [translatedSourceKind, setTranslatedSourceKind] = useState<ContentTabKind>('original');
+  const [translatedSourceLabel, setTranslatedSourceLabel] = useState<string>('Transcript');
 
   const toolbarRef = useRef<HTMLDivElement>(null);
   const aiCacheRef = useRef(createScopedResultCache(30));
@@ -75,6 +84,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     setHasEdits(false);
     setIsEditing(false);
     setActiveTab('original');
+    setLastContentTab('original');
     setTransformedText(null);
     setTranslatedText(null);
     setAiError(null);
@@ -148,10 +158,19 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
       : paragraphs.map((p) => p.text).join('\n\n');
   }, [activeTab, transformedText, translatedText, showTimes, segments, paragraphs]);
 
+  const parsedTranslatedTimestamps = useMemo(
+    () =>
+      translatedText && translatedSourceKind === 'original'
+        ? parseTimestampedTranscript(translatedText)
+        : null,
+    [translatedText, translatedSourceKind]
+  );
+
   const handleSegmentChange = (id: number, newText: string) => {
     const next = segments.map((s) => (s.id === id ? { ...s, text: newText } : s));
     setSegments(next);
     setHasEdits(true);
+    setLastContentTab('original');
     setTransformedText(null);
     setTranslatedText(null);
     if (onUpdateResult) {
@@ -168,6 +187,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
   const resetEdits = () => {
     setSegments(result.segments);
     setHasEdits(false);
+    setLastContentTab('original');
     setTransformedText(null);
     setTranslatedText(null);
   };
@@ -205,6 +225,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     setAiError(null);
     setTransformLabel(opt.label);
     setActiveTab('transform');
+    setLastContentTab('transform');
 
     const reqScope = scopeKey;
     const cached = aiCacheRef.current.get(reqScope, 'transform', opt.id);
@@ -254,13 +275,26 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
   };
 
   const runTranslate = async (lang: string) => {
+    const resolved = resolveTranslationSource({
+      activeTab,
+      lastContentTab,
+      transformedText,
+      transformLabel,
+      showTimes,
+      segments,
+      paragraphs,
+    });
+
     setTranslateMenuOpen(false);
     setAiError(null);
     setTranslatedLang(lang);
+    setTranslatedSourceKind(resolved.sourceKind);
+    setTranslatedSourceLabel(resolved.sourceLabel);
     setActiveTab('translate');
 
     const reqScope = scopeKey;
-    const cached = aiCacheRef.current.get(reqScope, 'translate', lang);
+    const cacheSubKey = `${resolved.sourceKind}:${showTimes ? 'timed' : 'plain'}:${fnv1aHash(resolved.sourceText)}:${lang}`;
+    const cached = aiCacheRef.current.get(reqScope, 'translate', cacheSubKey);
     if (cached) {
       setTranslatedText(cached);
       setAiLoading(false);
@@ -275,7 +309,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          text: fullText,
+          text: resolved.sourceText,
           targetLanguage: lang,
         }),
       });
@@ -283,19 +317,19 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
       const outputText =
         typeof json?.data?.translatedText === 'string' ? json.data.translatedText.trim() : '';
       if (!res.ok || !json?.success || !outputText) {
-        throw new Error(json?.error?.message || 'Failed to translate transcript.');
+        throw new Error(json?.error?.message || 'Failed to translate content.');
       }
 
       if (latestScopeRef.current !== reqScope) {
         return;
       }
 
-      aiCacheRef.current.set(reqScope, 'translate', lang, outputText);
+      aiCacheRef.current.set(reqScope, 'translate', cacheSubKey, outputText);
       setTranslatedText(outputText);
     } catch (err: any) {
       if (latestScopeRef.current === reqScope) {
         setTranslatedText(null);
-        setAiError(err?.message || 'Could not translate transcript right now.');
+        setAiError(err?.message || 'Could not translate content right now.');
       }
     } finally {
       if (latestScopeRef.current === reqScope) {
@@ -394,7 +428,10 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
       <div className="px-5 sm:px-6 pt-3 border-b border-rule bg-surface flex items-center gap-6 text-sm font-semibold">
         <button
           type="button"
-          onClick={() => setActiveTab('original')}
+          onClick={() => {
+            setActiveTab('original');
+            setLastContentTab('original');
+          }}
           className={`pb-3 border-b-2 transition-colors ${
             activeTab === 'original'
               ? 'border-accent text-accent'
@@ -412,7 +449,10 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
         {(transformedText || (aiLoading && activeTab === 'transform')) && (
           <button
             type="button"
-            onClick={() => setActiveTab('transform')}
+            onClick={() => {
+              setActiveTab('transform');
+              setLastContentTab('transform');
+            }}
             className={`pb-3 border-b-2 transition-colors inline-flex items-center gap-1.5 ${
               activeTab === 'transform'
                 ? 'border-accent text-accent'
@@ -433,7 +473,12 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
                 : 'border-transparent text-muted hover:text-ink'
             }`}
           >
-            <span>🌐 {translatedLang || 'Translated'}</span>
+            <span>
+              🌐{' '}
+              {translatedSourceKind === 'transform'
+                ? `${translatedSourceLabel} (${translatedLang || 'Translated'})`
+                : translatedLang || 'Translated'}
+            </span>
           </button>
         )}
       </div>
@@ -446,6 +491,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
             type="button"
             onClick={() => {
               setActiveTab('original');
+              setLastContentTab('original');
               setShowTimes((prev) => !prev);
             }}
             className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl border border-rule bg-surface hover:border-slate-300 text-xs sm:text-sm font-semibold text-ink transition-colors"
@@ -470,6 +516,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
             type="button"
             onClick={() => {
               setActiveTab('original');
+              setLastContentTab('original');
               setIsEditing((prev) => !prev);
             }}
             className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border text-xs sm:text-sm font-semibold transition-colors ${
@@ -703,7 +750,7 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
             <p className="text-sm font-semibold text-ink">
               {activeTab === 'transform'
                 ? `Generating ${transformLabel}…`
-                : `Translating transcript into ${translatedLang}…`}
+                : `Translating ${translatedSourceLabel.toLowerCase()} into ${translatedLang}…`}
             </p>
           </div>
         ) : activeTab === 'transform' && transformedText ? (
@@ -720,15 +767,16 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
                 Download .TXT →
               </button>
             </div>
-            <div className="whitespace-pre-wrap text-[15px] text-ink leading-relaxed font-normal">
-              {transformedText}
-            </div>
+            <FormattedContent text={transformedText} />
           </div>
         ) : activeTab === 'translate' && translatedText ? (
-          <div className="p-6 sm:p-8 max-h-[68vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+          <div className="max-h-[68vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 sm:px-8 pt-6 pb-3 border-b border-slate-100">
               <span className="text-xs font-mono uppercase tracking-wider font-semibold text-accent">
-                🌐 Translated to {translatedLang}
+                🌐{' '}
+                {translatedSourceKind === 'transform'
+                  ? `${translatedSourceLabel} · ${translatedLang}`
+                  : `Translated to ${translatedLang}`}
               </span>
               <button
                 type="button"
@@ -738,9 +786,52 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
                 Download .TXT →
               </button>
             </div>
-            <div className="whitespace-pre-wrap text-[15px] text-ink leading-relaxed font-normal">
-              {translatedText}
-            </div>
+            {parsedTranslatedTimestamps ? (
+              <>
+                <ol
+                  dir={translatedLang === 'Arabic' ? 'rtl' : undefined}
+                  className="divide-y divide-slate-100"
+                >
+                  {parsedTranslatedTimestamps.items.map((item, idx) => (
+                    <li
+                      key={`${item.timestamp}-${idx}`}
+                      className="flex items-start gap-4 px-6 py-3.5 hover:bg-slate-50/80 transition-colors"
+                    >
+                      <span className="shrink-0 pt-0.5" dir="ltr">
+                        {result.provider === 'youtube' ? (
+                          <a
+                            href={`https://www.youtube.com/watch?v=${result.videoId}&t=${Math.floor(item.seconds)}s`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Open at this moment on YouTube"
+                            className="inline-block font-mono text-xs font-semibold px-2 py-1 rounded-md bg-accent-soft text-accent hover:bg-accent hover:text-white transition-colors"
+                          >
+                            {item.timestamp}
+                          </a>
+                        ) : (
+                          <span className="inline-block font-mono text-xs font-semibold px-2 py-1 rounded-md bg-accent-soft text-accent">
+                            {item.timestamp}
+                          </span>
+                        )}
+                      </span>
+                      <p className="text-[15px] text-ink leading-relaxed">{item.text}</p>
+                    </li>
+                  ))}
+                </ol>
+                {parsedTranslatedTimestamps.trailingNote && (
+                  <p className="px-6 py-3 text-xs text-muted border-t border-slate-100">
+                    {parsedTranslatedTimestamps.trailingNote}
+                  </p>
+                )}
+              </>
+            ) : (
+              <div
+                dir={translatedLang === 'Arabic' ? 'rtl' : undefined}
+                className="p-6 sm:p-8 pt-5"
+              >
+                <FormattedContent text={translatedText} />
+              </div>
+            )}
           </div>
         ) : visible.length === 0 ? (
           <p className="p-8 text-center text-muted">No transcript lines match “{q}”.</p>

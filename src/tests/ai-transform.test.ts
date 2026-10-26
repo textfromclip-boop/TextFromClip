@@ -1,12 +1,18 @@
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect, vi } from 'vitest';
 import app from '../server/index';
 import {
   cleanTranscriptForAi,
+  cleanTextForTranslation,
   budgetTranscriptForPrompt,
   buildTransformPrompt,
+  buildTranslateMessages,
   verifyQuoteAgainstTranscript,
   postProcessTransformOutput,
+  postProcessTranslateOutput,
   validateTransformOutput,
+  validateTranslateOutput,
   executeBoundedAiChat,
   MAX_TRANSCRIPT_INPUT_CHARS,
 } from '../server/utils/aiTransform';
@@ -14,6 +20,11 @@ import {
   buildTranscriptScopeKey,
   createScopedResultCache,
 } from '../utils/transformCache';
+import {
+  FormattedContent,
+  parseTimestampedTranscript,
+  resolveTranslationSource,
+} from '../components/FormattedContent';
 
 describe('1. Transcript cleaning, timeline preservation, and budgeting', () => {
   it('removes stage artifacts safely while preserving word order, speaker labels, code, and [inaudible]', () => {
@@ -583,5 +594,337 @@ describe('9. Meaning preservation, incomplete speech, and exact-quote regression
     expect(json.data.mode).toBe('thread');
     expect(json.data.result).toContain('1/3');
     expect(json.data.result).toContain('sticky note on your monitor');
+  });
+});
+
+describe('10. Multilingual translation formatting, source selection, and structural validation', () => {
+  const nickTimestampedTranscript = [
+    '[00:00] I had some tantrums of saying I can’t do this, this is too hard. When I was a kid and',
+    '[00:08] comparing myself to everyone else, and saying I can’t do it, I’ll never be able to do',
+    '[00:14] that. My parents always sat me down and said look, Nick. Yes, there are things that you',
+    '[00:19] can’t do, but don’t say I can’t do it. Ask yourself how can I do it. You know, there’s',
+    '[00:26] ways around it. You can get from one side of the mountain to another, but you don’t',
+    '[00:31] just have to walk over it; maybe you can go underneath it, or around it, or there’s',
+    '[00:38] always ways in achieving the same goal. The way that I’ve achieved in my life doesn’t',
+    '[00:44] always look the same for everyone else. But the key to that success was, I believed in',
+    '[00:50] myself. If someone else could do something, then I could try and work out how. It starts',
+    '[00:57] with believing in yourself.',
+  ].join('\n');
+
+  const englishExecutiveSummary = [
+    'Executive Summary',
+    'Believing in oneself is essential for overcoming self-doubt and finding practical ways around obstacles.',
+    '',
+    'Key Takeaways',
+    '• Reframe Limitations: Instead of saying "I can’t do it," ask how the goal can be achieved.',
+    '• Multiple Paths: Like getting past a mountain, you can go around or underneath an obstacle rather than only over it.',
+    '• Self-Belief First: Achieving goals in your own way starts with believing in yourself.',
+    '',
+    'Bottom Line',
+    'Success begins with self-belief and looking for alternative ways forward.',
+  ].join('\n');
+
+  it('1 & 2. translates an English Executive Summary into Spanish and French while preserving headings, paragraphs, bullets, targetLanguage, and shared structured rendering', async () => {
+    const spanishSummary = [
+      'Resumen ejecutivo',
+      'Creer en uno mismo es esencial para superar la duda y encontrar formas prácticas de rodear los obstáculos.',
+      '',
+      'Puntos clave',
+      '• Replantear limitaciones: En lugar de decir "no puedo hacerlo", pregúntate cómo lograr el objetivo.',
+      '• Múltiples caminos: Como al cruzar una montaña, puedes ir alrededor o por debajo del obstáculo.',
+      '• Creer en uno mismo primero: Alcanzar metas a tu manera comienza con creer en ti mismo.',
+      '',
+      'Conclusión',
+      'El éxito comienza con la confianza propia y la búsqueda de caminos alternativos.',
+    ].join('\n');
+
+    const frenchSummary = [
+      'Résumé exécutif',
+      'Croire en soi est essentiel pour surmonter le doute et trouver des moyens concrets de contourner les obstacles.',
+      '',
+      'Points clés',
+      '• Reformuler les limites : Au lieu de dire « je ne peux pas », demandez-vous comment atteindre l’objectif.',
+      '• Voies multiples : Comme face à une montagne, on peut passer autour ou en dessous de l’obstacle.',
+      '• Croire en soi d’abord : Réussir à sa propre manière commence par la confiance en soi.',
+      '',
+      'Conclusion',
+      'La réussite commence par la foi en soi et la recherche de solutions alternatives.',
+    ].join('\n');
+
+    for (const [lang, mockedTranslation] of [
+      ['Spanish', spanishSummary],
+      ['French', frenchSummary],
+    ] as const) {
+      const runSpy = vi.fn().mockResolvedValue({ response: mockedTranslation });
+      const res = await app.request(
+        '/api/translate',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: englishExecutiveSummary, targetLanguage: lang }),
+        },
+        { AI: { run: runSpy } } as any
+      );
+
+      expect(res.status).toBe(200);
+      const json: any = await res.json();
+      expect(json.success).toBe(true);
+      expect(json.data.targetLanguage).toBe(lang);
+
+      // Verify /api/translate did NOT flatten newlines in the user message sent to the AI
+      const sentMessages = runSpy.mock.calls[0][1].messages;
+      expect(sentMessages[1].content).toContain('Executive Summary\nBelieving in oneself');
+      expect(sentMessages[1].content).toContain('\n\nKey Takeaways\n• Reframe Limitations:');
+
+      // Verify structure in returned API text (3 blank-line sections, 3 bullet items, no added timestamps)
+      const out = json.data.translatedText as string;
+      expect(out.split(/\n\s*\n/).length).toBe(3);
+      expect(out.split('\n').filter((l) => l.startsWith('• ')).length).toBe(3);
+      expect(out).not.toMatch(/\[\d{2}:\d{2}\]/);
+
+      // Verify English and translated summaries produce matching semantic DOM structure in FormattedContent
+      const enHtml = renderToStaticMarkup(React.createElement(FormattedContent, { text: englishExecutiveSummary }));
+      const trHtml = renderToStaticMarkup(React.createElement(FormattedContent, { text: out }));
+      expect(enHtml).toContain('<h3');
+      expect(trHtml).toContain('<h3');
+      expect((trHtml.match(/<h4/g) ?? []).length).toBe((enHtml.match(/<h4/g) ?? []).length);
+      expect((trHtml.match(/<li/g) ?? []).length).toBe(3);
+      expect((trHtml.match(/<p/g) ?? []).length).toBe((enHtml.match(/<p/g) ?? []).length);
+    }
+  });
+
+  it('3. selects the active transformation or timestamped transcript on the frontend and preserves timestamps and segment order when translating', async () => {
+    const segments = [
+      { id: 1, start: 0, duration: 8, text: 'I had some tantrums of saying I can’t do this, this is too hard. When I was a kid and' },
+      { id: 2, start: 8, duration: 6, text: 'comparing myself to everyone else, and saying I can’t do it, I’ll never be able to do' },
+      { id: 3, start: 14, duration: 5, text: 'that. My parents always sat me down and said look, Nick. Yes, there are things that you' },
+    ];
+    const paragraphs = [{ id: 1, start: 0, text: segments.map((s) => s.text).join(' ') }];
+
+    // When viewing Transform tab, Translate selects transformedText (NOT raw transcript)
+    const fromTransform = resolveTranslationSource({
+      activeTab: 'transform',
+      lastContentTab: 'transform',
+      transformedText: englishExecutiveSummary,
+      transformLabel: 'Executive Summary',
+      showTimes: true,
+      segments,
+      paragraphs,
+    });
+    expect(fromTransform.sourceKind).toBe('transform');
+    expect(fromTransform.sourceText).toBe(englishExecutiveSummary);
+
+    // When switching languages while already on Translate tab after translating a Summary, keeps translating the Summary
+    const retranslateTransform = resolveTranslationSource({
+      activeTab: 'translate',
+      lastContentTab: 'transform',
+      transformedText: englishExecutiveSummary,
+      transformLabel: 'Executive Summary',
+      showTimes: true,
+      segments,
+      paragraphs,
+    });
+    expect(retranslateTransform.sourceKind).toBe('transform');
+    expect(retranslateTransform.sourceText).toBe(englishExecutiveSummary);
+
+    // When viewing Original tab with Timestamps ON, Translate sends [MM:SS] segment lines
+    const fromOriginalTimed = resolveTranslationSource({
+      activeTab: 'original',
+      lastContentTab: 'original',
+      transformedText: englishExecutiveSummary,
+      transformLabel: 'Executive Summary',
+      showTimes: true,
+      segments,
+      paragraphs,
+    });
+    expect(fromOriginalTimed.sourceKind).toBe('original');
+    expect(fromOriginalTimed.sourceText).toContain('[00:00] I had some tantrums');
+    expect(fromOriginalTimed.sourceText).toContain('\n[00:08] comparing myself');
+    expect(fromOriginalTimed.sourceText).toContain('\n[00:14] that. My parents');
+
+    const spanishTimedTranscript = [
+      '[00:00] Tenía algunos berrinches diciendo que no puedo hacer esto, esto es demasiado difícil. Cuando era niño y',
+      '[00:08] me comparaba con todos los demás, diciendo que no puedo hacerlo, nunca podré hacer',
+      '[00:14] eso. Mis padres siempre me sentaban y decían: mira, Nick. Sí, hay cosas que',
+      '[00:19] no puedes hacer, pero no digas que no puedo hacerlo. Pregúntate cómo puedo hacerlo. Sabes, hay',
+      '[00:26] maneras de rodearlo. Puedes ir de un lado de la montaña al otro, pero no',
+      '[00:31] tienes que pasar solo por encima; tal vez puedas ir por debajo o alrededor, siempre hay',
+      '[00:38] formas de lograr la misma meta. La manera en que lo he logrado en mi vida no',
+      '[00:44] siempre se ve igual que la de los demás. Pero la clave de ese éxito fue que creí en',
+      '[00:50] mí mismo. Si alguien más podía hacer algo, yo podía intentar descubrir cómo. Todo comienza',
+      '[00:57] con creer en ti mismo.',
+    ].join('\n');
+
+    const runSpy = vi.fn().mockResolvedValue({ response: spanishTimedTranscript });
+    const res = await app.request(
+      '/api/translate',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: nickTimestampedTranscript, targetLanguage: 'Spanish' }),
+      },
+      { AI: { run: runSpy } } as any
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    const parsed = parseTimestampedTranscript(json.data.translatedText);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.items.map((i) => i.timestamp)).toEqual([
+      '00:00',
+      '00:08',
+      '00:14',
+      '00:19',
+      '00:26',
+      '00:31',
+      '00:38',
+      '00:44',
+      '00:50',
+      '00:57',
+    ]);
+  });
+
+  it('4. preserves Markdown headings, bold/italic, bullet & numbered lists, inline code, and untranslated fenced code blocks', async () => {
+    const markdownSource = [
+      '# Vision Pipeline Guide',
+      '',
+      'Use **OpenCV** and *TensorFlow* with `capture_frame()` to process frames.',
+      '',
+      '## Key Steps',
+      '',
+      '- Open camera stream',
+      '- Run model inference',
+      '',
+      '1. Install packages',
+      '2. Start worker',
+      '',
+      '```python',
+      'def capture_frame():',
+      '    return cv2.VideoCapture(0)',
+      '```',
+    ].join('\n');
+
+    const spanishMarkdownDraft = [
+      '# Guía del Pipeline de Visión',
+      '',
+      'Usa **OpenCV** y *TensorFlow* con `capture_frame()` para procesar fotogramas.',
+      '',
+      '## Pasos clave',
+      '',
+      '- Abrir flujo de cámara',
+      '- Ejecutar inferencia del modelo',
+      '',
+      '1. Instalar paquetes',
+      '2. Iniciar trabajador',
+      '',
+      '```python',
+      '# even if model mutated comment, post-processor restores exact code fence',
+      'def capture_frame():',
+      '    return cv2.VideoCapture(0)',
+      '```',
+    ].join('\n');
+
+    const runSpy = vi.fn().mockResolvedValue({ response: spanishMarkdownDraft });
+    const res = await app.request(
+      '/api/translate',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: markdownSource, targetLanguage: 'Spanish' }),
+      },
+      { AI: { run: runSpy } } as any
+    );
+
+    expect(res.status).toBe(200);
+    const json: any = await res.json();
+    const out = json.data.translatedText as string;
+
+    expect(out).toContain('# Guía del Pipeline de Visión');
+    expect(out).toContain('## Pasos clave');
+    expect(out).toContain('**OpenCV**');
+    expect(out).toContain('*TensorFlow*');
+    expect(out).toContain('`capture_frame()`');
+    // Exact original code block restored untouched
+    expect(out).toContain('```python\ndef capture_frame():\n    return cv2.VideoCapture(0)\n```');
+    expect(out).not.toContain('mutated comment');
+
+    const html = renderToStaticMarkup(React.createElement(FormattedContent, { text: out }));
+    expect(html).toContain('<h3');
+    expect(html).toContain('<strong');
+    expect(html).toContain('<em');
+    expect(html).toContain('<code');
+    expect(html).toContain('<ul');
+    expect(html).toContain('<ol');
+    expect(html).toContain('<pre');
+  });
+
+  it('5 & 6. rejects structurally flattened or reordered AI translation outputs rather than silently returning unformatted text', async () => {
+    const flattenedWallOfText =
+      'Resumen ejecutivo Creer en uno mismo es esencial para superar la duda y encontrar formas prácticas de rodear los obstáculos. Puntos clave Replantear limitaciones en lugar de decir no puedo hacerlo pregúntate cómo lograr el objetivo y múltiples caminos como al cruzar una montaña.';
+
+    // Case A: First attempt returns flattened wall of text, retry returns structured summary -> recovers cleanly on 8B
+    const recoverSpy = vi
+      .fn()
+      .mockResolvedValueOnce({ response: flattenedWallOfText })
+      .mockResolvedValueOnce({
+        response: [
+          'Resumen ejecutivo',
+          'Creer en uno mismo es esencial para superar obstáculos.',
+          '',
+          'Puntos clave',
+          '• Replantear limitaciones: Pregunta cómo lograr el objetivo.',
+          '• Múltiples caminos: Rodea o pasa debajo de la montaña.',
+          '• Confianza propia: Todo comienza creyendo en ti mismo.',
+          '',
+          'Conclusión',
+          'La confianza abre caminos alternativos.',
+        ].join('\n'),
+      });
+
+    const recoveredRes = await app.request(
+      '/api/translate',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: englishExecutiveSummary, targetLanguage: 'Spanish' }),
+      },
+      { AI: { run: recoverSpy } } as any
+    );
+    expect(recoveredRes.status).toBe(200);
+    expect(recoverSpy).toHaveBeenCalledTimes(2);
+    // Retry notice must be placed in system message so it is never translated as user text
+    expect(recoverSpy.mock.calls[1][1].messages[0].content).toContain('previous draft was rejected');
+    expect(recoverSpy.mock.calls[1][1].messages[1].content).toBe(englishExecutiveSummary);
+
+    // Case B: Both attempts return flattened text -> fails with HTTP 422 instead of presenting broken output as success
+    const alwaysFlatSpy = vi.fn().mockResolvedValue({ response: flattenedWallOfText });
+    const failedRes = await app.request(
+      '/api/translate',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: englishExecutiveSummary, targetLanguage: 'Spanish' }),
+      },
+      { AI: { run: alwaysFlatSpy } } as any
+    );
+    expect(failedRes.status).toBe(422);
+    const failedJson: any = await failedRes.json();
+    expect(failedJson.success).toBe(false);
+    expect(failedJson.error.code).toBe('OUTPUT_VALIDATION_FAILED');
+    expect(alwaysFlatSpy).toHaveBeenCalledTimes(2);
+
+    // Case C: Validator also rejects reordered timestamps and hallucinated timestamps on summaries
+    expect(
+      validateTranslateOutput(
+        '[00:08] Segundo segmento\n[00:00] Primer segmento',
+        '[00:00] First segment\n[00:08] Second segment'
+      ).valid
+    ).toBe(false);
+    expect(
+      validateTranslateOutput(
+        '[00:00] Resumen ejecutivo\nCreer en uno mismo.\n\nPuntos clave\n• Uno\n• Dos\n• Tres\n\nConclusión\nFin.',
+        englishExecutiveSummary
+      ).valid
+    ).toBe(false);
   });
 });

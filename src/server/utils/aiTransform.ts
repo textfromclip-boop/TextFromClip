@@ -90,6 +90,67 @@ function stripNonSpokenNoise(input: string): string {
 }
 
 /**
+ * Strips non-spoken stage noise ([Music], [Applause], [Laughter], ♪) while preserving
+ * line breaks, paragraph separations, list indentation, Markdown syntax, code blocks,
+ * and segment timestamps for structure-faithful translation.
+ */
+export function cleanTextForTranslation(rawText: unknown): {
+  cleanedText: string;
+  hasMeaningfulContent: boolean;
+} {
+  if (typeof rawText !== 'string' || !rawText.trim()) {
+    return { cleanedText: '', hasMeaningfulContent: false };
+  }
+
+  const normalized = rawText.replace(/\r\n?/g, '\n');
+  const parts = normalized.split(/(```[\s\S]*?```)/g);
+
+  const cleanedParts = parts.map((part) => {
+    if (part.startsWith('```') && part.endsWith('```')) {
+      return part;
+    }
+
+    const lines = part.split('\n');
+    const keptLines: string[] = [];
+
+    for (const rawLine of lines) {
+      if (!rawLine.trim()) {
+        keptLines.push('');
+        continue;
+      }
+
+      const indentMatch = rawLine.match(/^([ \t]*)/);
+      const leadingIndent = indentMatch ? indentMatch[1] : '';
+      const cleanedBody = rawLine
+        .slice(leadingIndent.length)
+        .replace(BRACKET_STAGE_NOISE_REGEX, ' ')
+        .replace(PAREN_STAGE_NOISE_REGEX, ' ')
+        .replace(MUSIC_GLYPH_REGEX, ' ')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+
+      // Drop lines that contained only stage noise or a bare timestamp attached to stage noise
+      if (!cleanedBody || /^\[\d{1,2}:\d{2}(?::\d{2})?\]$/.test(cleanedBody)) {
+        continue;
+      }
+
+      keptLines.push(`${leadingIndent}${cleanedBody}`);
+    }
+
+    return keptLines.join('\n');
+  });
+
+  const cleanedText = cleanedParts.join('').replace(/\n{3,}/g, '\n\n').trim();
+  const withoutTimestamps = cleanedText.replace(/\[\d{1,2}:\d{2}(?::\d{2})?\]/g, ' ');
+  const hasMeaningfulContent = /[\p{L}\p{N}]/u.test(withoutTimestamps);
+
+  return {
+    cleanedText: hasMeaningfulContent ? cleanedText : '',
+    hasMeaningfulContent,
+  };
+}
+
+/**
  * Strips non-spoken caption stage artifacts ([Music], [Applause], [Laughter], ♪) while
  * preserving original word order, speaker labels, and uncertainty markers like [inaudible].
  * Optionally incorporates valid segment timestamps (~30s intervals) for timeline context.
@@ -376,17 +437,24 @@ Comprehension Questions
 }
 
 export function buildTranslateMessages(
-  transcriptText: string,
+  sourceText: string,
   targetLanguage: string
 ): Array<{ role: 'system' | 'user'; content: string }> {
   return [
     {
       role: 'system',
-      content: `You are an accurate translator. Translate the supplied transcript faithfully into ${targetLanguage}. Preserve the speaker's exact meaning, stance, negations, qualifiers, speaker labels, and uncertainty markers (such as [inaudible]) without softening, summarizing, or adding commentary. Output ONLY the translated text.`,
+      content: `You are an accurate, structure-preserving translator. Translate the supplied content faithfully into ${targetLanguage}.
+
+STRICT FORMATTING & TRANSLATION RULES:
+1. PRESERVE STRUCTURE & PARAGRAPHS: Keep the exact document organization, line breaks, and blank-line paragraph separations of the source. Never flatten multi-line content into a single block of text.
+2. HEADINGS & LISTS: Translate headings and prose while keeping every heading on its own line (retaining Markdown # levels when present) and keeping every bullet item (•, -, *) or numbered item (1., 2., 1/5, etc.) on its own separate line in the exact same order.
+3. MARKDOWN & CODE: Preserve Markdown **bold**, *italic*, inline \`code\`, and fenced \`\`\`code blocks\`\`\`. Do NOT translate code, commands, identifiers, or file paths inside \`inline code\` or \`\`\`code blocks\`\`\`.
+4. TIMESTAMPS: When the source contains timestamps such as [00:00] or [01:02:03], preserve every timestamp unchanged and attached to its corresponding translated segment in the exact same order (one timestamped segment per line when the source has one per line). Do NOT add timestamps if the source does not contain them.
+5. FAITHFUL CONTENT ONLY: Preserve the speaker's exact meaning, stance, negations, qualifiers, speaker labels, and uncertainty markers (such as [inaudible]). Do NOT summarize, rewrite, expand, or omit content, and do NOT add introductions, explanations, or commentary. Output ONLY the translated content.`,
     },
     {
       role: 'user',
-      content: transcriptText,
+      content: sourceText,
     },
   ];
 }
@@ -763,6 +831,241 @@ export function validateTransformOutput(
   return { valid: true };
 }
 
+const TRANSLATE_PREAMBLE_REGEX =
+  /^(?:here is|below is|sure[,!]?\s+here is)\s+(?:the\s+|your\s+)?[\p{L}\s()-]{0,35}\btranslation\b[^\n]*:\s*\n+/iu;
+const BULLET_LINE_REGEX = /^[ \t]*(?:[•・]\s*\S|[-*][ \t]+\S)/u;
+const NUMBERED_LINE_REGEX = /^[ \t]*\d+(?:[.)、]|\s*\/\s*\d+)\s*\S/u;
+const MD_HEADING_LINE_REGEX = /^[ \t]*#{1,6}[ \t]+\S/;
+const LEADING_TIMESTAMP_REGEX = /^[ \t]*(\[\d{1,2}:\d{2}(?::\d{2})?\])\s*\S/;
+const ANY_TIMESTAMP_REGEX = /\[\d{1,2}:\d{2}(?::\d{2})?\]/g;
+
+function isStandalonePlainHeading(line: string): boolean {
+  const t = line.trim();
+  if (!t || t.length > 80) return false;
+  if (
+    MD_HEADING_LINE_REGEX.test(t) ||
+    BULLET_LINE_REGEX.test(t) ||
+    NUMBERED_LINE_REGEX.test(t) ||
+    LEADING_TIMESTAMP_REGEX.test(t) ||
+    /^["“'‘\[]/.test(t)
+  ) {
+    return false;
+  }
+  return !/[.。;]$/.test(t);
+}
+
+/**
+ * Post-processes translated output without stripping Markdown, bold/italics, headings, or lists:
+ * - Strips accidental translator preambles ("Here is the Spanish translation:")
+ * - Restores fenced code blocks verbatim from the source when fence counts match
+ * - Repairs accidental inline timestamp or "• " bullet merges when the source exclusively used them as line prefixes
+ */
+export function postProcessTranslateOutput(rawOutput: string, sourceText: string): string {
+  if (!rawOutput || typeof rawOutput !== 'string') return '';
+
+  let normalized = rawOutput.replace(/\r\n?/g, '\n').trim();
+  if (!TRANSLATE_PREAMBLE_REGEX.test(sourceText || '')) {
+    normalized = normalized.replace(TRANSLATE_PREAMBLE_REGEX, '').trim();
+  }
+
+  const srcFences = (sourceText || '').match(/```[\s\S]*?```/g) ?? [];
+  const outFenceCount = (normalized.match(/```[\s\S]*?```/g) ?? []).length;
+  if (srcFences.length > 0 && outFenceCount === srcFences.length) {
+    let fenceIdx = 0;
+    normalized = normalized.replace(/```[\s\S]*?```/g, () => srcFences[fenceIdx++]);
+  }
+
+  const srcWithoutCode = (sourceText || '').replace(/```[\s\S]*?```/g, '');
+  const srcLines = srcWithoutCode.split('\n').map((l) => l.trim()).filter(Boolean);
+  const srcLeadingTsLines = srcLines.filter((l) => /^\[\d{1,2}:\d{2}(?::\d{2})?\]/.test(l)).length;
+  const srcTotalTs = (srcWithoutCode.match(ANY_TIMESTAMP_REGEX) ?? []).length;
+  const shouldSplitInlineTimestamps = srcLeadingTsLines >= 2 && srcLeadingTsLines === srcTotalTs;
+
+  const srcLeadingDotBullets = srcLines.filter((l) => /^•\s*\S/.test(l)).length;
+  const srcTotalDots = (srcWithoutCode.match(/•/g) ?? []).length;
+  const shouldSplitInlineDotBullets = srcLeadingDotBullets >= 2 && srcLeadingDotBullets === srcTotalDots;
+
+  if (!shouldSplitInlineTimestamps && !shouldSplitInlineDotBullets) {
+    return normalized.replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  const parts = normalized.split(/(```[\s\S]*?```)/g);
+  const repaired = parts
+    .map((part) => {
+      if (part.startsWith('```') && part.endsWith('```')) return part;
+      let next = part;
+      if (shouldSplitInlineTimestamps) {
+        next = next.replace(/([^\n])\s+(\[\d{1,2}:\d{2}(?::\d{2})?\])/g, '$1\n$2');
+      }
+      if (shouldSplitInlineDotBullets) {
+        next = next.replace(/([^\n])\s+(•\s+)/g, '$1\n$2');
+      }
+      return next;
+    })
+    .join('');
+
+  return repaired.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Deterministically validates that translated output preserves the structural elements
+ * of the source (paragraphs/sections, headings, bullet/numbered lists, Markdown, code blocks,
+ * and ordered segment timestamps) rather than silently returning flattened blocks of text.
+ */
+export function validateTranslateOutput(
+  translated: string,
+  source: string
+): OutputValidationResult {
+  const outTrimmed = (translated || '').trim();
+  const srcTrimmed = (source || '').trim();
+
+  if (!outTrimmed) {
+    return { valid: false, reason: 'Empty translation output.' };
+  }
+
+  if (/^(?:i cannot fulfill|i am sorry,? i cannot|as an ai language model)/i.test(outTrimmed)) {
+    return { valid: false, reason: 'Model returned a refusal instead of a translation.' };
+  }
+
+  // 1. Fenced code blocks
+  const srcCodeBlocks = srcTrimmed.match(/```[\s\S]*?```/g) ?? [];
+  const outCodeBlocks = outTrimmed.match(/```[\s\S]*?```/g) ?? [];
+  if (srcCodeBlocks.length !== outCodeBlocks.length) {
+    return { valid: false, reason: 'Translation altered or dropped fenced code blocks.' };
+  }
+
+  const srcProse = srcTrimmed.replace(/```[\s\S]*?```/g, '\n[CODE_BLOCK]\n').trim();
+  const outProse = outTrimmed.replace(/```[\s\S]*?```/g, '\n[CODE_BLOCK]\n').trim();
+
+  const srcNonWs = srcProse.replace(/\s+/g, '').length;
+  const outNonWs = outProse.replace(/\s+/g, '').length;
+  if (srcNonWs >= 30 && outNonWs < Math.min(8, Math.floor(srcNonWs * 0.15))) {
+    return { valid: false, reason: 'Translation output is unexpectedly truncated or empty.' };
+  }
+
+  // 2. Timestamps & segment order
+  const srcTimestamps = srcProse.match(ANY_TIMESTAMP_REGEX) ?? [];
+  const outTimestamps = outProse.match(ANY_TIMESTAMP_REGEX) ?? [];
+
+  if (srcTimestamps.length === 0 && outTimestamps.length > 0) {
+    return { valid: false, reason: 'Translation added timestamps that were absent from the source.' };
+  }
+
+  if (srcTimestamps.length > 0) {
+    const minTs = srcTimestamps.length <= 3 ? srcTimestamps.length : Math.ceil(srcTimestamps.length * 0.85);
+    if (outTimestamps.length < minTs) {
+      return { valid: false, reason: 'Translation dropped source timestamps.' };
+    }
+    const allowedSet = new Set(srcTimestamps);
+    for (const ts of outTimestamps) {
+      if (!allowedSet.has(ts)) {
+        return { valid: false, reason: 'Translation introduced altered or invalid timestamps.' };
+      }
+    }
+    let srcCursor = 0;
+    let matchedInOrder = 0;
+    for (const ts of outTimestamps) {
+      while (srcCursor < srcTimestamps.length && srcTimestamps[srcCursor] !== ts) {
+        srcCursor++;
+      }
+      if (srcCursor < srcTimestamps.length) {
+        matchedInOrder++;
+        srcCursor++;
+      }
+    }
+    if (matchedInOrder < outTimestamps.length) {
+      return { valid: false, reason: 'Translation reordered timestamped segments.' };
+    }
+
+    const srcLeadingTsCount = srcProse.split('\n').filter((l) => LEADING_TIMESTAMP_REGEX.test(l)).length;
+    const outLeadingTsCount = outProse.split('\n').filter((l) => LEADING_TIMESTAMP_REGEX.test(l)).length;
+    if (srcLeadingTsCount >= 2) {
+      const minLeading = srcLeadingTsCount <= 3 ? srcLeadingTsCount : Math.ceil(srcLeadingTsCount * 0.85);
+      if (outLeadingTsCount < minLeading) {
+        return { valid: false, reason: 'Translation flattened line-separated timestamped segments.' };
+      }
+    }
+  }
+
+  // 3. Markdown headings (# .. ######)
+  const srcLines = srcProse.split('\n').map((l) => l.trim()).filter(Boolean);
+  const outLines = outProse.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  const srcMdHeadings = srcLines.filter((l) => MD_HEADING_LINE_REGEX.test(l)).length;
+  const outMdHeadings = outLines.filter((l) => MD_HEADING_LINE_REGEX.test(l)).length;
+  if (srcMdHeadings > 0 && outMdHeadings < srcMdHeadings) {
+    return { valid: false, reason: 'Translation lost Markdown heading formatting.' };
+  }
+
+  // 4. Bullet and numbered lists
+  const srcBullets = srcLines.filter((l) => BULLET_LINE_REGEX.test(l)).length;
+  const outBullets = outLines.filter((l) => BULLET_LINE_REGEX.test(l)).length;
+  if (srcBullets > 0) {
+    const minBullets = srcBullets <= 3 ? srcBullets : Math.ceil(srcBullets * 0.8);
+    if (outBullets < minBullets) {
+      return { valid: false, reason: 'Translation lost bullet list structure.' };
+    }
+  }
+
+  const srcNumbered = srcLines.filter((l) => NUMBERED_LINE_REGEX.test(l)).length;
+  const outNumbered = outLines.filter((l) => NUMBERED_LINE_REGEX.test(l)).length;
+  if (srcNumbered > 0) {
+    const minNumbered = srcNumbered <= 3 ? srcNumbered : Math.ceil(srcNumbered * 0.8);
+    if (outNumbered < minNumbered) {
+      return { valid: false, reason: 'Translation lost numbered list structure.' };
+    }
+  }
+
+  // 5. Inline code & Markdown bold
+  const srcInlineCode = (srcProse.match(/`[^`\n]+`/g) ?? []).length;
+  const outInlineCode = (outProse.match(/`[^`\n]+`/g) ?? []).length;
+  if (srcInlineCode > 0 && outInlineCode === 0) {
+    return { valid: false, reason: 'Translation stripped inline code formatting.' };
+  }
+
+  const srcBold = (srcProse.match(/\*\*[^\s*](?:[^\n*]*?[^\s*])?\*\*/g) ?? []).length;
+  const outBold = (outProse.match(/\*\*[^\s*](?:[^\n*]*?[^\s*])?\*\*/g) ?? []).length;
+  if (srcBold > 0 && outBold === 0) {
+    return { valid: false, reason: 'Translation stripped Markdown bold formatting.' };
+  }
+
+  // 6. Paragraph blocks & standalone section headings (anti-flattening)
+  const srcBlocks = srcProse.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
+  const outBlocks = outProse.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean);
+
+  if (srcBlocks.length >= 2) {
+    const minBlocks = srcBlocks.length === 2 ? 2 : Math.max(2, Math.ceil(srcBlocks.length * 0.75));
+    if (outBlocks.length < minBlocks) {
+      return { valid: false, reason: 'Translation collapsed separate paragraphs or sections into a flat block.' };
+    }
+  } else if (srcLines.length >= 2 && outLines.length < 2) {
+    if (
+      isStandalonePlainHeading(srcLines[0]) ||
+      MD_HEADING_LINE_REGEX.test(srcLines[0]) ||
+      BULLET_LINE_REGEX.test(srcLines[0]) ||
+      NUMBERED_LINE_REGEX.test(srcLines[0]) ||
+      LEADING_TIMESTAMP_REGEX.test(srcLines[0])
+    ) {
+      return { valid: false, reason: 'Translation flattened heading and body onto one line.' };
+    }
+  }
+
+  if (srcBlocks.length >= 1 && outBlocks.length >= 1) {
+    const firstSrcLines = srcBlocks[0].split('\n').map((l) => l.trim()).filter(Boolean);
+    const firstOutLines = outBlocks[0].split('\n').map((l) => l.trim()).filter(Boolean);
+    if (
+      firstSrcLines.length >= 2 &&
+      isStandalonePlainHeading(firstSrcLines[0]) &&
+      firstOutLines.length < 2 &&
+      outBlocks.length <= srcBlocks.length
+    ) {
+      return { valid: false, reason: 'Translation merged the opening heading into the body paragraph.' };
+    }
+  }
+
+  return { valid: true };
+}
+
 /**
  * Redacts potential secrets, tokens, or internal URLs from error strings.
  */
@@ -954,13 +1257,20 @@ export async function executeBoundedAiChat(options: {
       // Controlled single validation retry on the SAME model (never escalates to 70B for format slip)
       if (attempts < maxCalls) {
         attempts++;
-        const strictMessages: Array<{ role: 'system' | 'user'; content: string }> = [
-          ...options.messages.slice(0, -1),
-          {
-            role: 'user',
-            content: `${options.messages[options.messages.length - 1].content}\n\nIMPORTANT: Your previous draft was rejected (${firstCheck.validation.reason || 'invalid format'}). Follow all required section headings, bullet formatting, and source-grounding rules strictly.`,
-          },
-        ];
+        const retryNotice = `\n\nIMPORTANT: Your previous draft was rejected (${firstCheck.validation.reason || 'invalid format'}). Strictly preserve all required headings, line breaks, lists, timestamps, code blocks, and source-grounding rules without adding commentary.`;
+        const strictMessages: Array<{ role: 'system' | 'user'; content: string }> =
+          options.messages[0]?.role === 'system'
+            ? [
+                { role: 'system', content: `${options.messages[0].content}${retryNotice}` },
+                ...options.messages.slice(1),
+              ]
+            : [
+                ...options.messages.slice(0, -1),
+                {
+                  role: 'user',
+                  content: `${options.messages[options.messages.length - 1].content}${retryNotice}`,
+                },
+              ];
 
         const retryRes = await options.ai.run(model, {
           messages: strictMessages,
