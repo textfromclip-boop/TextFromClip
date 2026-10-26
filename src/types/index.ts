@@ -11,7 +11,7 @@ export type TranscriptSourceType = 'captions' | 'ai_whisper';
 
 export interface TranscriptResult {
   id: string; // Unguessable Job UUID
-  provider: 'youtube' | 'direct_media' | 'tiktok' | 'instagram' | string;
+  provider: 'youtube' | 'direct_media' | 'tiktok' | 'instagram' | 'file_upload' | string;
   videoId: string;
   videoTitle?: string;
   videoDurationSeconds?: number;
@@ -29,7 +29,7 @@ export interface TranscriptResult {
 export interface TranscriptRequest {
   url: string;
   preferredLanguage?: string;
-  platform?: 'youtube' | 'tiktok' | 'instagram' | string;
+  platform?: 'youtube' | 'tiktok' | 'instagram' | 'upload' | string;
 }
 
 export interface ApiSuccessResponse<T> {
@@ -77,6 +77,7 @@ export interface JobRecord {
 export interface CloudflareBindings {
   DB?: D1Database;
   AI?: any;
+  UPLOADS_BUCKET?: R2Bucket;
   ENVIRONMENT?: string;
   MAX_REQUESTS_PER_MINUTE?: string;
   MAX_VIDEO_DURATION_SECONDS?: string;

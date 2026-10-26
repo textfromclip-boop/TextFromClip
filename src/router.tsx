@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
-export type RoutePath = '/youtube' | '/tiktok' | '/instagram' | '/guide' | '/about';
+export type RoutePath = '/youtube' | '/tiktok' | '/instagram' | '/upload' | '/guide' | '/about';
 
 export const ROUTES: { path: RoutePath; label: string; title: string }[] = [
   { path: '/youtube', label: 'YouTube', title: 'YouTube Transcript' },
   { path: '/tiktok', label: 'TikTok', title: 'TikTok Transcript' },
   { path: '/instagram', label: 'Instagram', title: 'Instagram Transcript' },
+  { path: '/upload', label: 'Upload', title: 'Upload Audio & Video' },
   { path: '/guide', label: 'Guide', title: 'Guide' },
   { path: '/about', label: 'About', title: 'About' },
 ];

@@ -1,4 +1,4 @@
-export type SupportedPlatformId = 'youtube' | 'tiktok' | 'instagram';
+export type SupportedPlatformId = 'youtube' | 'tiktok' | 'instagram' | 'upload';
 
 export interface PlatformValidationResult {
   isValid: boolean;
@@ -65,7 +65,9 @@ export function validateUrlForPlatform(
         ? 'YouTube'
         : platformId === 'tiktok'
         ? 'TikTok'
-        : 'Instagram Reel';
+        : platformId === 'instagram'
+        ? 'Instagram Reel'
+        : 'direct media';
     return {
       isValid: false,
       error: `Please enter a ${platformLabel} link.`,
@@ -162,6 +164,38 @@ export function validateUrlForPlatform(
     return {
       isValid: false,
       error: 'Unsupported platform. The Instagram tab only accepts public Instagram Reel links.',
+      detectedPlatform: detected,
+    };
+  }
+
+  if (platformId === 'upload') {
+    if (detected === 'direct_media') {
+      return { isValid: true, detectedPlatform: detected };
+    }
+    if (detected === 'youtube') {
+      return {
+        isValid: false,
+        error: 'That link is from YouTube. Please switch to the YouTube tab or upload a local file here.',
+        detectedPlatform: detected,
+      };
+    }
+    if (detected === 'tiktok') {
+      return {
+        isValid: false,
+        error: 'That link is from TikTok. Please switch to the TikTok tab or upload a local file here.',
+        detectedPlatform: detected,
+      };
+    }
+    if (detected === 'instagram') {
+      return {
+        isValid: false,
+        error: 'That link is from Instagram. Please switch to the Instagram tab or upload a local file here.',
+        detectedPlatform: detected,
+      };
+    }
+    return {
+      isValid: false,
+      error: 'Please select an audio/video file from your device or paste a direct media link (.mp4, .mp3, .wav, .webm).',
       detectedPlatform: detected,
     };
   }

@@ -19,6 +19,11 @@ migrations_dir = "migrations"
 [ai]
 binding = "AI"
 
+# Cloudflare R2 Ephemeral Upload Bucket Binding
+[[r2_buckets]]
+binding = "UPLOADS_BUCKET"
+bucket_name = "textfromclip-uploads"
+
 # Environment Variables
 [vars]
 ENVIRONMENT = "production"

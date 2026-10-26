@@ -138,6 +138,44 @@ const INSTAGRAM: PlatformConfig = {
   ],
 };
 
+const UPLOAD: PlatformConfig = {
+  id: 'upload',
+  route: '/upload',
+  name: 'Upload',
+  eyebrow: 'Local Audio & Video Files',
+  headingPrefix: 'Turn Audio & Video Files into',
+  headingHighlight: 'Text',
+  intro:
+    'Drop or select any MP4, MOV, WEBM, MP3, WAV, or M4A file from your device. Audio is extracted locally at 16 kHz and transcribed in seconds.',
+  placeholder: 'https://example.com/audio-or-video.mp4 (or upload a file above)',
+  example: {
+    label: 'Upload any MP4, MP3, WAV, or M4A',
+    shortUrl: 'interview_recording.mp4',
+    url: '',
+    durationLabel: '0:00 / 3:12',
+    badgeLabel: 'FILE UPLOAD',
+    sourceTag: 'AI Whisper',
+    clipTitle: 'Local Media File',
+    cues: [
+      { time: '00:00', text: 'Select or drag any video or audio file up to 200 MB from your device.' },
+      { time: '00:06', text: 'Your browser extracts lightweight 16 kHz audio before uploading.' },
+      { time: '00:12', text: 'Cloudflare R2 stores chunks temporarily and deletes them immediately after transcription.' },
+      { time: '00:18', text: 'Summarize, rewrite, translate, or export .txt, .srt, and .vtt subtitles.' },
+    ],
+  },
+  hosts: ['.mp4', '.mp3', '.wav', '.m4a', '.mov', '.webm'],
+  status: {
+    working: true,
+    title: 'Direct File Upload (R2 + Whisper)',
+    text: 'Accepts local video and audio files up to 200 MB. Temporary R2 audio chunks are automatically deleted as soon as transcription finishes.',
+  },
+  notes: [
+    'Supports MP4, MOV, WEBM, MKV, MP3, WAV, M4A, OGG, AAC, and FLAC files.',
+    'Extracts 16 kHz mono audio in your browser for fast uploads and accurate timestamps.',
+    'Temporary R2 objects are deleted immediately after transcription (with a 24h bucket lifecycle backup).',
+  ],
+};
+
 export const App: React.FC = () => {
   const route = useRoute();
 
@@ -154,6 +192,7 @@ export const App: React.FC = () => {
         {route === '/youtube' && <TranscribePage key="yt" config={YOUTUBE} />}
         {route === '/tiktok' && <TranscribePage key="tt" config={TIKTOK} />}
         {route === '/instagram' && <TranscribePage key="ig" config={INSTAGRAM} />}
+        {route === '/upload' && <TranscribePage key="up" config={UPLOAD} />}
         {route === '/guide' && <GuidePage />}
         {route === '/about' && <AboutPage />}
       </main>

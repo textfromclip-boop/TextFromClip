@@ -3,6 +3,10 @@ import { TranscriptResult, ApiResponse } from '../types';
 import { TranscriptResultView } from './TranscriptResultView';
 import { Link, RoutePath } from '../router';
 import { validateUrlForPlatform } from '../utils/validation';
+import {
+  uploadAndTranscribeMediaFile,
+  validateSelectedMediaFile,
+} from '../utils/audioExtractor';
 
 const HISTORY_STORAGE_KEY = 'textfromclip_history_v1';
 
@@ -36,7 +40,7 @@ export interface PreviewCue {
 }
 
 export interface PlatformConfig {
-  id: 'youtube' | 'tiktok' | 'instagram';
+  id: 'youtube' | 'tiktok' | 'instagram' | 'upload';
   route: RoutePath;
   name: string;
   eyebrow: string;
@@ -62,10 +66,13 @@ export interface PlatformConfig {
 export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config }) => {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadStage, setUploadStage] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TranscriptResult | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const resultSectionRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const scrollToTranscript = () => {
     window.setTimeout(() => {
@@ -145,6 +152,45 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
     }
   };
 
+  const handleFileUpload = async (file: File | null | undefined) => {
+    if (!file || loading) return;
+
+    const validation = validateSelectedMediaFile(file);
+    if (!validation.valid) {
+      setError(validation.error || 'Please choose a supported audio or video file.');
+      return;
+    }
+
+    setLoading(true);
+    setUploadStage('Preparing audio…');
+    setError(null);
+    setResult(null);
+
+    try {
+      const data = await uploadAndTranscribeMediaFile(file, {
+        onProgress: (stage) => setUploadStage(stage),
+      });
+      setResult(data);
+      setHistory((prev) => {
+        const filtered = prev.filter(
+          (item) =>
+            !(item.data.provider === data.provider && item.data.videoId === data.videoId)
+        );
+        const updated = [{ sourceUrl: file.name, data }, ...filtered].slice(0, 10);
+        saveHistory(updated);
+        return updated;
+      });
+    } catch (e: any) {
+      setError(e?.message || 'Failed to upload and transcribe the selected file.');
+    } finally {
+      setLoading(false);
+      setUploadStage(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   const handleUpdateResult = (updated: TranscriptResult) => {
     setResult(updated);
     setHistory((prev) => {
@@ -202,13 +248,100 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
               {config.intro}
             </p>
 
-            {/* Unified Pill Input Bar with Integrated Royal-Blue CTA */}
+            {/* Unified Pill Input Bar + File Upload Dropzone */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*,audio/*,.mp4,.mov,.webm,.mkv,.mp3,.wav,.m4a,.ogg,.aac,.flac"
+              onChange={(e) => handleFileUpload(e.target.files?.[0])}
+              className="sr-only"
+              aria-label="Upload audio or video file"
+            />
+
+            {config.id === 'upload' && (
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (!loading) setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  if (!loading && e.dataTransfer.files?.[0]) {
+                    handleFileUpload(e.dataTransfer.files[0]);
+                  }
+                }}
+                onClick={() => {
+                  if (!loading) fileInputRef.current?.click();
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' || e.key === ' ') && !loading) {
+                    e.preventDefault();
+                    fileInputRef.current?.click();
+                  }
+                }}
+                className={`mt-7 max-w-xl rounded-2xl border-2 border-dashed p-6 sm:p-7 text-center cursor-pointer transition-all shadow-[0_12px_36px_-8px_rgba(2,19,49,0.07)] ${
+                  isDragging
+                    ? 'border-accent bg-accent-soft/60 scale-[1.01]'
+                    : 'border-accent/40 bg-surface hover:border-accent hover:bg-accent-soft/20'
+                } ${loading ? 'opacity-60 cursor-wait' : ''}`}
+              >
+                <div className="mx-auto w-12 h-12 rounded-2xl bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white flex items-center justify-center shadow-md">
+                  {loading && uploadStage ? (
+                    <svg className="w-6 h-6 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-90"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                      />
+                    </svg>
+                  ) : (
+                    <svg
+                      className="w-6 h-6"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2.2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                      />
+                    </svg>
+                  )}
+                </div>
+                <p className="mt-3.5 text-base font-bold text-ink">
+                  {loading && uploadStage
+                    ? uploadStage
+                    : 'Drop an audio or video file here, or click to browse'}
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  MP4, MOV, WEBM, MKV, MP3, WAV, M4A, OGG, AAC, FLAC up to 200 MB · 16 kHz audio extracted locally
+                </p>
+                <span className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-xs text-white bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] shadow-sm">
+                  {loading && uploadStage ? 'Processing File…' : 'Select Audio / Video File'}
+                </span>
+              </div>
+            )}
+
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 run(url);
               }}
-              className="mt-7 max-w-xl"
+              className={config.id === 'upload' ? 'mt-4 max-w-xl' : 'mt-7 max-w-xl'}
             >
               <label htmlFor="video-url" className="sr-only">
                 {config.name} video link
@@ -266,7 +399,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                           d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
                         />
                       </svg>
-                      <span>Transcribing…</span>
+                      <span>{uploadStage || 'Transcribing…'}</span>
                     </>
                   ) : (
                     <>
@@ -276,6 +409,57 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                   )}
                 </button>
               </div>
+
+              {config.id !== 'upload' && (
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (!loading) setIsDragging(true);
+                  }}
+                  onDragLeave={() => setIsDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragging(false);
+                    if (!loading && e.dataTransfer.files?.[0]) {
+                      handleFileUpload(e.dataTransfer.files[0]);
+                    }
+                  }}
+                  className={`mt-2.5 flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 rounded-xl border border-dashed text-xs transition-all ${
+                    isDragging
+                      ? 'border-accent bg-accent-soft/60 text-ink'
+                      : 'border-rule bg-surface/80 text-muted hover:border-accent/50'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <svg
+                      className="w-4 h-4 text-accent shrink-0"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                      />
+                    </svg>
+                    <span>
+                      {loading && uploadStage
+                        ? uploadStage
+                        : 'Have a local video or audio file? Drop MP4, MOV, MP3, WAV, or M4A here'}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="font-semibold text-accent hover:text-accent-dark underline underline-offset-2 disabled:opacity-50"
+                  >
+                    Upload File →
+                  </button>
+                </div>
+              )}
 
               {/* Visible Validation & Provider Error Alert */}
               {error && (
@@ -373,17 +557,43 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     Instagram
                   </Link>
 
-                  <span className="inline-flex items-center px-2 py-1 rounded-lg bg-slate-100 text-muted font-mono text-[11px]">
-                    .mp4 / .mp3
-                  </span>
+                  <Link
+                    to="/upload"
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border font-semibold transition-colors ${
+                      config.id === 'upload'
+                        ? 'bg-accent-soft border-accent/30 text-ink'
+                        : 'bg-surface border-rule text-muted hover:text-ink'
+                    }`}
+                  >
+                    <span className="w-4 h-4 rounded bg-gradient-to-r from-[#0F8CFA] to-[#5131ED] text-white inline-flex items-center justify-center">
+                      <svg
+                        className="w-2.5 h-2.5"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2.5}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m0-12L8 8m4-4l4 4"
+                        />
+                      </svg>
+                    </span>
+                    Upload (.mp4 / .mp3)
+                  </Link>
                 </div>
 
                 <button
                   type="button"
                   disabled={loading}
                   onClick={() => {
-                    setUrl(config.example.url);
-                    run(config.example.url);
+                    if (config.id === 'upload' || !config.example.url) {
+                      fileInputRef.current?.click();
+                    } else {
+                      setUrl(config.example.url);
+                      run(config.example.url);
+                    }
                   }}
                   className="font-semibold text-accent hover:text-accent-dark underline underline-offset-2 disabled:opacity-50"
                 >
@@ -402,10 +612,14 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                   type="button"
                   disabled={loading}
                   onClick={() => {
-                    setUrl(config.example.url);
-                    run(config.example.url);
+                    if (config.id === 'upload' || !config.example.url) {
+                      fileInputRef.current?.click();
+                    } else {
+                      setUrl(config.example.url);
+                      run(config.example.url);
+                    }
                   }}
-                  title="Click to test this live link"
+                  title={config.id === 'upload' ? 'Click to upload a file' : 'Click to test this live link'}
                   className="group inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-surface border border-rule shadow-md hover:border-accent transition-all text-left"
                 >
                   <span className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white inline-flex items-center justify-center shrink-0">
@@ -469,8 +683,12 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                         type="button"
                         disabled={loading}
                         onClick={() => {
-                          setUrl(config.example.url);
-                          run(config.example.url);
+                          if (config.id === 'upload' || !config.example.url) {
+                            fileInputRef.current?.click();
+                          } else {
+                            setUrl(config.example.url);
+                            run(config.example.url);
+                          }
                         }}
                         title="Run sample transcript"
                         className="w-10 h-10 rounded-full bg-gradient-to-r from-[#0F8CFA] to-[#5131ED] text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform"
@@ -548,7 +766,13 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
         )}
 
         {/* RECENT TRANSCRIPTS SHELF (INSTANT 0ms LOCAL CACHE) */}
-        {!result && history.filter((h) => h.data.provider === config.id).length > 0 && (
+        {!result &&
+          history.filter(
+            (h) =>
+              h.data.provider === config.id ||
+              (config.id === 'upload' &&
+                (h.data.provider === 'file_upload' || h.data.provider === 'direct_media'))
+          ).length > 0 && (
           <section
             aria-label="Recent transcripts"
             className="mt-10 pt-8 border-t border-rule"
@@ -573,7 +797,12 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
             </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {history
-                .filter((h) => h.data.provider === config.id)
+                .filter(
+                  (h) =>
+                    h.data.provider === config.id ||
+                    (config.id === 'upload' &&
+                      (h.data.provider === 'file_upload' || h.data.provider === 'direct_media'))
+                )
                 .slice(0, 6)
                 .map((item, idx) => (
                   <button

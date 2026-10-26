@@ -5,6 +5,14 @@ import { validateSafeUrl } from './utils/ssrf';
 import { checkRateLimit } from './utils/rate-limiter';
 import { ProviderRegistry } from './providers/registry';
 import {
+  buildUploadR2Key,
+  validateUploadChunkPayload,
+  transcribeUploadedChunksFromR2,
+  isValidR2UploadKey,
+  MAX_CHUNK_UPLOAD_BYTES,
+  MAX_UPLOAD_CHUNKS,
+} from './utils/fileUpload';
+import {
   cleanTranscriptForAi,
   cleanTextForTranslation,
   budgetTranscriptForPrompt,
@@ -39,7 +47,7 @@ app.use('*', async (c, next) => {
 app.use('/api/*', cors({
   origin: '*',
   allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Accept'],
+  allowHeaders: ['Content-Type', 'Accept', 'X-File-Name'],
   maxAge: 86400,
 }));
 
@@ -73,6 +81,7 @@ const rateLimitMiddleware = async (c: any, next: () => Promise<void>) => {
 app.use('/api/transcript', rateLimitMiddleware);
 app.use('/api/transform', rateLimitMiddleware);
 app.use('/api/translate', rateLimitMiddleware);
+app.use('/api/upload/*', rateLimitMiddleware);
 
 // Health check endpoint
 app.get('/api/health', (c) => {
@@ -83,6 +92,7 @@ app.get('/api/health', (c) => {
     environment: c.env.ENVIRONMENT || 'development',
     hasD1: Boolean(c.env.DB),
     hasAI: Boolean(c.env.AI),
+    hasR2: Boolean(c.env.UPLOADS_BUCKET),
   });
 });
 
@@ -150,7 +160,7 @@ app.post('/api/transcript', async (c) => {
 
   // 3. Platform enforcement: strictly validate requested platform against detected provider
   if (platform) {
-    const validPlatforms = ['youtube', 'tiktok', 'instagram'];
+    const validPlatforms = ['youtube', 'tiktok', 'instagram', 'upload'];
     if (!validPlatforms.includes(platform)) {
       return c.json(
         {
@@ -167,7 +177,8 @@ app.post('/api/transcript', async (c) => {
     const platformMatches =
       (platform === 'youtube' && (detectedProvider?.id === 'youtube' || detectedProvider?.id === 'direct_media')) ||
       (platform === 'tiktok' && detectedProvider?.id === 'tiktok') ||
-      (platform === 'instagram' && detectedProvider?.id === 'instagram');
+      (platform === 'instagram' && detectedProvider?.id === 'instagram') ||
+      (platform === 'upload' && detectedProvider?.id === 'direct_media');
 
     if (!platformMatches) {
       const detectedName =
@@ -182,7 +193,13 @@ app.post('/api/transcript', async (c) => {
           : 'an unsupported source';
 
       const requestedName =
-        platform === 'youtube' ? 'YouTube' : platform === 'tiktok' ? 'TikTok' : 'Instagram';
+        platform === 'youtube'
+          ? 'YouTube'
+          : platform === 'tiktok'
+          ? 'TikTok'
+          : platform === 'instagram'
+          ? 'Instagram'
+          : 'Upload / Direct Media';
 
       return c.json(
         {
@@ -275,6 +292,310 @@ app.post('/api/transcript', async (c) => {
         success: false,
         error: {
           code: 'TRANSCRIPTION_FAILED',
+          message: errorMsg,
+        },
+      },
+      422
+    );
+  }
+});
+
+// R2 File Upload: Store temporary audio/video chunk in R2 bucket (textfromclip-uploads)
+app.post('/api/upload/chunk', async (c) => {
+  if (!c.env.UPLOADS_BUCKET) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'R2_UNAVAILABLE',
+          message: 'R2 upload storage is not bound in this environment.',
+        },
+      },
+      503
+    );
+  }
+
+  const contentLengthHeader = c.req.header('content-length');
+  if (contentLengthHeader) {
+    const contentLength = parseInt(contentLengthHeader, 10);
+    if (Number.isFinite(contentLength) && contentLength > MAX_CHUNK_UPLOAD_BYTES + 65536) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'FILE_TOO_LARGE',
+            message: `Upload chunk exceeds the ${Math.round(MAX_CHUNK_UPLOAD_BYTES / (1024 * 1024))} MB per-chunk limit.`,
+          },
+        },
+        413
+      );
+    }
+  }
+
+  const contentType = (c.req.header('content-type') || '').toLowerCase();
+  let fileName = c.req.query('fileName') || c.req.header('x-file-name') || 'chunk.wav';
+  let buffer: ArrayBuffer;
+  let storedMimeType = 'audio/wav';
+
+  try {
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await c.req.formData();
+      const fileEntry = formData.get('file');
+      if (!fileEntry || typeof fileEntry === 'string' || typeof (fileEntry as any).arrayBuffer !== 'function') {
+        return c.json(
+          {
+            success: false,
+            error: {
+              code: 'MISSING_FILE',
+              message: 'Please attach an audio or video file under the "file" field.',
+            },
+          },
+          400
+        );
+      }
+      const fileBlob = fileEntry as File;
+      if (fileBlob.name) {
+        fileName = fileBlob.name;
+      }
+      if (fileBlob.type) {
+        storedMimeType = fileBlob.type;
+      }
+      buffer = await fileBlob.arrayBuffer();
+    } else {
+      if (contentType && contentType !== 'application/octet-stream') {
+        storedMimeType = contentType.split(';')[0].trim() || 'audio/wav';
+      }
+      buffer = await c.req.arrayBuffer();
+    }
+  } catch {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'INVALID_UPLOAD_BODY',
+          message: 'Could not read uploaded file bytes.',
+        },
+      },
+      400
+    );
+  }
+
+  const validation = validateUploadChunkPayload(buffer.byteLength, fileName);
+  if (!validation.valid) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: validation.code || 'INVALID_FILE',
+          message: validation.message || 'Invalid uploaded file chunk.',
+        },
+      },
+      validation.code === 'FILE_TOO_LARGE' ? 413 : 400
+    );
+  }
+
+  const key = buildUploadR2Key(fileName);
+
+  try {
+    await c.env.UPLOADS_BUCKET.put(key, buffer, {
+      httpMetadata: {
+        contentType: storedMimeType,
+      },
+      customMetadata: {
+        originalFileName: fileName.slice(0, 120),
+        uploadedAt: new Date().toISOString(),
+      },
+    });
+
+    return c.json({
+      success: true,
+      data: {
+        key,
+        sizeBytes: buffer.byteLength,
+      },
+    });
+  } catch (err: any) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'R2_PUT_FAILED',
+          message: sanitizePublicErrorMessage(
+            err?.message,
+            'Failed to store temporary audio chunk in R2.'
+          ),
+        },
+      },
+      500
+    );
+  }
+});
+
+// R2 File Upload: Transcribe uploaded R2 chunk(s) with Workers AI Whisper & immediately delete from R2
+app.post('/api/upload/transcribe', async (c) => {
+  if (!c.env.UPLOADS_BUCKET) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'R2_UNAVAILABLE',
+          message: 'R2 upload storage is not bound in this environment.',
+        },
+      },
+      503
+    );
+  }
+
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'INVALID_JSON',
+          message: 'Malformed JSON payload in request body.',
+        },
+      },
+      400
+    );
+  }
+
+  const rawKeys = Array.isArray(body?.keys)
+    ? body.keys
+    : typeof body?.key === 'string'
+    ? [body.key]
+    : [];
+
+  if (rawKeys.length === 0 || rawKeys.length > MAX_UPLOAD_CHUNKS) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'INVALID_KEYS',
+          message: `Please provide between 1 and ${MAX_UPLOAD_CHUNKS} uploaded R2 chunk keys.`,
+        },
+      },
+      400
+    );
+  }
+
+  for (const k of rawKeys) {
+    if (!isValidR2UploadKey(k)) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'INVALID_R2_KEY',
+            message: 'Invalid R2 object key provided.',
+          },
+        },
+        400
+      );
+    }
+  }
+
+  if (!c.env.AI) {
+    await Promise.allSettled(rawKeys.map((k: string) => c.env.UPLOADS_BUCKET!.delete(k)));
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'AI_UNAVAILABLE',
+          message: 'File transcription requires Cloudflare Workers AI (env.AI) to run Whisper.',
+        },
+      },
+      503
+    );
+  }
+
+  const chunkOffsetsSec = Array.isArray(body?.chunkOffsetsSec)
+    ? body.chunkOffsetsSec.map((n: any) => (typeof n === 'number' && Number.isFinite(n) ? n : 0))
+    : [];
+  const fileName = typeof body?.fileName === 'string' ? body.fileName.trim() : 'Uploaded Media';
+  const videoDurationSeconds =
+    typeof body?.videoDurationSeconds === 'number' && Number.isFinite(body.videoDurationSeconds)
+      ? body.videoDurationSeconds
+      : undefined;
+  const preferredLanguage =
+    typeof body?.preferredLanguage === 'string' && body.preferredLanguage.trim()
+      ? body.preferredLanguage.trim()
+      : 'en';
+
+  const startTime = Date.now();
+
+  try {
+    const result = await transcribeUploadedChunksFromR2({
+      bucket: c.env.UPLOADS_BUCKET,
+      ai: c.env.AI,
+      keys: rawKeys,
+      chunkOffsetsSec,
+      fileName,
+      videoDurationSeconds,
+      preferredLanguage,
+    });
+
+    if (c.env.DB) {
+      const nowSec = Math.floor(startTime / 1000);
+      const expiresSec = nowSec + parseInt(c.env.CACHE_TTL_SECONDS || '86400', 10);
+
+      try {
+        await c.env.DB.prepare(`
+          INSERT INTO jobs (id, provider, video_id, video_title, video_duration_seconds, source_type, status, language, segment_count, created_at, expires_at)
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'completed', ?7, ?8, ?9, ?10)
+        `)
+          .bind(
+            result.id,
+            result.provider,
+            result.videoId,
+            result.videoTitle || 'Uploaded Media',
+            result.videoDurationSeconds || 0,
+            result.sourceType,
+            result.language,
+            result.segments.length,
+            nowSec,
+            expiresSec
+          )
+          .run();
+
+        await c.env.DB.prepare(`
+          INSERT INTO usage_events (event_type, provider, source_type, status_code, created_at)
+          VALUES ('request_success', ?1, ?2, 200, ?3)
+        `)
+          .bind(result.provider, result.sourceType, nowSec)
+          .run();
+      } catch (dbErr) {
+        console.warn('D1 metadata recording error (non-fatal):', dbErr);
+      }
+    }
+
+    return c.json({
+      success: true,
+      data: result,
+    });
+  } catch (err: any) {
+    const errorMsg =
+      err?.message || 'An unexpected error occurred while transcribing the uploaded file.';
+
+    if (c.env.DB) {
+      try {
+        await c.env.DB.prepare(`
+          INSERT INTO usage_events (event_type, provider, source_type, status_code, created_at)
+          VALUES ('request_error', 'file_upload', 'ai_whisper', 422, ?1)
+        `)
+          .bind(Math.floor(Date.now() / 1000))
+          .run();
+      } catch {
+        // ignore
+      }
+    }
+
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'UPLOAD_TRANSCRIPTION_FAILED',
           message: errorMsg,
         },
       },
@@ -622,6 +943,11 @@ app.get('/sitemap.xml', (c) => {
     <loc>https://textfromclip.com/instagram</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://textfromclip.com/upload</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://textfromclip.com/guide</loc>

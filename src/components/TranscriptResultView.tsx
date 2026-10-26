@@ -361,6 +361,8 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
       ? 'TikTok'
       : result.provider === 'instagram'
       ? 'Instagram Reel'
+      : result.provider === 'file_upload'
+      ? 'Uploaded File'
       : 'Direct Media';
 
   return (
