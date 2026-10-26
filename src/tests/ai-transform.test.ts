@@ -3,11 +3,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it, expect, vi } from 'vitest';
 import app from '../server/index';
 import {
+  ACTIVE_TEXT_MODELS,
   cleanTranscriptForAi,
   cleanTextForTranslation,
   budgetTranscriptForPrompt,
   buildTransformPrompt,
   buildTranslateMessages,
+  extractAiResponseText,
   verifyQuoteAgainstTranscript,
   postProcessTransformOutput,
   postProcessTranslateOutput,
@@ -320,7 +322,7 @@ describe('7 & 8. Bounded fallback, cost controls, and HTTP endpoint behavior wit
       expect(res.status).toBe(200);
       const json: any = await res.json();
       expect(json.success).toBe(true);
-      expect(json.data.model).toBe('@cf/meta/llama-3.1-8b-instruct-fast');
+      expect(json.data.model).toBe('@cf/google/gemma-4-26b-a4b-it');
       expect(runSpy).toHaveBeenCalledTimes(1);
     }
   });
@@ -402,7 +404,7 @@ describe('7 & 8. Bounded fallback, cost controls, and HTTP endpoint behavior wit
     expect(JSON.stringify(authJson)).not.toContain('sk_live_supersecret999');
   });
 
-  it('retries malformed/empty output at most once on 8B without escalating to 70B, and caps total attempts at 3', async () => {
+  it('retries malformed/empty output at most once on primary Gemma 4 model without escalating to 70B, and caps total attempts at 3', async () => {
     const malformedSpy = vi.fn().mockResolvedValue({ response: '' });
     const res = await app.request(
       '/api/transform',
@@ -415,10 +417,10 @@ describe('7 & 8. Bounded fallback, cost controls, and HTTP endpoint behavior wit
     );
 
     expect(res.status).toBe(422);
-    // Called 8B twice (initial + 1 controlled retry), never called 70B
+    // Called primary Gemma 4 model twice (initial + 1 controlled retry), never called 70B
     expect(malformedSpy).toHaveBeenCalledTimes(2);
-    expect(malformedSpy.mock.calls[0][0]).toBe('@cf/meta/llama-3.1-8b-instruct-fast');
-    expect(malformedSpy.mock.calls[1][0]).toBe('@cf/meta/llama-3.1-8b-instruct-fast');
+    expect(malformedSpy.mock.calls[0][0]).toBe('@cf/google/gemma-4-26b-a4b-it');
+    expect(malformedSpy.mock.calls[1][0]).toBe('@cf/google/gemma-4-26b-a4b-it');
 
     // Even if every upstream model throws 503, total calls never exceed 3
     const upstreamFailSpy = vi.fn().mockRejectedValue(new Error('503 Service Unavailable'));
@@ -995,5 +997,177 @@ describe('10. Multilingual translation formatting, source selection, and structu
     // "R: ..." stays inside the single <li> item under "• P: ..."
     expect((html.match(/<li/g) ?? []).length).toBe(1);
     expect(html).toContain('R: Para no saturar la memoria disponible.');
+  });
+
+  it('8. configures @cf/google/gemma-4-26b-a4b-it, parses OpenAI-format Gemma 4 responses, and enforces strict cue-locked alignment on both motivational speech transcripts', async () => {
+    expect(ACTIVE_TEXT_MODELS[0]).toBe('@cf/google/gemma-4-26b-a4b-it');
+
+    // OpenAI Chat Completions payload with inline Gemma 4 thought block
+    expect(
+      extractAiResponseText({
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content:
+                '<|channel>thought\nAligning all 25 cues carefully.\n<channel|>[00:00] HABLANTE: Si solo tienes 24 horas al día,',
+            },
+          },
+        ],
+      })
+    ).toBe('[00:00] HABLANTE: Si solo tienes 24 horas al día,');
+
+    // Array content parts with separate thinking block
+    expect(
+      extractAiResponseText({
+        result: {
+          choices: [
+            {
+              message: {
+                content: [
+                  { type: 'thinking', text: 'internal reasoning' },
+                  { type: 'text', text: 'Clean visible answer' },
+                ],
+              },
+            },
+          ],
+        },
+      })
+    ).toBe('Clean visible answer');
+
+    const englishSpeechTranscript = [
+      '[00:00] SPEAKER: If you only have 24 hours in a day,  ',
+      '[00:03] your success depends on how you use those 24 hours.  ',
+      '[00:08] You have to listen to me.  ',
+      '[00:08] People talk about successful individuals like Oprah Winfrey, Ted Turner, and Warren Buffett.  ',
+      "[00:12] Listen to me. I don't care how much money you make.  ",
+      '[00:15] You only get 24 hours in a day,  ',
+      "[00:17] and the difference between someone like Oprah and someone who's struggling financially  ",
+      '[00:20] is that Oprah uses her 24 hours wisely.  ',
+      "[00:24] That's the key. Listen to me.  ",
+      "[00:26] That's it. You have 24 hours to work with.  ",
+      "[00:27] I don't care if you're broke, if you grew up poor,  ",
+      "[00:30] or if you grew up rich – it doesn't matter.  ",
+      "[00:32] I don't care if you're in college or not.  ",
+      "[00:34] You only get 24 hours, and I've seen firsthand how it can make a difference.  ",
+      '[00:38] I went from being a high school dropout  ',
+      '[00:41] to selling 6,000 books in less than six months.  ',
+      '[00:44] What happened in my 24 hours?  ',
+      '[00:46] I realized that I needed to get a grip on how I was using my time,  ',
+      "[00:48] because if I didn't, I'd be stuck in a life of poverty forever.  ",
+      '[00:51] All I need you to do is trust me.  ',
+      '[00:52] If you just write down your 24-hour schedule for me,  ',
+      "[00:54] I can tell you exactly where you'll be in five years.  ",
+      "[00:57] I can tell you where you'll be in ten years.  ",
+      "[00:59] I can even tell you where you'll be in 20 years,  ",
+      '[01:01] if you continue to follow that schedule.',
+    ].join('\n');
+
+    const spanishOriginalTranscript = [
+      '[00:00] HABLANTE: Si solo tienes 24 horas al día,  ',
+      '[00:03] tu éxito depende de cómo utilices esas 24 horas.  ',
+      '[00:08] Tienes que escucharme.  ',
+      '[00:08] La gente habla de Oprah Winfrey, Ted Turner, Warren Buffett.  ',
+      '[00:12] Escúchame. No me importa cuánto dinero ganas.  ',
+      '[00:15] Solo tienes 24 horas al día  ',
+      '[00:17] y la diferencia entre Oprah y la persona que está en la pobreza  ',
+      '[00:20] es que Oprah utiliza sus 24 horas de manera sabia.  ',
+      '[00:24] Eso es todo. Escúchame.  ',
+      '[00:26] Eso es todo. Tienes 24 horas.  ',
+      '[00:27] No me importa si estás en la pobreza, creciste en la pobreza.  ',
+      '[00:30] No me importa si creciste en riqueza,  ',
+      '[00:32] no me importa si estás en la universidad, no estás en la universidad.  ',
+      '[00:34] Solo tienes 24 horas y yo exploté literalmente.  ',
+      '[00:38] Pasé de ser un desertor de la escuela secundaria  ',
+      '[00:41] a vender 6.000 libros en menos de seis meses.  ',
+      '[00:44] ¿Qué pasó en mis 24 horas?  ',
+      '[00:46] Me dije: "¡Escucha, tienes que agarrarte a tus 24 horas  ',
+      '[00:48] porque no puedes estar en la pobreza el resto de tu vida".  ',
+      '[00:51] Y solo necesito que hagas una cosa para mí.  ',
+      '[00:52] Puedo decirte todo sobre tu vida.  ',
+      '[00:54] Si solo escribes tu horario de 24 horas para mí,  ',
+      '[00:57] me dejas que lo vea.  ',
+      '[00:58] Puedo decirte dónde estarás en cinco años.  ',
+      '[00:59] Puedo decirte dónde estarás en diez años.  ',
+      '[01:01] Puedo decirte dónde estarás en 20 años,  ',
+      '[01:02] si mantienes ese horario.',
+    ].join('\n');
+
+    const cleanedEn = cleanTextForTranslation(englishSpeechTranscript).cleanedText;
+    const cleanedEs = cleanTextForTranslation(spanishOriginalTranscript).cleanedText;
+
+    const enToEsPrompt = buildTranslateMessages(cleanedEn, 'Spanish')[0].content;
+    expect(enToEsPrompt).toMatch(/NEVER substitute memorized speech lines/i);
+    expect(enToEsPrompt).toMatch(/NEVER turn indirect statements into invented direct quotations/i);
+    expect(enToEsPrompt).toContain(
+      'TIMESTAMP CUE LOCK: The source has 25 timestamped lines in this exact order: [00:00], [00:03], [00:08], [00:08]'
+    );
+    expect(enToEsPrompt).toContain('[00:51], [00:52], [00:54], [00:57], [00:59], [01:01]');
+
+    const esToEnPrompt = buildTranslateMessages(cleanedEs, 'English')[0].content;
+    expect(esToEnPrompt).toContain('TIMESTAMP CUE LOCK: The source has 27 timestamped lines');
+    expect(esToEnPrompt).toContain('[00:57], [00:58], [00:59], [01:01], [01:02]');
+
+    // Misaligned/retimed 27-line Spanish transcript MUST be rejected as a translation of the 25-line English transcript
+    expect(validateTranslateOutput(cleanedEs, cleanedEn).valid).toBe(false);
+
+    // Merging the duplicate [00:08] lines into 24 cues MUST be rejected
+    const mergedDuplicateCue = cleanedEn
+      .split('\n')
+      .filter((_, idx) => idx !== 2)
+      .join('\n');
+    expect(validateTranslateOutput(mergedDuplicateCue, cleanedEn).valid).toBe(false);
+
+    // Faithful 25-cue Spanish output via OpenAI choices format on Gemma 4 succeeds in 1 call
+    const faithfulSpanish25 = [
+      '[00:00] HABLANTE: Si solo tienes 24 horas al día,',
+      '[00:03] tu éxito depende de cómo uses esas 24 horas.',
+      '[00:08] Tienes que escucharme.',
+      '[00:08] La gente habla de personas exitosas como Oprah Winfrey, Ted Turner y Warren Buffett.',
+      '[00:12] Escúchame. No me importa cuánto dinero ganes.',
+      '[00:15] Solo tienes 24 horas al día,',
+      '[00:17] y la diferencia entre alguien como Oprah y alguien que tiene dificultades económicas',
+      '[00:20] es que Oprah usa sus 24 horas sabiamente.',
+      '[00:24] Esa es la clave. Escúchame.',
+      '[00:26] Eso es todo. Tienes 24 horas para trabajar.',
+      '[00:27] No me importa si estás sin dinero, si creciste siendo pobre,',
+      '[00:30] o si creciste siendo rico; no importa.',
+      '[00:32] No me importa si estás en la universidad o no.',
+      '[00:34] Solo tienes 24 horas, y he visto de primera mano cómo puede marcar la diferencia.',
+      '[00:38] Pasé de abandonar la escuela secundaria',
+      '[00:41] a vender 6.000 libros en menos de seis meses.',
+      '[00:44] ¿Qué pasó en mis 24 horas?',
+      '[00:46] Me di cuenta de que necesitaba tomar el control de cómo estaba usando mi tiempo,',
+      '[00:48] porque si no lo hacía, me quedaría atrapado en una vida de pobreza para siempre.',
+      '[00:51] Todo lo que necesito que hagas es confiar en mí.',
+      '[00:52] Si tan solo escribes tu horario de 24 horas para mí,',
+      '[00:54] puedo decirte exactamente dónde estarás en cinco años.',
+      '[00:57] Puedo decirte dónde estarás en diez años.',
+      '[00:59] Incluso puedo decirte dónde estarás en 20 años,',
+      '[01:01] si continúas siguiendo ese horario.',
+    ].join('\n');
+
+    const gemmaSpy = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: faithfulSpanish25 } }],
+    });
+
+    const translateRes = await app.request(
+      '/api/translate',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: englishSpeechTranscript, targetLanguage: 'Spanish' }),
+      },
+      { AI: { run: gemmaSpy } } as any
+    );
+
+    expect(translateRes.status).toBe(200);
+    expect(gemmaSpy.mock.calls[0][1].chat_template_kwargs).toEqual({ enable_thinking: false });
+    const translateJson: any = await translateRes.json();
+    expect(translateJson.data.model).toBe('@cf/google/gemma-4-26b-a4b-it');
+    expect(translateJson.data.translatedText.split('\n').length).toBe(25);
+    expect(translateJson.data.translatedText).toContain(
+      '[00:34] Solo tienes 24 horas, y he visto de primera mano cómo puede marcar la diferencia.'
+    );
   });
 });

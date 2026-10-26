@@ -16,9 +16,9 @@ export const DEFAULT_PROMPT_BUDGET_CHARS = 14_000;
 export const DEFAULT_TRANSLATE_BUDGET_CHARS = 12_000;
 
 export const ACTIVE_TEXT_MODELS = [
-  '@cf/meta/llama-3.1-8b-instruct-fast',
+  '@cf/google/gemma-4-26b-a4b-it',
   '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
-  '@cf/meta/llama-3.2-3b-instruct',
+  '@cf/meta/llama-3.1-8b-instruct-fast',
 ] as const;
 
 export interface RawSegmentLike {
@@ -437,8 +437,10 @@ Comprehension Questions
 }
 
 const LANGUAGE_TRANSLATION_HINTS: Record<string, string> = {
+  english:
+    'Use natural, idiomatic English phrasing, standard English thousands/decimal formatting (e.g., "6,000" for thousands rather than "6.000"), natural section headings, and standard role labels (e.g., "SPEAKER:" when translating generic speaker prefixes).',
   spanish:
-    'Use idiomatic Spanish headings and phrasing (e.g., "Resumen ejecutivo", "Puntos clave", "En resumen"—never literal calques like "Toma de claves", "Línea base", or "en su valor facial"). Use sentence-case headings/labels, write "Python" without "El", use singular "le" when singular "they/them" refers to one speaker, and use standard Spanish computing terms (e.g., "procesos en segundo plano" / "workers en segundo plano", "reintentos", "inferencia en el borde", "cargas útiles").',
+    'Use idiomatic Spanish headings and phrasing (e.g., "Resumen ejecutivo", "Puntos clave", "En resumen"—never literal calques like "Toma de claves", "Línea base", or "en su valor facial"). Use sentence-case headings/labels, translate generic speaker prefixes naturally (e.g., "SPEAKER:" -> "HABLANTE:"), write "Python" without "El", use singular "le" when singular "they/them" refers to one speaker, and use standard Spanish computing terms (e.g., "procesos en segundo plano" / "workers en segundo plano", "reintentos", "inferencia en el borde", "cargas útiles").',
   french:
     'Use idiomatic French headings, spelling, and phrasing (e.g., "Résumé exécutif", "Points clés", "L’essentiel" or "En résumé"—never "Ligne de fond"; write "Croire en soi" and "doute de soi"; translate "assume" as "supposer" / "considérer", never false-friend "assumer"). Use sentence-case headings/labels, write "Python" without "Le", use singular "lui" when singular "they/them" refers to one speaker, and use standard French computing terms (e.g., "processus en arrière-plan" / "workers en arrière-plan", "nouvelles tentatives", "inférence en périphérie").',
   german:
@@ -470,19 +472,36 @@ export function buildTranslateMessages(
     ? `\nTARGET-LANGUAGE CONVENTIONS (${targetLanguage}): ${LANGUAGE_TRANSLATION_HINTS[langKey]}`
     : '';
 
+  const nonCodeSource = (sourceText || '').replace(/```[\s\S]*?```/g, '');
+  const nonEmptyLines = nonCodeSource
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean);
+  const leadingCueTimestamps = nonEmptyLines
+    .map((l) => l.match(/^(\[\d{1,2}:\d{2}(?::\d{2})?\])\s*\S/)?.[1] ?? null)
+    .filter((ts): ts is string => ts !== null);
+  const isPureTimestampedTranscript =
+    nonEmptyLines.length >= 2 && leadingCueTimestamps.length === nonEmptyLines.length;
+  const timestampCueAnchor = isPureTimestampedTranscript
+    ? leadingCueTimestamps.length <= 60
+      ? `\nTIMESTAMP CUE LOCK: The source has ${leadingCueTimestamps.length} timestamped lines in this exact order: ${leadingCueTimestamps.join(', ')}. Output ${leadingCueTimestamps.length} lines starting with these exact timestamps in the exact same order (preserving duplicate timestamps if present).`
+      : `\nTIMESTAMP CUE LOCK: The source has ${leadingCueTimestamps.length} timestamped lines. Output ${leadingCueTimestamps.length} lines starting with each source line's exact timestamp in the exact same order (preserving duplicate timestamps if present).`
+    : '';
+
   return [
     {
       role: 'system',
       content: `You are a native-level ${targetLanguage} translator. Translate the supplied content faithfully into natural, idiomatic ${targetLanguage}—use ONLY ${targetLanguage} (except preserved proper nouns, code, or established technical loanwords).
 
 TRANSLATION QUALITY & STRUCTURE RULES:
-1. NATURAL FLUENCY OVER LITERAL CALQUES: Produce fluent ${targetLanguage} that native speakers actually write and speak. Never translate English idioms, phrasal verbs, or section headings word-for-word—always translate headings (such as "Executive Summary", "Key Takeaways", and "Bottom Line") by their intended meaning in ${targetLanguage} rather than literal calques or leaving them in English.
-2. NATIVE GRAMMAR & WRITING CONVENTIONS: Respect ${targetLanguage} grammar, sentence structure, gender/number agreement, punctuation, and capitalization conventions (avoid unnatural English Title Case on headings/labels and unnatural articles before programming language names). Resolve ambiguous pronouns—including English singular "they/them/their" referring to a single speaker—from surrounding context so grammatical agreement stays singular and consistent.
-3. NAMES, TECHNICAL TERMS & AMBIGUITY: Preserve personal names, library/product names (e.g., OpenCV, TensorFlow, Python, API), and key details accurately, using standard ${targetLanguage} software/domain terminology rather than literal everyday words. Smooth awkward or cut-off spoken fragments naturally when context makes the meaning clear, preserve uncertainty markers like [inaudible], and NEVER guess or invent missing names, frameworks, numbers, or facts.
-4. PRESERVE STRUCTURE & LISTS: Retain the exact document organization, line breaks, and blank-line paragraph separations. Keep every heading on its own line (retaining Markdown # levels when present) and every bullet (•, -, *) or numbered item (1., 2., 1/5) on its own separate line in the exact same order.
-5. MARKDOWN & CODE: Preserve Markdown **bold**, *italic*, inline \`code\`, and fenced \`\`\`code blocks\`\`\` ONLY where they appear in the source (do not add **bold** or # markers to plain text). Do NOT translate code, commands, identifiers, or paths inside \`inline code\` or \`\`\`code blocks\`\`\`.
-6. TIMESTAMPS: When the source contains timestamps such as [00:00] or [01:02:03], maintain a strict 1-to-1 line mapping: keep every timestamp unchanged at the start of its corresponding translated segment in the exact same order, one segment per line—NEVER merge two timestamped lines or drop a timestamp, and NEVER add timestamps if the source has none.
-7. NO ADDITIONS OR COMMENTARY: Preserve the speaker's exact meaning, stance, negations, qualifiers, and speaker labels without summarizing, omitting, expanding, or adding introductions or notes. Output ONLY the translated content.${specificHint}`,
+1. STRICT SOURCE FIDELITY (NO MEMORIZED SUBSTITUTIONS OR REWRITES): Translate ONLY the exact statements, clauses, and details actually written in the supplied source text. Even if you recognize a famous speech, speaker, or quote from outside knowledge, NEVER substitute memorized speech lines or alternate transcript versions, NEVER turn indirect statements into invented direct quotations (or vice versa), and NEVER add, omit, or summarize any phrase, qualifier, or repetition.
+2. NATURAL FLUENCY OVER LITERAL CALQUES: Produce fluent ${targetLanguage} that native speakers actually write and speak while preserving the exact meaning of every clause. Never translate English idioms, phrasal verbs, or section headings word-for-word—always translate headings (such as "Executive Summary", "Key Takeaways", and "Bottom Line") by their intended meaning in ${targetLanguage} rather than literal calques or leaving them in English.
+3. NATIVE GRAMMAR & WRITING CONVENTIONS: Respect ${targetLanguage} grammar, sentence structure, gender/number agreement, number punctuation conventions (preserving exact numeric values), and capitalization conventions (avoid unnatural English Title Case on headings/labels and unnatural articles before programming language names). Resolve ambiguous pronouns—including English singular "they/them/their" referring to a single speaker—from surrounding context so grammatical agreement stays singular and consistent.
+4. NAMES, TECHNICAL TERMS & AMBIGUITY: Preserve personal names, quantities, time horizons, speaker labels, and library/product names (e.g., OpenCV, TensorFlow, Python, API) accurately, using standard ${targetLanguage} software/domain terminology rather than literal everyday words. Smooth awkward or cut-off spoken fragments naturally when context makes the meaning clear, preserve uncertainty markers like [inaudible], and NEVER guess or invent missing names, frameworks, numbers, or facts.
+5. PRESERVE STRUCTURE & LISTS: Retain the exact document organization, line breaks, and blank-line paragraph separations. Keep every heading on its own line (retaining Markdown # levels when present) and every bullet (•, -, *) or numbered item (1., 2., 1/5) on its own separate line in the exact same order.
+6. MARKDOWN & CODE: Preserve Markdown **bold**, *italic*, inline \`code\`, and fenced \`\`\`code blocks\`\`\` ONLY where they appear in the source (do not add **bold** or # markers to plain text). Do NOT translate code, commands, identifiers, or paths inside \`inline code\` or \`\`\`code blocks\`\`\`.
+7. TIMESTAMPS & SEGMENT ALIGNMENT: When the source contains timestamps such as [00:00] or [01:02:03], maintain a strict 1-to-1 line mapping by treating every timestamped line as a locked subtitle cue. Keep every timestamp unchanged at the start of its corresponding translated segment in the exact same order (including duplicate consecutive timestamps like two [00:08] lines), one segment per line. Translate ONLY the words belonging to each line onto that same timestamped line—when a sentence spans consecutive timestamped lines, use the full sentence for grammatical context and split the translation at the matching clause boundaries without shifting clauses to earlier/later timestamps, merging lines, dropping timestamps, or independently retiming/inventing timestamps (and NEVER add timestamps if the source has none).
+8. NO ADDITIONS OR COMMENTARY: Preserve the speaker's exact meaning, stance, negations, conditionals, and emphasis without adding introductions, notes, or commentary. Output ONLY the translated content.${specificHint}${timestampCueAnchor}`,
     },
     {
       role: 'user',
@@ -994,6 +1013,9 @@ export function validateTranslateOutput(
     return { valid: false, reason: 'Translation output is unexpectedly truncated or empty.' };
   }
 
+  const srcLines = srcProse.split('\n').map((l) => l.trim()).filter(Boolean);
+  const outLines = outProse.split('\n').map((l) => l.trim()).filter(Boolean);
+
   // 2. Timestamps & segment order
   const srcTimestamps = srcProse.match(ANY_TIMESTAMP_REGEX) ?? [];
   const outTimestamps = outProse.match(ANY_TIMESTAMP_REGEX) ?? [];
@@ -1003,50 +1025,71 @@ export function validateTranslateOutput(
   }
 
   if (srcTimestamps.length > 0) {
-    const minTs =
-      srcTimestamps.length <= 2
-        ? srcTimestamps.length
-        : Math.max(2, Math.floor(srcTimestamps.length * 0.5));
-    if (outTimestamps.length < minTs) {
-      return { valid: false, reason: 'Translation dropped source timestamps.' };
-    }
     const allowedSet = new Set(srcTimestamps);
     for (const ts of outTimestamps) {
       if (!allowedSet.has(ts)) {
         return { valid: false, reason: 'Translation introduced altered or invalid timestamps.' };
       }
     }
-    let srcCursor = 0;
-    let matchedInOrder = 0;
-    for (const ts of outTimestamps) {
-      while (srcCursor < srcTimestamps.length && srcTimestamps[srcCursor] !== ts) {
-        srcCursor++;
-      }
-      if (srcCursor < srcTimestamps.length) {
-        matchedInOrder++;
-        srcCursor++;
-      }
-    }
-    if (matchedInOrder < outTimestamps.length) {
-      return { valid: false, reason: 'Translation reordered timestamped segments.' };
+    if (outTimestamps.length > srcTimestamps.length) {
+      return { valid: false, reason: 'Translation added or duplicated timestamps absent from the source.' };
     }
 
-    const srcLeadingTsCount = srcProse.split('\n').filter((l) => LEADING_TIMESTAMP_REGEX.test(l)).length;
-    const outLeadingTsCount = outProse.split('\n').filter((l) => LEADING_TIMESTAMP_REGEX.test(l)).length;
-    if (srcLeadingTsCount >= 2) {
-      const minLeading =
-        srcLeadingTsCount <= 2
-          ? srcLeadingTsCount
-          : Math.max(2, Math.floor(srcLeadingTsCount * 0.5));
-      if (outLeadingTsCount < minLeading) {
+    const srcLeadingTsCount = srcLines.filter((l) => LEADING_TIMESTAMP_REGEX.test(l)).length;
+    const outLeadingTsCount = outLines.filter((l) => LEADING_TIMESTAMP_REGEX.test(l)).length;
+    const isPureTimestampedTranscript =
+      srcLines.length >= 2 && srcLeadingTsCount === srcLines.length;
+
+    if (isPureTimestampedTranscript) {
+      if (outTimestamps.length < srcTimestamps.length) {
+        return {
+          valid: false,
+          reason: `Translation dropped or merged timestamped segments (expected ${srcTimestamps.length} cues, got ${outTimestamps.length}).`,
+        };
+      }
+      if (outLeadingTsCount < srcLeadingTsCount) {
         return { valid: false, reason: 'Translation flattened line-separated timestamped segments.' };
+      }
+      for (let i = 0; i < srcTimestamps.length; i++) {
+        if (outTimestamps[i] !== srcTimestamps[i]) {
+          return { valid: false, reason: 'Translation reordered or misaligned timestamped segments.' };
+        }
+      }
+    } else {
+      const minTs =
+        srcTimestamps.length <= 2
+          ? srcTimestamps.length
+          : Math.max(2, Math.floor(srcTimestamps.length * 0.5));
+      if (outTimestamps.length < minTs) {
+        return { valid: false, reason: 'Translation dropped source timestamps.' };
+      }
+      let srcCursor = 0;
+      let matchedInOrder = 0;
+      for (const ts of outTimestamps) {
+        while (srcCursor < srcTimestamps.length && srcTimestamps[srcCursor] !== ts) {
+          srcCursor++;
+        }
+        if (srcCursor < srcTimestamps.length) {
+          matchedInOrder++;
+          srcCursor++;
+        }
+      }
+      if (matchedInOrder < outTimestamps.length) {
+        return { valid: false, reason: 'Translation reordered timestamped segments.' };
+      }
+      if (srcLeadingTsCount >= 2) {
+        const minLeading =
+          srcLeadingTsCount <= 2
+            ? srcLeadingTsCount
+            : Math.max(2, Math.floor(srcLeadingTsCount * 0.5));
+        if (outLeadingTsCount < minLeading) {
+          return { valid: false, reason: 'Translation flattened line-separated timestamped segments.' };
+        }
       }
     }
   }
 
   // 3. Markdown headings (# .. ######)
-  const srcLines = srcProse.split('\n').map((l) => l.trim()).filter(Boolean);
-  const outLines = outProse.split('\n').map((l) => l.trim()).filter(Boolean);
 
   const srcMdHeadings = srcLines.filter((l) => MD_HEADING_LINE_REGEX.test(l)).length;
   const outMdHeadings = outLines.filter((l) => MD_HEADING_LINE_REGEX.test(l)).length;
@@ -1242,12 +1285,86 @@ export class BoundedAiError extends Error {
 }
 
 /**
- * Executes chat inference starting on @cf/meta/llama-3.1-8b-instruct-fast with strict bounds:
+ * Normalizes text responses across both legacy Workers AI `{ response }` payloads
+ * and OpenAI-compatible Chat Completions `{ choices: [{ message: { content } }] }` payloads
+ * (used by @cf/google/gemma-4-26b-a4b-it), stripping internal reasoning/thought blocks if present.
+ */
+export function extractAiResponseText(res: unknown): string {
+  if (!res || typeof res !== 'object') return '';
+  const root = res as Record<string, any>;
+  const payload = root.result && typeof root.result === 'object' ? root.result : root;
+
+  let raw = '';
+  if (typeof root.response === 'string' && root.response.length > 0) {
+    raw = root.response;
+  } else if (typeof payload.response === 'string' && payload.response.length > 0) {
+    raw = payload.response;
+  } else if (Array.isArray(payload.choices) && payload.choices.length > 0) {
+    const msgContent = payload.choices[0]?.message?.content ?? payload.choices[0]?.text;
+    if (typeof msgContent === 'string') {
+      raw = msgContent;
+    } else if (Array.isArray(msgContent)) {
+      raw = msgContent
+        .map((part: any) => {
+          if (typeof part === 'string') return part;
+          if (
+            part &&
+            typeof part === 'object' &&
+            part.type !== 'thinking' &&
+            part.type !== 'reasoning' &&
+            typeof part.text === 'string'
+          ) {
+            return part.text;
+          }
+          return '';
+        })
+        .join('');
+    }
+  } else if (typeof payload.output_text === 'string') {
+    raw = payload.output_text;
+  }
+
+  if (!raw) return '';
+
+  return raw
+    .replace(/<\|channel>thought\b[\s\S]*?<channel\|>/gi, '')
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/^<\|channel>thought\b[\s\S]*$/i, '')
+    .replace(/^<think>[\s\S]*$/i, '')
+    .trim();
+}
+
+function buildModelRunParams(
+  model: string,
+  messages: Array<{ role: 'system' | 'user'; content: string }>,
+  requestedMaxTokens: number,
+  temperature: number
+): Record<string, unknown> {
+  // @cf/google/gemma-4-26b-a4b-it runs on Workers AI vLLM with thinking enabled by default,
+  // spending hundreds/thousands of completion tokens in `reasoning_content` and risking
+  // `finish_reason: "length"` truncation unless `chat_template_kwargs.enable_thinking` is false.
+  if (model.includes('gemma-4')) {
+    return {
+      messages,
+      max_tokens: requestedMaxTokens,
+      temperature,
+      chat_template_kwargs: { enable_thinking: false },
+    };
+  }
+  return {
+    messages,
+    max_tokens: requestedMaxTokens,
+    temperature,
+  };
+}
+
+/**
+ * Executes chat inference starting on @cf/google/gemma-4-26b-a4b-it with strict bounds:
  * - Hard cap of maxTotalCalls (default 3) across the entire request.
  * - Falls back to secondary models ONLY when classifyWorkersAiError allows fallback
  *   (model deprecation / 404 / transient 5xx), NEVER on 400/401/403/429/quota errors.
  * - Optional outputValidator: if the primary model returns empty or invalid structure,
- *   retries ONCE on the same cheap primary model before failing cleanly (without escalating to 70B).
+ *   retries ONCE on the same primary model before failing cleanly (without escalating to 70B).
  */
 export async function executeBoundedAiChat(options: {
   ai: any;
@@ -1269,13 +1386,12 @@ export async function executeBoundedAiChat(options: {
 
     try {
       attempts++;
-      const res = await options.ai.run(model, {
-        messages: options.messages,
-        max_tokens: options.maxTokens,
-        temperature: options.temperature,
-      });
+      const res = await options.ai.run(
+        model,
+        buildModelRunParams(model, options.messages, options.maxTokens, options.temperature)
+      );
 
-      const rawText = (res?.response ?? res?.result?.response ?? '').trim();
+      const rawText = extractAiResponseText(res);
 
       if (!options.processAndValidate) {
         if (rawText) {
@@ -1284,12 +1400,11 @@ export async function executeBoundedAiChat(options: {
         // Empty response: allow at most 1 retry on the SAME model (do NOT jump to 70B)
         if (attempts < maxCalls) {
           attempts++;
-          const retryRes = await options.ai.run(model, {
-            messages: options.messages,
-            max_tokens: options.maxTokens,
-            temperature: 0.1,
-          });
-          const retryText = (retryRes?.response ?? retryRes?.result?.response ?? '').trim();
+          const retryRes = await options.ai.run(
+            model,
+            buildModelRunParams(model, options.messages, options.maxTokens, 0.1)
+          );
+          const retryText = extractAiResponseText(retryRes);
           if (retryText) {
             return { text: retryText, modelUsed: model, attempts };
           }
@@ -1329,12 +1444,11 @@ export async function executeBoundedAiChat(options: {
                 },
               ];
 
-        const retryRes = await options.ai.run(model, {
-          messages: strictMessages,
-          max_tokens: options.maxTokens,
-          temperature: 0.1,
-        });
-        const retryRaw = (retryRes?.response ?? retryRes?.result?.response ?? '').trim();
+        const retryRes = await options.ai.run(
+          model,
+          buildModelRunParams(model, strictMessages, options.maxTokens, 0.1)
+        );
+        const retryRaw = extractAiResponseText(retryRes);
         const secondCheck = options.processAndValidate(retryRaw);
         if (secondCheck.validation.valid) {
           return { text: secondCheck.processed, modelUsed: model, attempts };
