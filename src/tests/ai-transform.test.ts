@@ -935,6 +935,8 @@ describe('10. Multilingual translation formatting, source selection, and structu
       const msgs = buildTranslateMessages(englishExecutiveSummary, lang);
       const sys = msgs[0].content;
       expect(sys).toContain(`native-level ${lang} translator`);
+      expect(sys).toMatch(/Interpret slang, colloquialisms, and idioms using the surrounding context instead of translating them literally/i);
+      expect(sys).toMatch(/NEVER add, omit, summarize, or invent information/i);
       expect(sys).toMatch(/Never translate English idioms, phrasal verbs, or section headings word-for-word/i);
       expect(sys).toMatch(/singular "they\/them/i);
       expect(sys).toMatch(/standard .+ software\/domain terminology/i);
@@ -947,9 +949,12 @@ describe('10. Multilingual translation formatting, source selection, and structu
     expect(frenchSys).toContain('Points clés');
     expect(frenchSys).not.toContain('Puntos clave');
     expect(frenchSys).not.toContain('reintentos');
+    expect(frenchSys).not.toContain('Latin American Spanish');
 
     const spanishSys = buildTranslateMessages(englishExecutiveSummary, 'Spanish')[0].content;
     expect(spanishSys).toContain('Puntos clave');
+    expect(spanishSys).toContain('neutral Latin American Spanish');
+    expect(spanishSys).toContain('addressing the viewer/listener as "tú"');
     expect(spanishSys).not.toContain('Points clés');
     expect(spanishSys).not.toContain('nouvelles tentatives');
 
