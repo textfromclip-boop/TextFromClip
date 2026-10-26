@@ -33,6 +33,14 @@ export interface ExtractedAudioResult {
   totalDurationSeconds: number;
 }
 
+export interface UploadProgressUpdate {
+  stage: string;
+  detail: string;
+  percent: number;
+  step: number;
+  totalSteps: number;
+}
+
 export function validateSelectedMediaFile(file: {
   name: string;
   size: number;
@@ -216,14 +224,20 @@ async function resampleAudioBufferTo16kMono(audioBuffer: AudioBuffer): Promise<F
  */
 export async function extractAudioChunksFromFile(
   file: File,
-  onProgress?: (stage: string) => void
+  onProgress?: (stage: string, update?: UploadProgressUpdate) => void
 ): Promise<ExtractedAudioResult> {
   const check = validateSelectedMediaFile(file);
   if (!check.valid) {
     throw new Error(check.error || 'Invalid media file.');
   }
 
-  onProgress?.('Reading media file…');
+  onProgress?.('Reading your file…', {
+    stage: 'Reading your file…',
+    detail: 'Checking video and audio track',
+    percent: 15,
+    step: 1,
+    totalSteps: 4,
+  });
   const rawBuffer = await file.arrayBuffer();
 
   const AudioCtx =
@@ -234,7 +248,13 @@ export async function extractAudioChunksFromFile(
   if (AudioCtx) {
     const ctx = new AudioCtx();
     try {
-      onProgress?.('Extracting 16 kHz audio track in browser…');
+      onProgress?.('Preparing audio…', {
+        stage: 'Preparing audio…',
+        detail: 'Optimizing audio for fast upload',
+        percent: 35,
+        step: 2,
+        totalSteps: 4,
+      });
       // Clone slice because decodeAudioData detaches the input ArrayBuffer in some browsers
       const decoded: AudioBuffer = await ctx.decodeAudioData(rawBuffer.slice(0));
       const monoSamples = await resampleAudioBufferTo16kMono(decoded);
@@ -278,21 +298,21 @@ export async function extractAudioChunksFromFile(
   }
 
   throw new Error(
-    'Your browser could not decode the audio track from this file container, and the raw file exceeds 20 MB. Please convert the file to MP4, MP3, WAV, or M4A, or upload a smaller clip.'
+    'We could not read the audio from this file because it is over 20 MB. Please try an MP4, MP3, WAV, or M4A file, or upload a shorter clip.'
   );
 }
 
 /**
  * Complete end-to-end client workflow:
- * 1. Extract 16 kHz mono WAV chunks locally in the browser
- * 2. Upload temporary chunks to Cloudflare R2 (/api/upload/chunk)
- * 3. Run Workers AI Whisper transcription & immediate R2 cleanup (/api/upload/transcribe)
+ * 1. Prepare lightweight audio locally in the browser
+ * 2. Upload temporary audio chunks
+ * 3. Transcribe speech into timestamped text & clean up temporary storage
  */
 export async function uploadAndTranscribeMediaFile(
   file: File,
   options?: {
     preferredLanguage?: string;
-    onProgress?: (stage: string) => void;
+    onProgress?: (stage: string, update?: UploadProgressUpdate) => void;
   }
 ): Promise<TranscriptResult> {
   const onProgress = options?.onProgress;
@@ -303,8 +323,16 @@ export async function uploadAndTranscribeMediaFile(
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
-    const partLabel = chunks.length > 1 ? ` (${i + 1}/${chunks.length})` : '';
-    onProgress?.(`Uploading audio to R2${partLabel}…`);
+    const partLabel = chunks.length > 1 ? ` (Part ${i + 1} of ${chunks.length})` : '';
+    const uploadPercent = Math.round(45 + ((i + 1) / chunks.length) * 25);
+    const stageText = `Uploading your file${partLabel}…`;
+    onProgress?.(stageText, {
+      stage: stageText,
+      detail: 'Sending audio securely for transcription',
+      percent: uploadPercent,
+      step: 3,
+      totalSteps: 4,
+    });
 
     const uploadRes = await fetch(
       `/api/upload/chunk?fileName=${encodeURIComponent(chunk.fileName)}`,
@@ -336,7 +364,13 @@ export async function uploadAndTranscribeMediaFile(
     chunkOffsetsSec.push(chunk.startOffsetSec);
   }
 
-  onProgress?.('Transcribing speech with AI Whisper…');
+  onProgress?.('Turning speech into text…', {
+    stage: 'Turning speech into text…',
+    detail: 'Writing your transcript and timestamps (this takes a few seconds)',
+    percent: 85,
+    step: 4,
+    totalSteps: 4,
+  });
 
   const transcribeRes = await fetch('/api/upload/transcribe', {
     method: 'POST',

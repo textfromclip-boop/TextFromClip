@@ -308,7 +308,7 @@ app.post('/api/upload/chunk', async (c) => {
         success: false,
         error: {
           code: 'R2_UNAVAILABLE',
-          message: 'R2 upload storage is not bound in this environment.',
+          message: 'File uploads are temporarily unavailable. Please try again shortly.',
         },
       },
       503
@@ -422,7 +422,7 @@ app.post('/api/upload/chunk', async (c) => {
           code: 'R2_PUT_FAILED',
           message: sanitizePublicErrorMessage(
             err?.message,
-            'Failed to store temporary audio chunk in R2.'
+            'Could not upload your file right now. Please try again.'
           ),
         },
       },
@@ -439,7 +439,7 @@ app.post('/api/upload/transcribe', async (c) => {
         success: false,
         error: {
           code: 'R2_UNAVAILABLE',
-          message: 'R2 upload storage is not bound in this environment.',
+          message: 'File uploads are temporarily unavailable. Please try again shortly.',
         },
       },
       503
@@ -503,7 +503,7 @@ app.post('/api/upload/transcribe', async (c) => {
         success: false,
         error: {
           code: 'AI_UNAVAILABLE',
-          message: 'File transcription requires Cloudflare Workers AI (env.AI) to run Whisper.',
+          message: 'Audio transcription is temporarily unavailable. Please try again shortly.',
         },
       },
       503

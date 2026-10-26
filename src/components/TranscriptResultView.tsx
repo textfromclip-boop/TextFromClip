@@ -66,6 +66,13 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
 
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aiProgress, setAiProgress] = useState<{
+    stage: string;
+    detail: string;
+    percent: number;
+    step: number;
+    totalSteps: number;
+  } | null>(null);
 
   const [transformedText, setTransformedText] = useState<string | null>(null);
   const [transformLabel, setTransformLabel] = useState<string>('AI Summary');
@@ -102,6 +109,58 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // User-friendly progress bar stages during AI Summary/Rewrite and Translation
+  useEffect(() => {
+    if (!aiLoading || activeTab === 'original') {
+      setAiProgress(null);
+      return;
+    }
+
+    const isTransform = activeTab === 'transform';
+    setAiProgress({
+      stage: isTransform
+        ? 'Reading your transcript…'
+        : `Reading ${translatedSourceLabel.toLowerCase()}…`,
+      detail: isTransform
+        ? 'Finding the main points and key ideas'
+        : 'Keeping your timestamps and layout intact',
+      percent: 30,
+      step: 1,
+      totalSteps: 3,
+    });
+
+    const t1 = window.setTimeout(() => {
+      setAiProgress({
+        stage: isTransform
+          ? `Writing your ${transformLabel}…`
+          : `Translating into ${translatedLang}…`,
+        detail: isTransform
+          ? 'Organizing sections clearly based on what was said'
+          : `Writing natural, fluent ${translatedLang}`,
+        percent: 68,
+        step: 2,
+        totalSteps: 3,
+      });
+    }, 1800);
+
+    const t2 = window.setTimeout(() => {
+      setAiProgress({
+        stage: isTransform
+          ? 'Polishing your final text…'
+          : 'Checking timestamps and formatting…',
+        detail: 'Almost ready',
+        percent: 90,
+        step: 3,
+        totalSteps: 3,
+      });
+    }, 4000);
+
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [aiLoading, activeTab, transformLabel, translatedLang, translatedSourceLabel]);
 
   const q = query.trim();
 
@@ -744,16 +803,37 @@ export const TranscriptResultView: React.FC<Props> = ({ result, onReset, onUpdat
         )}
 
         {aiLoading && activeTab !== 'original' ? (
-          <div className="p-12 flex flex-col items-center justify-center gap-3 text-center">
-            <svg className="w-7 h-7 text-accent animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-            </svg>
-            <p className="text-sm font-semibold text-ink">
-              {activeTab === 'transform'
-                ? `Generating ${transformLabel}…`
-                : `Translating ${translatedSourceLabel.toLowerCase()} into ${translatedLang}…`}
-            </p>
+          <div className="p-10 sm:p-14 flex flex-col items-center justify-center text-center">
+            <div className="w-full max-w-md rounded-2xl bg-slate-50/90 border border-rule p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="inline-flex items-center gap-2 font-bold text-ink text-sm">
+                  <svg className="w-4 h-4 text-accent animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                  <span>
+                    {aiProgress?.stage ||
+                      (activeTab === 'transform'
+                        ? `Writing your ${transformLabel}…`
+                        : `Translating into ${translatedLang}…`)}
+                  </span>
+                </span>
+                {aiProgress && (
+                  <span className="font-mono font-semibold text-accent bg-accent-soft px-2 py-0.5 rounded-full shrink-0">
+                    Step {aiProgress.step} of {aiProgress.totalSteps} · {aiProgress.percent}%
+                  </span>
+                )}
+              </div>
+              {aiProgress?.detail && (
+                <p className="mt-1.5 text-xs text-muted text-left pl-6">{aiProgress.detail}</p>
+              )}
+              <div className="mt-3.5 h-2.5 w-full rounded-full bg-slate-200/90 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] transition-all duration-500 ease-out"
+                  style={{ width: `${aiProgress?.percent ?? 45}%` }}
+                />
+              </div>
+            </div>
           </div>
         ) : activeTab === 'transform' && transformedText ? (
           <div className="p-6 sm:p-8 max-h-[68vh] overflow-y-auto">

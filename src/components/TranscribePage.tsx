@@ -5,6 +5,7 @@ import { Link, RoutePath } from '../router';
 import { validateUrlForPlatform } from '../utils/validation';
 import {
   uploadAndTranscribeMediaFile,
+  UploadProgressUpdate,
   validateSelectedMediaFile,
 } from '../utils/audioExtractor';
 
@@ -66,13 +67,78 @@ export interface PlatformConfig {
 export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config }) => {
   const [url, setUrl] = useState('');
   const [loading, setLoading] = useState(false);
-  const [uploadStage, setUploadStage] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressUpdate | null>(null);
+  const [uploadingFileName, setUploadingFileName] = useState<string | null>(null);
+  const [urlProgress, setUrlProgress] = useState<UploadProgressUpdate | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TranscriptResult | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const resultSectionRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isFileLoading = loading && Boolean(uploadProgress);
+  const isUrlLoading = loading && !uploadProgress;
+
+  // Smooth step progression while a video URL is being transcribed
+  useEffect(() => {
+    if (!isUrlLoading) {
+      setUrlProgress(null);
+      return;
+    }
+
+    setUrlProgress({
+      stage: 'Checking your video link…',
+      detail: 'Connecting to video',
+      percent: 28,
+      step: 1,
+      totalSteps: 3,
+    });
+
+    const t1 = window.setTimeout(() => {
+      setUrlProgress({
+        stage: 'Listening to the audio…',
+        detail: 'Reading spoken words from the clip',
+        percent: 62,
+        step: 2,
+        totalSteps: 3,
+      });
+    }, 1600);
+
+    const t2 = window.setTimeout(() => {
+      setUrlProgress({
+        stage: 'Writing your transcript…',
+        detail: 'Adding timestamps and preparing text',
+        percent: 88,
+        step: 3,
+        totalSteps: 3,
+      });
+    }, 3800);
+
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, [isUrlLoading]);
+
+  // Smoothly advance percentage during the final speech-to-text step on file uploads
+  useEffect(() => {
+    if (!isFileLoading || !uploadProgress || uploadProgress.step !== 4) return;
+    const interval = window.setInterval(() => {
+      setUploadProgress((prev) => {
+        if (!prev || prev.step !== 4 || prev.percent >= 95) return prev;
+        return {
+          ...prev,
+          percent: Math.min(95, prev.percent + 2),
+          detail:
+            prev.percent >= 90
+              ? 'Almost done — finishing up your transcript'
+              : prev.detail,
+        };
+      });
+    }, 900);
+    return () => window.clearInterval(interval);
+  }, [isFileLoading, uploadProgress?.step]);
 
   const scrollToTranscript = () => {
     window.setTimeout(() => {
@@ -162,13 +228,32 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
     }
 
     setLoading(true);
-    setUploadStage('Preparing audio…');
+    setUploadingFileName(file.name);
+    setUploadProgress({
+      stage: 'Reading your file…',
+      detail: 'Checking video and audio track',
+      percent: 12,
+      step: 1,
+      totalSteps: 4,
+    });
     setError(null);
     setResult(null);
 
     try {
       const data = await uploadAndTranscribeMediaFile(file, {
-        onProgress: (stage) => setUploadStage(stage),
+        onProgress: (stage, update) => {
+          if (update) {
+            setUploadProgress(update);
+          } else {
+            setUploadProgress((prev) => ({
+              stage,
+              detail: prev?.detail || 'Processing your file',
+              percent: prev?.percent || 50,
+              step: prev?.step || 2,
+              totalSteps: 4,
+            }));
+          }
+        },
       });
       setResult(data);
       setHistory((prev) => {
@@ -184,7 +269,8 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
       setError(e?.message || 'Failed to upload and transcribe the selected file.');
     } finally {
       setLoading(false);
-      setUploadStage(null);
+      setUploadProgress(null);
+      setUploadingFileName(null);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -283,14 +369,14 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     fileInputRef.current?.click();
                   }
                 }}
-                className={`mt-7 max-w-xl rounded-2xl border-2 border-dashed p-6 sm:p-7 text-center cursor-pointer transition-all shadow-[0_12px_36px_-8px_rgba(2,19,49,0.07)] ${
+                className={`mt-7 max-w-xl rounded-2xl border-2 border-dashed p-6 sm:p-7 text-center transition-all shadow-[0_12px_36px_-8px_rgba(2,19,49,0.07)] ${
                   isDragging
                     ? 'border-accent bg-accent-soft/60 scale-[1.01]'
                     : 'border-accent/40 bg-surface hover:border-accent hover:bg-accent-soft/20'
-                } ${loading ? 'opacity-60 cursor-wait' : ''}`}
+                } ${loading ? 'cursor-wait' : 'cursor-pointer'}`}
               >
                 <div className="mx-auto w-12 h-12 rounded-2xl bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white flex items-center justify-center shadow-md">
-                  {loading && uploadStage ? (
+                  {isFileLoading ? (
                     <svg className="w-6 h-6 animate-spin" viewBox="0 0 24 24" fill="none">
                       <circle
                         className="opacity-25"
@@ -322,40 +408,62 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     </svg>
                   )}
                 </div>
-                <p className="mt-3.5 text-base font-bold text-ink">
-                  {loading && uploadStage
-                    ? uploadStage
-                    : 'Drop an audio or video file here, or click to browse'}
-                </p>
-                <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-xs text-muted">
-                  {['MP4', 'MP3', 'WAV', 'MOV', 'M4A', 'WEBM'].map((fmt) => (
-                    <span
-                      key={fmt}
-                      className="px-2 py-0.5 rounded bg-slate-100 border border-rule font-mono text-[10px] font-bold text-ink"
-                    >
-                      {fmt}
+
+                {isFileLoading && uploadProgress ? (
+                  <div className="mt-4 max-w-md mx-auto text-left">
+                    <div className="flex items-center justify-between gap-2 text-xs font-semibold">
+                      <span className="text-ink font-bold text-sm">{uploadProgress.stage}</span>
+                      <span className="font-mono text-accent bg-accent-soft px-2 py-0.5 rounded-full">
+                        Step {uploadProgress.step} of {uploadProgress.totalSteps} · {uploadProgress.percent}%
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-muted truncate">
+                      {uploadingFileName ? `${uploadingFileName} — ` : ''}
+                      {uploadProgress.detail}
+                    </p>
+                    <div className="mt-3 h-2.5 w-full rounded-full bg-slate-200/90 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] transition-all duration-500 ease-out"
+                        style={{ width: `${uploadProgress.percent}%` }}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="mt-3.5 text-base font-bold text-ink">
+                      Drop an audio or video file here, or click to browse
+                    </p>
+                    <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5 text-xs text-muted">
+                      {['MP4', 'MP3', 'WAV', 'MOV', 'M4A', 'WEBM'].map((fmt) => (
+                        <span
+                          key={fmt}
+                          className="px-2 py-0.5 rounded bg-slate-100 border border-rule font-mono text-[10px] font-bold text-ink"
+                        >
+                          {fmt}
+                        </span>
+                      ))}
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        Up to 200 MB
+                      </span>
+                    </div>
+                    <span className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] shadow-md">
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2.2}
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                        />
+                      </svg>
+                      <span>Choose Audio / Video File</span>
                     </span>
-                  ))}
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                    Up to 200 MB
-                  </span>
-                </div>
-                <span className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] shadow-md">
-                  <svg
-                    className="w-4 h-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2.2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                    />
-                  </svg>
-                  <span>{loading && uploadStage ? 'Processing File…' : 'Choose Audio / Video File'}</span>
-                </span>
+                  </>
+                )}
               </div>
             )}
 
@@ -405,7 +513,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                   disabled={loading}
                   className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] shadow-md hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0"
                 >
-                  {loading ? (
+                  {isUrlLoading ? (
                     <>
                       <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
                         <circle
@@ -422,7 +530,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                           d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
                         />
                       </svg>
-                      <span>{uploadStage || 'Transcribing…'}</span>
+                      <span>Working…</span>
                     </>
                   ) : (
                     <>
@@ -432,6 +540,29 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                   )}
                 </button>
               </div>
+
+              {/* Live Progress Bar when transcribing a video URL */}
+              {isUrlLoading && urlProgress && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mt-3 p-3.5 rounded-2xl bg-surface border border-accent/30 shadow-sm"
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-bold text-ink text-sm">{urlProgress.stage}</span>
+                    <span className="font-mono font-semibold text-accent bg-accent-soft px-2 py-0.5 rounded-full">
+                      Step {urlProgress.step} of {urlProgress.totalSteps} · {urlProgress.percent}%
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-xs text-muted">{urlProgress.detail}</p>
+                  <div className="mt-2.5 h-2 w-full rounded-full bg-slate-200/90 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] transition-all duration-500 ease-out"
+                      style={{ width: `${urlProgress.percent}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {config.id !== 'upload' && (
                 <div className="mt-3.5">
@@ -444,7 +575,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     <div className="h-px flex-1 bg-rule" />
                   </div>
 
-                  {/* Tactile, Unmistakable File Upload Dropzone Card */}
+                  {/* Tactile, Unmistakable File Upload Dropzone Card with Built-In Progress Bar */}
                   <div
                     onDragOver={(e) => {
                       e.preventDefault();
@@ -469,34 +600,97 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                         fileInputRef.current?.click();
                       }
                     }}
-                    className={`group relative flex flex-col sm:flex-row items-center justify-between gap-3.5 p-3.5 sm:px-4 sm:py-3.5 rounded-2xl border-2 border-dashed cursor-pointer transition-all ${
+                    className={`group relative flex flex-col justify-between gap-3 p-3.5 sm:px-4 sm:py-3.5 rounded-2xl border-2 border-dashed transition-all ${
                       isDragging
                         ? 'border-accent bg-accent-soft/70 scale-[1.01] shadow-md'
                         : 'border-[#0F8CFA]/45 bg-gradient-to-r from-[#0F8CFA]/[0.05] via-[#2868F7]/[0.04] to-[#5131ED]/[0.06] hover:border-accent hover:from-[#0F8CFA]/[0.09] hover:to-[#5131ED]/[0.10] shadow-sm hover:shadow-md'
-                    } ${loading ? 'opacity-60 cursor-wait' : ''}`}
+                    } ${loading ? 'cursor-wait' : 'cursor-pointer'}`}
                   >
-                    <div className="flex items-center gap-3.5 min-w-0 w-full sm:w-auto">
-                      {/* Gradient Cloud/File Upload Icon */}
-                      <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
-                        {loading && uploadStage ? (
-                          <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3.5 w-full">
+                      <div className="flex items-center gap-3.5 min-w-0 w-full sm:w-auto">
+                        {/* Gradient Cloud/File Upload Icon */}
+                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                          {isFileLoading ? (
+                            <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                              />
+                              <path
+                                className="opacity-90"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                              />
+                            </svg>
+                          ) : (
+                            <svg
+                              className="w-5 h-5"
+                              fill="none"
+                              viewBox="0 0 24 24"
                               stroke="currentColor"
-                              strokeWidth="4"
-                            />
-                            <path
-                              className="opacity-90"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-                            />
-                          </svg>
-                        ) : (
+                              strokeWidth={2.2}
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                              />
+                            </svg>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1 text-left">
+                          {isFileLoading && uploadProgress ? (
+                            <>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-bold text-ink">
+                                  {uploadProgress.stage}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-full font-mono text-[10px] font-bold bg-accent-soft text-accent border border-accent/20">
+                                  Step {uploadProgress.step} of {uploadProgress.totalSteps} ·{' '}
+                                  {uploadProgress.percent}%
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-xs text-muted truncate">
+                                {uploadingFileName ? `${uploadingFileName} — ` : ''}
+                                {uploadProgress.detail}
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-bold text-ink group-hover:text-accent transition-colors">
+                                  Upload Video or Audio File
+                                </span>
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  Up to 200 MB
+                                </span>
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
+                                <span>Drag & drop or browse</span>
+                                <span className="text-slate-300">·</span>
+                                {['MP4', 'MP3', 'WAV', 'MOV', 'M4A'].map((fmt) => (
+                                  <span
+                                    key={fmt}
+                                    className="px-1.5 py-0.5 rounded bg-white/90 border border-rule font-mono text-[10px] font-semibold text-ink"
+                                  >
+                                    {fmt}
+                                  </span>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {!isFileLoading && (
+                        <span className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-[#021331] group-hover:bg-gradient-to-r group-hover:from-[#0F8CFA] group-hover:via-[#2868F7] group-hover:to-[#5131ED] shadow-sm transition-all shrink-0">
                           <svg
-                            className="w-5 h-5"
+                            className="w-4 h-4"
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"
@@ -505,55 +699,25 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                             <path
                               strokeLinecap="round"
                               strokeLinejoin="round"
-                              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
+                              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
                             />
                           </svg>
-                        )}
-                      </div>
-
-                      <div className="min-w-0 flex-1 text-left">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-bold text-ink group-hover:text-accent transition-colors">
-                            {loading && uploadStage
-                              ? uploadStage
-                              : 'Upload Video or Audio File'}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            Up to 200 MB
-                          </span>
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                          <span>Drag & drop or browse</span>
-                          <span className="text-slate-300">·</span>
-                          {['MP4', 'MP3', 'WAV', 'MOV', 'M4A'].map((fmt) => (
-                            <span
-                              key={fmt}
-                              className="px-1.5 py-0.5 rounded bg-white/90 border border-rule font-mono text-[10px] font-semibold text-ink"
-                            >
-                              {fmt}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+                          <span>Choose File</span>
+                        </span>
+                      )}
                     </div>
 
-                    {/* Prominent Choose File Button */}
-                    <span className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-[#021331] group-hover:bg-gradient-to-r group-hover:from-[#0F8CFA] group-hover:via-[#2868F7] group-hover:to-[#5131ED] shadow-sm transition-all shrink-0">
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2.2}
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                        />
-                      </svg>
-                      <span>{loading && uploadStage ? 'Uploading…' : 'Choose File'}</span>
-                    </span>
+                    {/* Visual Progress Bar inside the Upload Card */}
+                    {isFileLoading && uploadProgress && (
+                      <div className="w-full pt-1">
+                        <div className="h-2.5 w-full rounded-full bg-slate-200/90 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] transition-all duration-500 ease-out"
+                            style={{ width: `${uploadProgress.percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

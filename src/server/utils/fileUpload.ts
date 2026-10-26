@@ -253,14 +253,14 @@ export async function transcribeUploadedChunksFromR2(
   } = params;
 
   if (!Array.isArray(keys) || keys.length === 0) {
-    throw new Error('At least one uploaded R2 object key is required.');
+    throw new Error('No uploaded file was received. Please choose a file and try again.');
   }
   if (keys.length > MAX_UPLOAD_CHUNKS) {
-    throw new Error(`Maximum of ${MAX_UPLOAD_CHUNKS} audio chunks allowed per transcription job.`);
+    throw new Error('This recording is too long to process in one go. Please upload a clip under 30 minutes.');
   }
   for (const key of keys) {
     if (!isValidR2UploadKey(key)) {
-      throw new Error('Invalid R2 object key format.');
+      throw new Error('Invalid upload reference. Please select your file and try again.');
     }
   }
 
@@ -275,7 +275,7 @@ export async function transcribeUploadedChunksFromR2(
       const obj = await bucket.get(key);
       if (!obj) {
         throw new Error(
-          'Uploaded audio chunk was not found or expired in temporary storage. Please upload the file again.'
+          'Your upload session expired or the temporary file was already removed. Please choose the file again.'
         );
       }
 
