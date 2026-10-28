@@ -47,15 +47,16 @@ export const GuidePage: React.FC = () => (
         </ul>
       </nav>
 
-      <article className="max-w-3xl bg-surface border border-rule rounded-2xl p-6 sm:p-8 shadow-sm leading-relaxed space-y-4 text-ink/90 [&_a]:text-accent [&_a]:font-semibold [&_a]:underline">
+      <article className="min-w-0 max-w-3xl bg-surface border border-rule rounded-2xl p-5 sm:p-8 shadow-sm leading-relaxed space-y-4 text-ink/90 [&_a]:text-accent [&_a]:font-semibold [&_a]:underline">
         <H2 id="quick-start">Quick start</H2>
         <ol className="list-decimal pl-5 space-y-2">
           <li>
             Open the tab for your video’s platform: <Link to="/youtube">YouTube</Link>,{' '}
-            <Link to="/tiktok">TikTok</Link>, or <Link to="/instagram">Instagram</Link>.
+            <Link to="/tiktok">TikTok</Link>, <Link to="/instagram">Instagram</Link>, or{' '}
+            <Link to="/upload">Upload</Link>.
           </li>
           <li>
-            Paste the full video link starting with <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">https://</code>.
+            Paste the full video link starting with <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">https://</code>, or choose a video/audio file from your device.
           </li>
           <li>
             Click <strong>Get Transcript</strong>. Transcripts typically return in a few seconds.
@@ -98,10 +99,10 @@ export const GuidePage: React.FC = () => (
                 </td>
               </tr>
               <tr>
-                <td className="py-3 px-4 font-semibold">Direct Media</td>
+                <td className="py-3 px-4 font-semibold">Local File Upload</td>
                 <td className="py-3 px-4 text-emerald-700 font-medium">Supported</td>
                 <td className="py-3 px-4 font-mono text-xs text-muted">
-                  .mp4 .webm .mp3 .wav .m4a .ogg .aac (up to 25 MB)
+                  .mp4 .mov .webm .mkv .mp3 .wav .m4a .ogg .aac .flac (up to 200 MB)
                 </td>
               </tr>
             </tbody>

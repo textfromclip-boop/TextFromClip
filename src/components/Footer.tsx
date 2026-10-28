@@ -10,10 +10,11 @@ export const Footer: React.FC = () => (
         <span className="hidden sm:inline text-slate-300">|</span>
         <p>© {new Date().getFullYear()} TextFromClip. Instant transcripts — no accounts, no stored text.</p>
       </div>
-      <nav aria-label="Footer" className="flex flex-wrap gap-x-6 gap-y-2 font-medium">
+      <nav aria-label="Footer" className="flex flex-wrap gap-x-5 sm:gap-x-6 gap-y-2 font-medium">
         <Link to="/youtube" className="hover:text-accent transition-colors">YouTube</Link>
         <Link to="/tiktok" className="hover:text-accent transition-colors">TikTok</Link>
         <Link to="/instagram" className="hover:text-accent transition-colors">Instagram</Link>
+        <Link to="/upload" className="hover:text-accent transition-colors">Upload</Link>
         <Link to="/guide" className="hover:text-accent transition-colors">Guide</Link>
         <Link to="/about#privacy" className="hover:text-accent transition-colors">Privacy</Link>
         <Link to="/about#terms" className="hover:text-accent transition-colors">Terms</Link>

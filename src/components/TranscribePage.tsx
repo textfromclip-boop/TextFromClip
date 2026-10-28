@@ -310,19 +310,19 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
         className="pointer-events-none absolute -top-24 right-0 w-[44rem] h-[44rem] rounded-full bg-gradient-to-br from-[#0F8CFA]/10 via-[#2868F7]/8 to-[#5131ED]/10 blur-3xl"
       />
 
-      <div className="relative max-w-6xl mx-auto px-5 pt-10 sm:pt-14 pb-6">
+      <div className="relative max-w-6xl mx-auto px-4 sm:px-5 pt-6 sm:pt-14 pb-6">
         {/* HERO SPLIT LAYOUT (Style 3 Strategic Architecture) */}
-        <div className="grid lg:grid-cols-12 gap-10 lg:gap-8 items-center">
+        <div className="grid lg:grid-cols-12 gap-8 lg:gap-8 items-center">
           {/* LEFT COLUMN: Action, Input & Platform Switcher */}
-          <div className="lg:col-span-7">
+          <div className="lg:col-span-7 min-w-0">
             {/* Strategic Eyebrow Pill */}
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-surface border border-rule shadow-sm text-xs font-semibold text-ink">
+            <div className="inline-flex items-center gap-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-surface border border-rule shadow-sm text-xs font-semibold text-ink">
               <span className="w-2 h-2 rounded-full bg-gradient-to-r from-[#0F8CFA] to-[#5131ED]" />
               <span>{config.eyebrow}</span>
             </div>
 
             {/* Bold Two-Tone Headline Matched to Logo */}
-            <h1 className="mt-5 text-4xl sm:text-5xl lg:text-[3.35rem] font-black tracking-tight text-ink leading-[1.08]">
+            <h1 className="mt-4 sm:mt-5 text-3xl sm:text-5xl lg:text-[3.35rem] font-black tracking-tight text-ink leading-[1.1]">
               {config.headingPrefix}{' '}
               <span className="bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] bg-clip-text text-transparent">
                 {config.headingHighlight}
@@ -330,7 +330,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
             </h1>
 
             {/* Strategic Lead Copy */}
-            <p className="mt-4 text-base sm:text-lg text-muted max-w-xl leading-relaxed">
+            <p className="mt-3 sm:mt-4 text-[15px] sm:text-lg text-muted max-w-xl leading-relaxed">
               {config.intro}
             </p>
 
@@ -502,7 +502,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     }}
                     disabled={loading}
                     placeholder={config.placeholder}
-                    className="w-full bg-transparent text-ink placeholder:text-slate-400 text-[15px] focus:outline-none disabled:opacity-60"
+                    className="w-full min-w-0 bg-transparent text-ink placeholder:text-slate-400 text-base sm:text-[15px] focus:outline-none disabled:opacity-60"
                     aria-describedby={error ? 'url-error' : undefined}
                     aria-invalid={error ? true : undefined}
                   />
@@ -865,10 +865,10 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
           </div>
 
           {/* RIGHT COLUMN: Visual Clip-to-Transcript Flow Showcase (from Style 3) */}
-          <div className="lg:col-span-5">
-            <div className="relative mx-auto max-w-md lg:max-w-none pt-4 pb-2">
+          <div className="lg:col-span-5 min-w-0">
+            <div className="relative mx-auto max-w-md lg:max-w-none pt-2 sm:pt-4 pb-2">
               {/* 1. Floating Source Link Pill + Curved Arrow */}
-              <div className="relative z-20 flex items-center gap-2 mb-3 pl-2">
+              <div className="relative z-20 flex items-center gap-2 mb-3 pl-1 sm:pl-2">
                 <button
                   type="button"
                   disabled={loading}
@@ -881,7 +881,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     }
                   }}
                   title={config.id === 'upload' ? 'Click to upload a file' : 'Click to test this live link'}
-                  className="group inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-surface border border-rule shadow-md hover:border-accent transition-all text-left"
+                  className="group inline-flex items-center gap-2.5 px-3 py-2 sm:px-3.5 rounded-xl bg-surface border border-rule shadow-md hover:border-accent transition-all text-left min-w-0 max-w-full"
                 >
                   <span className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white inline-flex items-center justify-center shrink-0">
                     <svg
@@ -898,14 +898,14 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                       />
                     </svg>
                   </span>
-                  <span className="font-mono text-xs font-medium text-ink truncate max-w-[210px] group-hover:text-accent">
+                  <span className="font-mono text-xs font-medium text-ink truncate max-w-[180px] sm:max-w-[210px] group-hover:text-accent">
                     {config.example.shortUrl}
                   </span>
                 </button>
 
                 {/* Curved Blue Arrow pointing to Transcript Card */}
                 <svg
-                  className="w-10 h-8 text-accent shrink-0 translate-y-2"
+                  className="w-9 h-7 sm:w-10 sm:h-8 text-accent shrink-0 translate-y-2"
                   viewBox="0 0 48 36"
                   fill="none"
                   aria-hidden="true"
@@ -928,9 +928,9 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
 
               {/* 2. Overlapping Video Clip Card + Transcript Card */}
               <div className="relative grid grid-cols-12 items-center">
-                {/* Video Clip Preview Card (Left Back) */}
-                <div className="col-span-6 sm:col-span-5 z-10 rounded-2xl bg-[#021331] text-white p-3.5 shadow-xl border border-slate-800">
-                  <div className="relative rounded-xl bg-gradient-to-br from-[#0F2952] via-[#13386E] to-[#1E1B4B] aspect-[4/3] flex flex-col justify-between p-3 overflow-hidden">
+                {/* Video Clip Preview Card (Full width on mobile, Left Back on sm+) */}
+                <div className="col-span-12 sm:col-span-5 z-10 rounded-2xl bg-[#021331] text-white p-3.5 shadow-xl border border-slate-800">
+                  <div className="relative rounded-xl bg-gradient-to-br from-[#0F2952] via-[#13386E] to-[#1E1B4B] aspect-[16/9] sm:aspect-[4/3] flex flex-col justify-between p-3 overflow-hidden">
                     <div className="flex items-center justify-between text-[10px] font-mono">
                       <span className="px-2 py-0.5 rounded bg-white/15 backdrop-blur-sm font-semibold">
                         {config.example.badgeLabel}
