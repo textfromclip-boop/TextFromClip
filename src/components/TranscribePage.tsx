@@ -1,15 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { TranscriptResult, ApiResponse } from '../types';
 import { TranscriptResultView } from './TranscriptResultView';
-import { Link, RoutePath } from '../router';
+import { Link, navigate, RoutePath } from '../router';
 import { validateUrlForPlatform } from '../utils/validation';
 import {
   uploadAndTranscribeMediaFile,
   UploadProgressUpdate,
   validateSelectedMediaFile,
 } from '../utils/audioExtractor';
+import {
+  createMissedQuestionsDeck,
+  recordCardReviewInStore,
+  saveStudyDeck,
+} from '../utils/studyStore';
+import { trackEvent } from '../utils/analytics';
 
-const HISTORY_STORAGE_KEY = 'textfromclip_history_v1';
+const HISTORY_STORAGE_KEY = 'learnfromclip_history_v1';
+const LEGACY_HISTORY_KEY = 'textfromclip_history_v1';
 
 interface HistoryEntry {
   sourceUrl: string;
@@ -18,7 +25,9 @@ interface HistoryEntry {
 
 function loadHistory(): HistoryEntry[] {
   try {
-    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    const raw =
+      localStorage.getItem(HISTORY_STORAGE_KEY) ||
+      localStorage.getItem(LEGACY_HISTORY_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.slice(0, 10) : [];
@@ -188,6 +197,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
     setLoading(true);
     setError(null);
     setResult(null); // Clear previous result immediately so stale transcripts never linger
+    trackEvent('link_submitted');
 
     try {
       const res = await fetch('/api/transcript', {
@@ -195,12 +205,16 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ url: value, platform: config.id }),
       });
+      if (res.status === 429) {
+        trackEvent('limit_hit');
+      }
       const data: ApiResponse<TranscriptResult> = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(
           (!data.success && data.error?.message) || 'The transcript could not be created.'
         );
       }
+      trackEvent('transcript_done');
       setResult(data.data);
       setHistory((prev) => {
         const filtered = prev.filter(
@@ -255,7 +269,13 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
           }
         },
       });
-      setResult(data);
+      const localBlobUrl = URL.createObjectURL(file);
+      const enrichedData: TranscriptResult = {
+        ...data,
+        localMediaUrl: localBlobUrl,
+      };
+      trackEvent('transcript_done');
+      setResult(enrichedData);
       setHistory((prev) => {
         const filtered = prev.filter(
           (item) =>
@@ -1020,8 +1040,24 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
           >
             <TranscriptResultView
               result={result}
+              sourceUrl={url}
               onReset={reset}
               onUpdateResult={handleUpdateResult}
+              onRevisionPackCreated={(pack, src) => {
+                saveStudyDeck(pack, src);
+              }}
+              onCardReviewed={(packId, card, rating) => {
+                recordCardReviewInStore(packId, card.id, rating);
+              }}
+              onBuildMissedDeck={(packTitle, missedCards) => {
+                createMissedQuestionsDeck(
+                  packTitle,
+                  missedCards,
+                  result.provider,
+                  result.videoId
+                );
+              }}
+              onOpenFullStudyPage={() => navigate('/study')}
             />
           </div>
         )}

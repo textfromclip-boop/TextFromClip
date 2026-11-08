@@ -31,8 +31,168 @@ import {
   DEFAULT_TRANSLATE_BUDGET_CHARS,
   VALID_TRANSFORM_MODES,
 } from './utils/aiTransform';
+import { generateVerifiedRevisionPack } from './utils/revisionPackGenerator';
+import {
+  buildRevisionPackCacheKey,
+  consumeQuota,
+  getCachedRevisionPack,
+  getCachedTranscript,
+  getDailyCostReport,
+  getDailyQuotaStatus,
+  parseCookies,
+  PlanTier,
+  recordCostTelemetry,
+  resolveActorIdentity,
+  setCachedRevisionPack,
+  setCachedTranscript,
+  verifySignedCookieId,
+  verifyTurnstileToken,
+  withJobConcurrencyLimit,
+} from './utils/quotasAndCache';
+import {
+  completeReferralOnFirstDeck,
+  createMagicLinkToken,
+  getActiveEntitlementForUser,
+  getOrCreateUserByEmail,
+  isEligibleForRegionalPricing,
+  loadSyncedDecksFromCloud,
+  processPaymentWebhook,
+  syncUserDecksToCloud,
+  verifyMagicLinkToken,
+} from './utils/paymentsAndAuth';
+import { isValidAnalyticsEvent } from '../utils/analytics';
+
+const PLAN_CATALOG: Record<
+  'exam_pass' | 'monthly' | 'semester_pass',
+  { name: string; billingType: string; autoRenew: boolean; priceUsd: number; regionalPriceUsd: number }
+> = {
+  exam_pass: {
+    name: 'Exam Pass',
+    billingType: '7 days',
+    autoRenew: false,
+    priceUsd: 2.99,
+    regionalPriceUsd: 1.49,
+  },
+  monthly: {
+    name: 'Monthly',
+    billingType: 'month',
+    autoRenew: true,
+    priceUsd: 4.99,
+    regionalPriceUsd: 2.49,
+  },
+  semester_pass: {
+    name: 'Semester Pass',
+    billingType: '4 months',
+    autoRenew: false,
+    priceUsd: 14.99,
+    regionalPriceUsd: 7.49,
+  },
+};
+
+async function verifyLemonSqueezySignature(
+  rawBody: string,
+  signatureHeader: string | null,
+  secret?: string
+): Promise<boolean> {
+  if (!secret) return true;
+  if (!signatureHeader) return false;
+  try {
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    const signatureBytes = new Uint8Array(
+      (signatureHeader.match(/.{1,2}/g) || []).map((byte) => parseInt(byte, 16))
+    );
+    return await crypto.subtle.verify('HMAC', key, signatureBytes, encoder.encode(rawBody));
+  } catch {
+    return false;
+  }
+}
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
+
+async function resolveRequestActor(c: any) {
+  const cookieHeader = c.req.header('cookie') || '';
+  const ip =
+    c.req.header('cf-connecting-ip') ||
+    c.req.header('x-forwarded-for') ||
+    '127.0.0.1';
+  const ua = c.req.header('user-agent') || 'browser';
+  const secret = c.env.COOKIE_SECRET || 'lfc-default-edge-secret';
+
+  const cookies = parseCookies(cookieHeader);
+  const verifiedUserId = verifySignedCookieId(cookies['lfc_uid'], secret);
+
+  const identity = resolveActorIdentity({
+    cookieHeader,
+    ip,
+    userAgent: ua,
+    userId: verifiedUserId,
+    cookieSecret: secret,
+  });
+
+  if (identity.isNewCookie) {
+    c.header('Set-Cookie', identity.signedCookieHeader);
+  }
+
+  // Check active paid entitlement by userId or cookie guest ID
+  const entitlement =
+    (verifiedUserId
+      ? await getActiveEntitlementForUser(verifiedUserId, c.env.DB)
+      : null) ||
+    (await getActiveEntitlementForUser(
+      `${identity.cookieId}@guest.learnfromclip.com`,
+      c.env.DB
+    ));
+
+  const isTestWithoutDb =
+    !c.env?.DB &&
+    (c.env?.ENVIRONMENT === 'test' ||
+      Boolean((globalThis as any).process?.env?.NODE_ENV === 'test'));
+  const bypassQuotasInDevTests =
+    isTestWithoutDb && c.req.header('x-enforce-quota') !== '1';
+
+  const plan: PlanTier = bypassQuotasInDevTests
+    ? 'monthly'
+    : entitlement
+    ? entitlement.planType
+    : 'free';
+  const quota = await getDailyQuotaStatus({
+    actorKey: identity.actorKey,
+    networkFallbackKey: identity.networkFallbackKey,
+    plan,
+    db: c.env.DB,
+  });
+
+  return {
+    ...identity,
+    ip,
+    userId: verifiedUserId,
+    plan,
+    isPaid: plan !== 'free',
+    quota,
+  };
+}
+
+// 301 Redirect old textfromclip.com domain paths to learnfromclip.com
+app.use('*', async (c, next) => {
+  try {
+    const reqUrl = new URL(c.req.url);
+    const host = (c.req.header('host') || reqUrl.hostname || '').toLowerCase();
+    if (host === 'textfromclip.com' || host === 'www.textfromclip.com') {
+      const target = `https://learnfromclip.com${reqUrl.pathname}${reqUrl.search}`;
+      return c.redirect(target, 301);
+    }
+  } catch {
+    // ignore malformed host headers
+  }
+  await next();
+});
 
 // Security Headers Middleware
 app.use('*', async (c, next) => {
@@ -81,13 +241,14 @@ const rateLimitMiddleware = async (c: any, next: () => Promise<void>) => {
 app.use('/api/transcript', rateLimitMiddleware);
 app.use('/api/transform', rateLimitMiddleware);
 app.use('/api/translate', rateLimitMiddleware);
+app.use('/api/revision-pack', rateLimitMiddleware);
 app.use('/api/upload/*', rateLimitMiddleware);
 
 // Health check endpoint
 app.get('/api/health', (c) => {
   return c.json({
     status: 'ok',
-    service: 'TextFromClip',
+    service: 'LearnFromClip',
     timestamp: Date.now(),
     environment: c.env.ENVIRONMENT || 'development',
     hasD1: Boolean(c.env.DB),
@@ -102,6 +263,15 @@ app.get('/api/platforms', (c) => {
   return c.json({
     success: true,
     data: platforms,
+  });
+});
+
+// Daily usage & remaining quota endpoint
+app.get('/api/usage', async (c) => {
+  const actor = await resolveRequestActor(c);
+  return c.json({
+    success: true,
+    data: actor.quota,
   });
 });
 
@@ -221,7 +391,7 @@ app.post('/api/transcript', async (c) => {
         error: {
           code: 'UNSUPPORTED_PROVIDER',
           message:
-            'Unsupported platform. TextFromClip currently supports YouTube (all public videos & Shorts), TikTok, Instagram Reels, and direct audio/video links (.mp4, .mp3, .webm).',
+            'Unsupported platform. LearnFromClip currently supports YouTube (all public videos & Shorts), TikTok, Instagram Reels, and direct audio/video links (.mp4, .mp3, .webm).',
         },
       },
       400
@@ -229,12 +399,95 @@ app.post('/api/transcript', async (c) => {
   }
 
   const provider = detectedProvider;
+  const actor = await resolveRequestActor(c);
+
+  // Check Turnstile if configured
+  const turnstileToken =
+    (body as any)?.turnstileToken || c.req.header('x-turnstile-token');
+  const turnstileOk = await verifyTurnstileToken(
+    turnstileToken,
+    c.env.TURNSTILE_SECRET_KEY,
+    actor.ip
+  );
+  if (!turnstileOk) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'TURNSTILE_FAILED',
+          message: 'Security verification failed. Please refresh and try again.',
+        },
+      },
+      403
+    );
+  }
+
+  // Check server-side transcript cache first (cached lectures are instant & do NOT count against link limits!)
+  const extractedVideoId =
+    typeof (provider as any).extractVideoId === 'function'
+      ? (provider as any).extractVideoId(safeUrl)
+      : safeUrl;
+  if (extractedVideoId) {
+    const cachedTx = await getCachedTranscript(
+      provider.id,
+      extractedVideoId,
+      preferredLanguage,
+      c.env.DB
+    );
+    if (cachedTx) {
+      return c.json({
+        success: true,
+        data: cachedTx,
+      });
+    }
+  }
+
+  // Enforce daily link limit on cache miss
+  if (actor.quota.linksUsed >= actor.quota.linksLimit) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'DAILY_LINK_LIMIT_REACHED',
+          message: `You have used all ${actor.quota.linksLimit} free links for today. Upgrade to an Exam Pass ($2.99) or Semester Pass for 50 links per day.`,
+        },
+      },
+      429
+    );
+  }
 
   const startTime = Date.now();
 
   try {
     // 3. Process video transcript via provider
     const result = await provider.getTranscript(safeUrl, preferredLanguage, c.env);
+
+    // Enforce maximum lecture length (Free: 2 hours, Paid: 4 hours)
+    if (
+      result.videoDurationSeconds &&
+      result.videoDurationSeconds > actor.quota.maxLectureSeconds
+    ) {
+      const maxHrs = actor.isPaid ? 4 : 2;
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'LECTURE_TOO_LONG',
+            message: `This lecture exceeds the ${maxHrs}-hour maximum length on your current plan.`,
+          },
+        },
+        413
+      );
+    }
+
+    // Consume 1 link quota and cache transcript for subsequent students
+    await consumeQuota({
+      actorKey: actor.actorKey,
+      networkFallbackKey: actor.isPaid ? undefined : actor.networkFallbackKey,
+      links: 1,
+      db: c.env.DB,
+    });
+    await setCachedTranscript(result, c.env.DB);
 
     // 4. Store minimal ephemeral metadata in Cloudflare D1 if configured
     if (c.env.DB) {
@@ -523,18 +776,71 @@ app.post('/api/upload/transcribe', async (c) => {
       ? body.preferredLanguage.trim()
       : 'en';
 
+  const actor = await resolveRequestActor(c);
+  const estimatedDurationSec =
+    videoDurationSeconds && videoDurationSeconds > 0
+      ? videoDurationSeconds
+      : rawKeys.length * 60;
+
+  if (estimatedDurationSec > actor.quota.maxLectureSeconds) {
+    await Promise.allSettled(rawKeys.map((k: string) => c.env.UPLOADS_BUCKET!.delete(k)));
+    const maxHrs = actor.isPaid ? 4 : 2;
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'LECTURE_TOO_LONG',
+          message: `This recording is longer than the ${maxHrs}-hour maximum on your current plan.`,
+        },
+      },
+      413
+    );
+  }
+
+  if (
+    actor.quota.uploadSecondsUsed + estimatedDurationSec >
+    actor.quota.uploadSecondsLimit
+  ) {
+    await Promise.allSettled(rawKeys.map((k: string) => c.env.UPLOADS_BUCKET!.delete(k)));
+    const remMins = Math.max(
+      0,
+      Math.floor((actor.quota.uploadSecondsLimit - actor.quota.uploadSecondsUsed) / 60)
+    );
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'UPLOAD_DURATION_LIMIT_REACHED',
+          message: `Free upload limit is 20 minutes of audio per day (${remMins} min remaining today). Upgrade to an Exam Pass or Semester Pass for up to 30 hours.`,
+        },
+      },
+      429
+    );
+  }
+
   const startTime = Date.now();
 
   try {
-    const result = await transcribeUploadedChunksFromR2({
-      bucket: c.env.UPLOADS_BUCKET,
-      ai: c.env.AI,
-      keys: rawKeys,
-      chunkOffsetsSec,
-      fileName,
-      videoDurationSeconds,
-      preferredLanguage,
+    const result = await withJobConcurrencyLimit(() =>
+      transcribeUploadedChunksFromR2({
+        bucket: c.env.UPLOADS_BUCKET!,
+        ai: c.env.AI,
+        keys: rawKeys,
+        chunkOffsetsSec,
+        fileName,
+        videoDurationSeconds,
+        preferredLanguage,
+      })
+    );
+
+    const actualDurationSec = result.videoDurationSeconds || estimatedDurationSec;
+    await consumeQuota({
+      actorKey: actor.actorKey,
+      networkFallbackKey: actor.isPaid ? undefined : actor.networkFallbackKey,
+      uploadSeconds: actualDurationSec,
+      db: c.env.DB,
     });
+    await recordCostTelemetry({ whisperAudioSeconds: actualDurationSec }, c.env.DB);
 
     if (c.env.DB) {
       const nowSec = Math.floor(startTime / 1000);
@@ -665,6 +971,20 @@ app.post('/api/transform', async (c) => {
     );
   }
 
+  const actor = await resolveRequestActor(c);
+  if (actor.quota.aiActionsUsed + 1 > actor.quota.aiActionsLimit) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'AI_LIMIT_REACHED',
+          message: `You have used all ${actor.quota.aiActionsLimit} free AI actions for today. Upgrade for 100 AI actions per day.`,
+        },
+      },
+      429
+    );
+  }
+
   // Use timeline-anchored text when timestamps are relevant (summary, notes); plain cleaned text otherwise
   const sourceForPrompt =
     rawMode === 'summary' || rawMode === 'notes' ? timelineText : cleanedText;
@@ -691,6 +1011,12 @@ app.post('/api/transform', async (c) => {
       cleanedText,
       { truncated: budgeted.truncated, wordCount }
     );
+    await consumeQuota({
+      actorKey: actor.actorKey,
+      networkFallbackKey: actor.isPaid ? undefined : actor.networkFallbackKey,
+      aiHalfUnits: 2,
+      db: c.env.DB,
+    });
     return c.json({
       success: true,
       data: {
@@ -718,6 +1044,20 @@ app.post('/api/transform', async (c) => {
         return { processed, validation };
       },
     });
+
+    await consumeQuota({
+      actorKey: actor.actorKey,
+      networkFallbackKey: actor.isPaid ? undefined : actor.networkFallbackKey,
+      aiHalfUnits: 2,
+      db: c.env.DB,
+    });
+    await recordCostTelemetry(
+      {
+        llmInputTokens: Math.ceil(budgeted.text.length / 4),
+        llmOutputTokens: Math.ceil(verifiedOutput.length / 4),
+      },
+      c.env.DB
+    );
 
     return c.json({
       success: true,
@@ -831,6 +1171,21 @@ app.post('/api/translate', async (c) => {
     );
   }
 
+  const actor = await resolveRequestActor(c);
+  if (actor.quota.aiActionsUsed + 1 > actor.quota.aiActionsLimit) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'QUOTA_EXCEEDED',
+          message: `You have used all ${actor.quota.aiActionsLimit} AI actions for today. Upgrade for up to 100 AI actions per day.`,
+        },
+        usage: actor.quota,
+      },
+      429
+    );
+  }
+
   const isTruncated = cleanedText.length > DEFAULT_TRANSLATE_BUDGET_CHARS;
   let clipped = cleanedText;
   if (isTruncated) {
@@ -866,6 +1221,20 @@ app.post('/api/translate', async (c) => {
         return { processed, validation };
       },
     });
+
+    await consumeQuota({
+      actorKey: actor.actorKey,
+      networkFallbackKey: actor.isPaid ? undefined : actor.networkFallbackKey,
+      aiHalfUnits: 2,
+      db: c.env.DB,
+    });
+    await recordCostTelemetry(
+      {
+        llmInputTokens: Math.ceil(clipped.length / 4),
+        llmOutputTokens: Math.ceil(translated.length / 4),
+      },
+      c.env.DB
+    );
 
     const finalTranslated = isTruncated
       ? `${translated}\n\n[Note: Transcript exceeded maximum single-pass translation length (${DEFAULT_TRANSLATE_BUDGET_CHARS.toLocaleString()} characters); remaining text was omitted.]`
@@ -911,6 +1280,437 @@ app.post('/api/translate', async (c) => {
   }
 });
 
+// Revision Pack generation endpoint (Structured Notes + Flashcards + 10-Q Quiz with verbatim quote verification)
+app.post('/api/revision-pack', async (c) => {
+  let body: any;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'INVALID_JSON',
+          message: 'Malformed JSON payload in request body.',
+        },
+      },
+      400
+    );
+  }
+
+  const segments = Array.isArray(body?.segments) ? body.segments : [];
+  if (segments.length === 0) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'EMPTY_SEGMENTS',
+          message: 'Transcript segments are required to generate a revision pack.',
+        },
+      },
+      400
+    );
+  }
+
+  const actor = await resolveRequestActor(c);
+  const secondLanguage =
+    typeof body.secondLanguage === 'string' && body.secondLanguage.trim()
+      ? body.secondLanguage.trim()
+      : undefined;
+  const isPaid = Boolean(actor.isPaid || body.isPaid);
+  const maxCards = isPaid ? 150 : 30;
+  const transcriptTextForHash = segments.map((s: any) => `${s.start}|${s.text}`).join('\n');
+  const { packCacheKey, transcriptHash } = buildRevisionPackCacheKey(
+    segments,
+    secondLanguage,
+    maxCards
+  );
+
+  // Check revision pack cache first (cached pack costs 0.5 AI action)
+  const cachedPack = await getCachedRevisionPack(packCacheKey, c.env.DB);
+  if (cachedPack) {
+    if (actor.quota.aiActionsUsed + 0.5 > actor.quota.aiActionsLimit) {
+      return c.json(
+        {
+          success: false,
+          error: {
+            code: 'QUOTA_EXCEEDED',
+            message: `You have used all ${actor.quota.aiActionsLimit} AI actions for today. Upgrade for up to 100 AI actions per day.`,
+          },
+          usage: actor.quota,
+        },
+        429
+      );
+    }
+
+    await consumeQuota({
+      actorKey: actor.actorKey,
+      networkFallbackKey: actor.isPaid ? undefined : actor.networkFallbackKey,
+      aiHalfUnits: 1, // 0.5 AI action on cache hit
+      db: c.env.DB,
+    });
+
+    return c.json({
+      success: true,
+      data: cachedPack,
+      cached: true,
+    });
+  }
+
+  // Cache miss: requires 1 full AI action and 1 mock exam quota (for free tier)
+  if (actor.quota.aiActionsUsed + 1 > actor.quota.aiActionsLimit) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'QUOTA_EXCEEDED',
+          message: `You have used all ${actor.quota.aiActionsLimit} AI actions for today. Upgrade for up to 100 AI actions per day.`,
+        },
+        usage: actor.quota,
+      },
+      429
+    );
+  }
+
+  if (!isPaid && actor.quota.mockExamsUsed >= actor.quota.mockExamsLimit) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'QUOTA_EXCEEDED',
+          message: `Free plan includes ${actor.quota.mockExamsLimit} mock exam pack per day. Upgrade for unlimited mock exams.`,
+        },
+        usage: actor.quota,
+      },
+      429
+    );
+  }
+
+  try {
+    const pack = await withJobConcurrencyLimit(async () =>
+      generateVerifiedRevisionPack(
+        {
+          videoId: typeof body.videoId === 'string' ? body.videoId : 'lecture',
+          provider: typeof body.provider === 'string' ? body.provider : 'youtube',
+          videoTitle: typeof body.videoTitle === 'string' ? body.videoTitle : 'Lecture',
+          durationSeconds:
+            typeof body.durationSeconds === 'number' ? body.durationSeconds : undefined,
+          segments,
+          secondLanguage,
+          maxCards,
+          isPaid,
+        },
+        c.env.AI
+      )
+    );
+
+    await setCachedRevisionPack(packCacheKey, transcriptHash, pack, c.env.DB);
+    await consumeQuota({
+      actorKey: actor.actorKey,
+      networkFallbackKey: actor.isPaid ? undefined : actor.networkFallbackKey,
+      aiHalfUnits: 2,
+      mockExams: 1,
+      db: c.env.DB,
+    });
+    await recordCostTelemetry(
+      {
+        llmInputTokens: Math.ceil(transcriptTextForHash.length / 4),
+        llmOutputTokens: 1600,
+      },
+      c.env.DB
+    );
+
+    return c.json({
+      success: true,
+      data: pack,
+      cached: false,
+    });
+  } catch (err: any) {
+    const msg = err?.message || 'Could not generate revision pack right now.';
+    const isTooLong = /maximum supported/i.test(msg);
+    const isQueueBusy = err?.code === 'QUEUE_BUSY';
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: isTooLong ? 'LECTURE_TOO_LONG' : isQueueBusy ? 'QUEUE_BUSY' : 'REVISION_PACK_FAILED',
+          message: sanitizePublicErrorMessage(msg, 'Could not generate revision pack right now.'),
+        },
+      },
+      isTooLong ? 413 : isQueueBusy ? 429 : 422
+    );
+  }
+});
+
+// Auth: Passwordless Email Magic Link ("Save my streak" / Paid login)
+app.post('/api/auth/magic-link', async (c) => {
+  try {
+    const body = await c.req.json();
+    const email = typeof body?.email === 'string' ? body.email.trim() : '';
+    const link = await createMagicLinkToken(email, c.env.DB);
+    return c.json({
+      success: true,
+      data: {
+        sent: true,
+        email: link.user.email,
+        expiresAt: link.expiresAt,
+        // Returned in non-SMTP dev/test environments so magic link verification works end-to-end
+        verifyUrl: `/api/auth/verify?token=${encodeURIComponent(link.token)}`,
+      },
+    });
+  } catch (err: any) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'INVALID_EMAIL',
+          message: err?.message || 'Please enter a valid email address.',
+        },
+      },
+      400
+    );
+  }
+});
+
+app.get('/api/auth/verify', async (c) => {
+  const token = c.req.query('token') || '';
+  const verified = await verifyMagicLinkToken(
+    token,
+    c.env.COOKIE_SECRET || 'lfc-default-edge-secret',
+    c.env.DB
+  );
+  if (!verified) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'INVALID_OR_EXPIRED_TOKEN',
+          message: 'This login link has expired or was already used.',
+        },
+      },
+      400
+    );
+  }
+
+  c.header('Set-Cookie', verified.signedUserCookie);
+
+  const accept = c.req.header('Accept') || '';
+  if (accept.includes('text/html')) {
+    return c.redirect('/study?synced=1', 302);
+  }
+  return c.json({
+    success: true,
+    data: {
+      userId: verified.user.id,
+      email: verified.user.email,
+      referralCode: verified.user.referralCode,
+    },
+  });
+});
+
+// Cloud Deck Sync for authenticated / paid users
+app.get('/api/decks/sync', async (c) => {
+  const actor = await resolveRequestActor(c);
+  if (!actor.userId) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Sign in with a magic link to sync decks.' },
+      },
+      401
+    );
+  }
+  const decks = await loadSyncedDecksFromCloud(actor.userId, c.env.DB);
+  return c.json({ success: true, data: { decks } });
+});
+
+app.post('/api/decks/sync', async (c) => {
+  const actor = await resolveRequestActor(c);
+  if (!actor.userId) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'UNAUTHORIZED', message: 'Sign in with a magic link to sync decks.' },
+      },
+      401
+    );
+  }
+  const body = await c.req.json().catch(() => ({}));
+  const incoming = Array.isArray(body?.decks) ? body.decks : body?.deck ? [body.deck] : [];
+  const decksToSync = incoming.map((d: any) => ({
+    id: String(d.id || `deck_${Date.now()}`),
+    title: String(d.title || 'Revision Pack'),
+    packJson: typeof d.packJson === 'string' ? d.packJson : JSON.stringify(d),
+    updatedAt: Number(d.updatedAt) || Date.now(),
+  }));
+  await syncUserDecksToCloud(actor.userId, decksToSync, c.env.DB);
+  const allDecks = await loadSyncedDecksFromCloud(actor.userId, c.env.DB);
+  return c.json({ success: true, data: { syncedCount: decksToSync.length, decks: allDecks } });
+});
+
+// Checkout Session Generator (Lemon Squeezy Merchant of Record)
+app.post('/api/checkout', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const plan = body?.plan as PlanTier;
+  if (!['exam_pass', 'monthly', 'semester_pass'].includes(plan)) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'INVALID_PLAN', message: 'Invalid plan selected.' },
+      },
+      400
+    );
+  }
+
+  const billingCountry =
+    typeof body?.billingCountry === 'string' && body.billingCountry.trim()
+      ? body.billingCountry.trim().toUpperCase()
+      : (c.req.header('CF-IPCountry') || 'US').toUpperCase();
+  const regional = isEligibleForRegionalPricing(billingCountry);
+  const pricing = PLAN_CATALOG[plan as 'exam_pass' | 'monthly' | 'semester_pass'];
+  const priceUsd = regional ? pricing.regionalPriceUsd : pricing.priceUsd;
+
+  return c.json({
+    success: true,
+    data: {
+      plan,
+      name: pricing.name,
+      billingType: pricing.billingType,
+      autoRenew: pricing.autoRenew,
+      billingCountry,
+      regionalPricingApplied: regional,
+      priceUsd,
+      checkoutUrl: `https://checkout.learnfromclip.com/buy/${plan}?country=${encodeURIComponent(billingCountry)}&regional=${regional ? '1' : '0'}`,
+    },
+  });
+});
+
+// Lemon Squeezy Webhook (purchase, renewal, cancellation, refund)
+app.post('/api/webhooks/lemonsqueezy', async (c) => {
+  const rawBody = await c.req.text();
+  const signature = c.req.header('X-Signature') || null;
+  const validSig = await verifyLemonSqueezySignature(
+    rawBody,
+    signature,
+    c.env.LEMONSQUEEZY_WEBHOOK_SECRET
+  );
+  if (!validSig) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'INVALID_SIGNATURE', message: 'Invalid webhook signature.' },
+      },
+      401
+    );
+  }
+
+  let payload: any;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'INVALID_JSON', message: 'Malformed webhook JSON.' },
+      },
+      400
+    );
+  }
+
+  const result = await processPaymentWebhook(payload, c.env.DB);
+  return c.json({
+    success: true,
+    data: result,
+  });
+});
+
+// Referral Program: "Invite a friend" -> 3-day Exam Pass for both on friend's first deck (max 5 rewards)
+app.post('/api/referral/code', async (c) => {
+  const actor = await resolveRequestActor(c);
+  const user = actor.userId
+    ? await getOrCreateUserByEmail(actor.userId, c.env.DB)
+    : await getOrCreateUserByEmail(`${actor.cookieId}@guest.learnfromclip.com`, c.env.DB);
+  return c.json({
+    success: true,
+    data: {
+      code: user.referralCode,
+      shareUrl: `https://learnfromclip.com/?ref=${encodeURIComponent(user.referralCode)}`,
+    },
+  });
+});
+
+app.post('/api/referral/complete', async (c) => {
+  const actor = await resolveRequestActor(c);
+  const body = await c.req.json().catch(() => ({}));
+  const code = typeof body?.code === 'string' ? body.code.trim() : '';
+  if (!code) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'MISSING_CODE', message: 'Referral code is required.' },
+      },
+      400
+    );
+  }
+
+  const result = await completeReferralOnFirstDeck({
+    referralCode: code,
+    inviteeEmail: typeof body?.email === 'string' ? body.email : undefined,
+    inviteeActorKey: actor.actorKey,
+    inviteeCookieId: actor.cookieId,
+    inviteeIp: actor.ip,
+    referrerCookieId: typeof body?.referrerCookieId === 'string' ? body.referrerCookieId : undefined,
+    referrerIp: typeof body?.referrerIp === 'string' ? body.referrerIp : undefined,
+    db: c.env.DB,
+  });
+
+  return c.json({
+    success: result.rewarded,
+    data: result,
+  });
+});
+
+// Admin Cost & Cache Telemetry View
+app.get('/api/admin/costs', async (c) => {
+  const summary = await getDailyCostReport(undefined, c.env.DB);
+  return c.json({
+    success: true,
+    data: summary,
+  });
+});
+
+// Privacy-friendly product analytics
+app.post('/api/events', async (c) => {
+  const actor = await resolveRequestActor(c);
+  const body = await c.req.json().catch(() => ({}));
+  const eventName = typeof body?.event === 'string' ? body.event.trim() : '';
+  if (!eventName || !isValidAnalyticsEvent(eventName)) {
+    return c.json(
+      { success: false, error: { code: 'INVALID_EVENT', message: 'Invalid event name.' } },
+      400
+    );
+  }
+  if (c.env.DB) {
+    try {
+      await c.env.DB
+        .prepare(
+          `INSERT INTO analytics_events (event_name, route_path, plan_type, created_at)
+           VALUES (?1, ?2, ?3, ?4)`
+        )
+        .bind(
+          eventName,
+          typeof body?.path === 'string' ? body.path : '/',
+          actor.plan,
+          Math.floor(Date.now() / 1000)
+        )
+        .run();
+    } catch {
+      // ignore
+    }
+  }
+  return c.json({ success: true });
+});
+
 // SEO: robots.txt
 app.get('/robots.txt', (c) => {
   return c.text(
@@ -918,7 +1718,7 @@ app.get('/robots.txt', (c) => {
 Allow: /
 Disallow: /api/
 
-Sitemap: https://textfromclip.com/sitemap.xml
+Sitemap: https://learnfromclip.com/sitemap.xml
 `
   );
 });
@@ -926,39 +1726,47 @@ Sitemap: https://textfromclip.com/sitemap.xml
 // SEO: sitemap.xml
 app.get('/sitemap.xml', (c) => {
   c.header('Content-Type', 'application/xml');
+  const paths = [
+    { path: '/', priority: '1.0', changefreq: 'weekly' },
+    { path: '/app', priority: '0.9', changefreq: 'weekly' },
+    { path: '/study', priority: '0.9', changefreq: 'weekly' },
+    { path: '/pricing', priority: '0.8', changefreq: 'weekly' },
+    { path: '/youtube-lecture-to-flashcards', priority: '0.9', changefreq: 'weekly' },
+    { path: '/lecture-to-notes', priority: '0.9', changefreq: 'weekly' },
+    { path: '/video-to-quiz', priority: '0.9', changefreq: 'weekly' },
+    { path: '/youtube-to-text', priority: '0.9', changefreq: 'weekly' },
+    { path: '/youtube-transcript-to-pdf', priority: '0.8', changefreq: 'weekly' },
+    { path: '/flashcards-in-arabic', priority: '0.8', changefreq: 'weekly' },
+    { path: '/flashcards-in-spanish', priority: '0.8', changefreq: 'weekly' },
+    { path: '/flashcards-in-french', priority: '0.8', changefreq: 'weekly' },
+    { path: '/flashcards-in-german', priority: '0.8', changefreq: 'weekly' },
+    { path: '/flashcards-in-turkish', priority: '0.8', changefreq: 'weekly' },
+    { path: '/flashcards-in-portuguese', priority: '0.8', changefreq: 'weekly' },
+    { path: '/flashcards-in-hindi', priority: '0.8', changefreq: 'weekly' },
+    { path: '/youtube', priority: '0.8', changefreq: 'weekly' },
+    { path: '/tiktok', priority: '0.5', changefreq: 'monthly' },
+    { path: '/instagram', priority: '0.5', changefreq: 'monthly' },
+    { path: '/upload', priority: '0.8', changefreq: 'weekly' },
+    { path: '/guide', priority: '0.7', changefreq: 'monthly' },
+    { path: '/about', priority: '0.4', changefreq: 'monthly' },
+    { path: '/privacy', priority: '0.3', changefreq: 'monthly' },
+    { path: '/terms', priority: '0.3', changefreq: 'monthly' },
+  ];
+
+  const urlsXml = paths
+    .map(
+      (item) => `  <url>
+    <loc>https://learnfromclip.com${item.path}</loc>
+    <changefreq>${item.changefreq}</changefreq>
+    <priority>${item.priority}</priority>
+  </url>`
+    )
+    .join('\n');
+
   return c.text(
 `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://textfromclip.com/youtube</loc>
-    <changefreq>weekly</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>https://textfromclip.com/tiktok</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://textfromclip.com/instagram</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://textfromclip.com/upload</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://textfromclip.com/guide</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://textfromclip.com/about</loc>
-    <changefreq>monthly</changefreq>
-    <priority>0.4</priority>
-  </url>
+${urlsXml}
 </urlset>`
   );
 });

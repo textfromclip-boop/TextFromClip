@@ -29,19 +29,19 @@ export const Logo: React.FC<LogoProps> = ({
 
   return (
     <div className={`flex items-center gap-2.5 select-none ${className}`}>
-      {/* SVG Icon matching authentic original design (Picture 2) */}
+      {/* SVG Icon: play-button-with-text-lines kept exactly as original */}
       <svg
         className={`${iconDimensions} shrink-0`}
         viewBox="0 0 175 142"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        aria-label="TextFromClip logo"
+        aria-label="LearnFromClip logo"
       >
         <defs>
           <linearGradient id="tfClipGrad" x1="5%" y1="5%" x2="95%" y2="95%">
-            <stop offset="0%" stopColor="#0F8CFA" />
-            <stop offset="45%" stopColor="#2868F7" />
-            <stop offset="100%" stopColor="#5131ED" />
+            <stop offset="0%" stopColor="#1287FA" />
+            <stop offset="45%" stopColor="#2E62F4" />
+            <stop offset="100%" stopColor="#4835F0" />
           </linearGradient>
         </defs>
 
@@ -86,17 +86,17 @@ export const Logo: React.FC<LogoProps> = ({
             C 90 72.3 90 70.7 88 69.5
             Z
           "
-          fill="#FFFFFF"
+          fill="#FEFEFE"
         />
       </svg>
 
-      {/* Wordmark replicating exact typography from Picture 2 */}
+      {/* Wordmark: LearnFrom (#021433) + Clip (blue-violet gradient) */}
       {variant === 'full' && (
         <span className={`font-black tracking-tight leading-none ${textSizes}`}>
-          <span className="text-[#021331]">
-            TextFrom
+          <span className="text-[#021433]">
+            LearnFrom
           </span>
-          <span className="text-[#5131ED]">
+          <span className="bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] bg-clip-text text-transparent">
             Clip
           </span>
         </span>
@@ -104,4 +104,3 @@ export const Logo: React.FC<LogoProps> = ({
     </div>
   );
 };
-

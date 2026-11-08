@@ -27,7 +27,7 @@ export const GuidePage: React.FC = () => (
       </span>
     </h1>
     <p className="mt-3 text-lg text-muted max-w-2xl">
-      Everything you need to know about transcribing videos and downloading subtitles with TextFromClip.
+      Everything you need to know about turning lectures into revision packs, transcripts, flashcards, and quizzes with LearnFromClip.
     </p>
 
     <div className="mt-10 grid md:grid-cols-[14rem_1fr] gap-10">

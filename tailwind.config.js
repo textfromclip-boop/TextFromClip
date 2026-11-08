@@ -7,14 +7,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        // TextFromClip brand palette matched to logo (#021331 + #2868F7 -> #5131ED)
+        // LearnFromClip brand palette: navy #021433, blue gradient #1287FA -> #2E62F4 -> #4835F0, purple #502EF0, light #FEFEFE
         paper: '#F8FAFC',
-        surface: '#FFFFFF',
-        ink: '#021331',
+        surface: '#FEFEFE',
+        ink: '#021433',
         muted: '#475569',
         rule: '#E2E8F0',
-        accent: '#2868F7',
-        'accent-dark': '#5131ED',
+        accent: '#2E62F4',
+        'accent-light': '#1287FA',
+        'accent-mid': '#4835F0',
+        'accent-dark': '#502EF0',
         'accent-soft': '#EEF4FF',
       },
       fontFamily: {

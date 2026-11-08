@@ -1,4 +1,5 @@
-// Shared TypeScript interfaces and types for TextFromClip
+// Shared TypeScript interfaces and types for LearnFromClip
+export * from './revisionPack';
 
 export interface TranscriptSegment {
   id: number;
@@ -24,6 +25,8 @@ export interface TranscriptResult {
   srt: string;
   vtt: string;
   createdAt: number;
+  localMediaUrl?: string; // Client-side blob/media URL for seeking uploaded recordings
+  cached?: boolean;
 }
 
 export interface TranscriptRequest {
@@ -86,5 +89,9 @@ export interface CloudflareBindings {
   IG_SESSION_ID?: string;
   EXTERNAL_WHISPER_URL?: string;
   SNAPANY_API_KEY?: string;
+  COOKIE_SECRET?: string;
+  TURNSTILE_SECRET_KEY?: string;
+  LEMONSQUEEZY_WEBHOOK_SECRET?: string;
+  LEMONSQUEEZY_API_KEY?: string;
+  ADMIN_SECRET?: string;
 }
-

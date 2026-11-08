@@ -4,7 +4,7 @@ import { unescapeHtml } from '../utils/formatters';
 import { transcribeMediaWithWhisper } from '../utils/whisper-fallback';
 import { extractMediaWithSnapAny, DEFAULT_SNAPANY_KEY } from '../utils/snapany';
 
-const HONEST_USER_AGENT = 'Mozilla/5.0 (compatible; TextFromClip/1.0)';
+const HONEST_USER_AGENT = 'Mozilla/5.0 (compatible; LearnFromClip/1.0)';
 
 /**
  * What we read from a public Reel page.

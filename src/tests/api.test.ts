@@ -14,7 +14,17 @@ describe('Backend API Endpoints', () => {
     expect(res.status).toBe(200);
     const body: any = await res.json();
     expect(body.status).toBe('ok');
-    expect(body.service).toBe('TextFromClip');
+    expect(body.service).toBe('LearnFromClip');
+  });
+
+  it('301 redirects old textfromclip.com requests to learnfromclip.com preserving path', async () => {
+    const res = await app.request(
+      'https://textfromclip.com/youtube?v=123',
+      { headers: { host: 'textfromclip.com' } },
+      mockEnv
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://learnfromclip.com/youtube?v=123');
   });
 
   it('GET /api/platforms returns registered platform adapters', async () => {
@@ -89,7 +99,7 @@ describe('Backend API Endpoints', () => {
     expect(res.status).toBe(200);
     const xml = await res.text();
     expect(xml).toContain('<urlset');
-    expect(xml).toContain('https://textfromclip.com/');
+    expect(xml).toContain('https://learnfromclip.com/');
   });
 });
 
