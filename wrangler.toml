@@ -1,4 +1,5 @@
 name = "textfromclip"
+account_id = "c3066ec07528b261e192b4530cca58bf"
 main = "src/server/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
@@ -11,8 +12,8 @@ binding = "ASSETS"
 # Cloudflare D1 Database Binding
 [[d1_databases]]
 binding = "DB"
-database_name = "textfromclip-db"
-database_id = "0dd853ee-3624-40d3-ba49-a3f41ede2684"
+database_name = "learnfromclip-db"
+database_id = "269a6c4e-3219-4978-b03c-ea02b61761fc"
 migrations_dir = "migrations"
 
 # Cloudflare Workers AI Binding
@@ -22,7 +23,7 @@ binding = "AI"
 # Cloudflare R2 Ephemeral Upload Bucket Binding
 [[r2_buckets]]
 binding = "UPLOADS_BUCKET"
-bucket_name = "textfromclip-uploads"
+bucket_name = "learnfromclip-uploads"
 
 # Environment Variables
 [vars]
