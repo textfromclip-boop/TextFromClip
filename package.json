@@ -5,13 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && node scripts/build-pages.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "wrangler deploy",
-    "build:pages": "npm run build && node scripts/build-pages.mjs",
-    "deploy:pages": "npm run build:pages && cd pages && wrangler pages deploy --project-name textfromclip --branch main",
+    "deploy": "wrangler deploy -c wrangler.worker.toml",
+    "build:pages": "npm run build",
+    "deploy:pages": "npm run build && wrangler pages deploy dist-pages --project-name textfromclip --branch main",
     "d1:migrate:local": "wrangler d1 execute textfromclip-db --local --file=./migrations/0001_initial_schema.sql",
     "d1:migrate:prod": "wrangler d1 execute textfromclip-db --remote --file=./migrations/0001_initial_schema.sql"
   },
