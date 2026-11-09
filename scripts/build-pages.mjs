@@ -43,8 +43,8 @@ writeFileSync(
   JSON.stringify(
     {
       version: 1,
-      include: ['/*'],
-      exclude: ['/assets/*', '/manifest.json', '/favicon.ico'],
+      include: ['/api/*', '/robots.txt', '/sitemap.xml'],
+      exclude: [],
     },
     null,
     2

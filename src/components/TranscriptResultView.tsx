@@ -389,10 +389,16 @@ export const TranscriptResultView: React.FC<Props> = ({
       if (res.status === 429) {
         trackEvent('limit_hit');
       }
-      const json: any = await res.json();
+      let json: any = null;
+      try {
+        json = await res.json();
+      } catch {
+        // non-JSON response
+      }
       if (!res.ok || !json?.success || !json?.data) {
         throw new Error(
-          json?.error?.message || 'Could not generate revision pack right now.'
+          json?.error?.message ||
+          (res.status === 429 ? 'Daily limit reached. Please wait or upgrade.' : 'Could not generate revision pack right now.')
         );
       }
 
@@ -448,7 +454,12 @@ export const TranscriptResultView: React.FC<Props> = ({
           mode: opt.id,
         }),
       });
-      const json: any = await res.json();
+      let json: any = null;
+      try {
+        json = await res.json();
+      } catch {
+        // non-JSON response
+      }
       const outputText = typeof json?.data?.result === 'string' ? json.data.result.trim() : '';
       if (!res.ok || !json?.success || !outputText) {
         throw new Error(json?.error?.message || 'Failed to generate AI transformation.');
@@ -511,7 +522,12 @@ export const TranscriptResultView: React.FC<Props> = ({
           targetLanguage: lang,
         }),
       });
-      const json: any = await res.json();
+      let json: any = null;
+      try {
+        json = await res.json();
+      } catch {
+        // non-JSON response
+      }
       const outputText =
         typeof json?.data?.translatedText === 'string' ? json.data.translatedText.trim() : '';
       if (!res.ok || !json?.success || !outputText) {

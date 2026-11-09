@@ -208,10 +208,21 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
       if (res.status === 429) {
         trackEvent('limit_hit');
       }
-      const data: ApiResponse<TranscriptResult> = await res.json();
-      if (!res.ok || !data.success) {
+      let data: ApiResponse<TranscriptResult> | null = null;
+      try {
+        data = await res.json();
+      } catch {
+        // Response was not JSON (e.g. proxy or CDN error)
+      }
+
+      if (!res.ok || !data || !data.success) {
         throw new Error(
-          (!data.success && data.error?.message) || 'The transcript could not be created.'
+          (data && !data.success && data.error?.message) ||
+          (res.status === 405
+            ? 'The API endpoint is currently being updated. Please refresh in a moment.'
+            : res.status === 429
+            ? 'Daily rate limit reached. Please wait a moment or upgrade for unlimited packs.'
+            : 'The transcript could not be created. Please try again.')
         );
       }
       trackEvent('transcript_done');
