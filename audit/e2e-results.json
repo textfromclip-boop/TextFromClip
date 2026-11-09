@@ -1,0 +1,312 @@
+[
+  {
+    "name": "[desktop-1920] homepage headline",
+    "ok": true,
+    "detail": "2-hour lecture → 10-minute revision pack."
+  },
+  {
+    "name": "[desktop-1920] sub-headline",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[desktop-1920] transcript shown",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[desktop-1920] revision pack generated",
+    "ok": true,
+    "detail": "22 note points · 30 flashcards · 10 quiz questions"
+  },
+  {
+    "name": "[desktop-1920] AI explanation visually labelled",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[desktop-1920] timestamp From lecture · 00:00 seeks embed",
+    "ok": true,
+    "detail": "https://www.youtube.com/embed/dQw4w9WgXcQ?start=0&autoplay=1&rel=0"
+  },
+  {
+    "name": "[desktop-1920] timestamp From lecture · 12:30 seeks embed",
+    "ok": true,
+    "detail": "https://www.youtube.com/embed/dQw4w9WgXcQ?start=750&autoplay=1&rel=0"
+  },
+  {
+    "name": "[desktop-1920] timestamp From lecture · 29:22 seeks embed",
+    "ok": true,
+    "detail": "https://www.youtube.com/embed/dQw4w9WgXcQ?start=1762&autoplay=1&rel=0"
+  },
+  {
+    "name": "[desktop-1920] Anki CSV valid (3 columns, front/back/source timestamp)",
+    "ok": true,
+    "detail": "30 rows"
+  },
+  {
+    "name": "[desktop-1920] PDF print view has notes + cards + quiz",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[desktop-1920] Markdown export",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[desktop-1920] progress kept after reload",
+    "ok": true,
+    "detail": "5 reviews"
+  },
+  {
+    "name": "[desktop-1920] reviewed cards no longer due",
+    "ok": true,
+    "detail": "25 due (30 cards - 5 reviewed as Good)"
+  },
+  {
+    "name": "[desktop-1920] quiz scored",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[desktop-1920] missed-questions deck created & original deck kept",
+    "ok": true,
+    "detail": "Review what you missed (6 cards) →"
+  },
+  {
+    "name": "[desktop-1920] free limit hit shows upgrade button",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[desktop-1920] Buy button calls checkout with the right plan",
+    "ok": true,
+    "detail": "NEEDS CONFIG: Lemon Squeezy keys not set locally"
+  },
+  {
+    "name": "[desktop-1920] no uncaught page errors",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[mobile-375] homepage headline",
+    "ok": true,
+    "detail": "2-hour lecture → 10-minute revision pack."
+  },
+  {
+    "name": "[mobile-375] sub-headline",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[mobile-375] transcript shown",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[mobile-375] revision pack generated",
+    "ok": true,
+    "detail": "22 note points · 30 flashcards · 10 quiz questions"
+  },
+  {
+    "name": "[mobile-375] AI explanation visually labelled",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[mobile-375] timestamp From lecture · 00:00 seeks embed",
+    "ok": true,
+    "detail": "https://www.youtube.com/embed/dQw4w9WgXcQ?start=0&autoplay=1&rel=0"
+  },
+  {
+    "name": "[mobile-375] timestamp From lecture · 12:30 seeks embed",
+    "ok": true,
+    "detail": "https://www.youtube.com/embed/dQw4w9WgXcQ?start=750&autoplay=1&rel=0"
+  },
+  {
+    "name": "[mobile-375] timestamp From lecture · 29:22 seeks embed",
+    "ok": true,
+    "detail": "https://www.youtube.com/embed/dQw4w9WgXcQ?start=1762&autoplay=1&rel=0"
+  },
+  {
+    "name": "[mobile-375] Anki CSV valid (3 columns, front/back/source timestamp)",
+    "ok": true,
+    "detail": "30 rows"
+  },
+  {
+    "name": "[mobile-375] PDF print view has notes + cards + quiz",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[mobile-375] Markdown export",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[mobile-375] progress kept after reload",
+    "ok": true,
+    "detail": "5 reviews"
+  },
+  {
+    "name": "[mobile-375] reviewed cards no longer due",
+    "ok": true,
+    "detail": "25 due (30 cards - 5 reviewed as Good)"
+  },
+  {
+    "name": "[mobile-375] quiz scored",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[mobile-375] missed-questions deck created & original deck kept",
+    "ok": true,
+    "detail": "Review what you missed (6 cards) →"
+  },
+  {
+    "name": "[mobile-375] free limit hit shows upgrade button",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "[mobile-375] Buy button calls checkout with the right plan",
+    "ok": true,
+    "detail": "NEEDS CONFIG: Lemon Squeezy keys not set locally"
+  },
+  {
+    "name": "[mobile-375] no uncaught page errors",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "upload: WAV file produces a timestamped transcript",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "upload: quota charged by audio duration (30 s), not MB",
+    "ok": true,
+    "detail": "30s used"
+  },
+  {
+    "name": "upload: \"From lecture\" seeks the uploaded media to the right second",
+    "ok": true,
+    "detail": "From lecture · 00:10 -> currentTime=10.7"
+  },
+  {
+    "name": "analytics: events fire (transcript_done, pack_started, pack_done)",
+    "ok": true,
+    "detail": "transcript_done,pack_started,pack_done"
+  },
+  {
+    "name": "analytics: payload only {event, path}",
+    "ok": true,
+    "detail": "event,path"
+  },
+  {
+    "name": "SEO /flashcards-in-arabic preselects Arabic",
+    "ok": true,
+    "detail": "select=Arabic"
+  },
+  {
+    "name": "bilingual: Arabic translation rendered RTL under the original",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "all 24 routes work on direct load + refresh (incl. 12 SEO pages with a working tool)",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "every route has a unique <title>",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "every route has a unique meta description",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "sitemap.xml lists all routes on learnfromclip.com",
+    "ok": true,
+    "detail": "24 urls"
+  },
+  {
+    "name": "robots.txt allows site, disallows /api/, points to sitemap",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "unknown route falls back to the app (no hard 404 page)",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "timestamps shown by default",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "timestamp toggle hides timestamps",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "search highlights matches",
+    "ok": true,
+    "detail": "9 highlights"
+  },
+  {
+    "name": "copy puts transcript on clipboard",
+    "ok": true,
+    "detail": "3785 chars"
+  },
+  {
+    "name": "export TXT",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "export SRT",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "export VTT",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "edit mode opens per-line editors",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "edited text is used in exports",
+    "ok": true,
+    "detail": ""
+  },
+  {
+    "name": "AI format (summary) returns a result",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "translation offers Arabic, Spanish, French, German, Turkish, Portuguese, Hindi",
+    "ok": true,
+    "detail": "Arabic,Spanish,French,German,Turkish,Portuguese,Hindi"
+  },
+  {
+    "name": "translation request succeeds (mock model)",
+    "ok": true,
+    "detail": "HTTP 200"
+  },
+  {
+    "name": "AI format + translation each cost 1 AI action (server-side)",
+    "ok": true,
+    "detail": "2 used"
+  }
+]

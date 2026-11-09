@@ -42,7 +42,7 @@ async function run(label, contextOpts, ip) {
   let n = 0;
   const shot = async (page, name, full = false) => {
     n++;
-    await page.screenshot({ path: join(dir, `${String(n).padStart(2, '0')}-${name}.png`), fullPage: full });
+    await page.screenshot({ path: join(dir, `${String(n).padStart(2, '0')}-${name}.jpg`), fullPage: full, type: 'jpeg', quality: 70 });
   };
 
   const browser = await chromium.launch();
@@ -180,7 +180,10 @@ async function run(label, contextOpts, ip) {
   const pr = await packResp;
   // Same transcript + settings: cached pack, but the free 1 quiz/day was already used
   if (pr.status() === 429) {
-    await page.getByRole('alert').filter({ hasText: /quiz per day|limit/i }).first().waitFor();
+    const alert = page.getByRole('alert').filter({ hasText: /quiz per day|limit/i }).first();
+    await alert.waitFor();
+    await alert.scrollIntoViewIfNeeded();
+    await page.evaluate(() => window.scrollBy(0, 200));
     check(`[${label}] free limit hit shows upgrade button`, await page.getByText('See plans & upgrade →').first().isVisible());
     await shot(page, 'limit-hit');
   } else {
