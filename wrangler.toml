@@ -1,12 +1,11 @@
+# Cloudflare Pages configuration (production site: Pages project "textfromclip", Git auto-deploy from main).
+# Pages only reads this file when it contains `pages_build_output_dir`; without it, Pages falls back to the
+# dashboard build settings (currently "..\dist-pages", which fails with "outside of the repository").
+# The standalone Worker deploy uses wrangler.worker.toml (`npm run deploy`).
 name = "textfromclip"
-main = "src/server/index.ts"
+pages_build_output_dir = "dist-pages"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
-
-# Cloudflare Static Assets (serves built React SPA from ./dist)
-[assets]
-directory = "./dist"
-binding = "ASSETS"
 
 # Cloudflare D1 Database Binding
 [[d1_databases]]
@@ -24,7 +23,7 @@ binding = "AI"
 binding = "UPLOADS_BUCKET"
 bucket_name = "textfromclip-uploads"
 
-# Environment Variables
+# Environment Variables (secrets such as COOKIE_SECRET are set in the dashboard, never here)
 [vars]
 ENVIRONMENT = "production"
 MAX_REQUESTS_PER_MINUTE = "30"

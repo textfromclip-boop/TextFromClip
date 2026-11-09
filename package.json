@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy -c wrangler.worker.toml",
     "build:pages": "npm run build",
     "deploy:pages": "npm run build && wrangler pages deploy dist-pages --project-name textfromclip --branch main",
     "d1:migrate:local": "wrangler d1 migrations apply DB --local",
