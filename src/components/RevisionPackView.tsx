@@ -590,7 +590,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                   className="py-2.5 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800 font-bold text-xs sm:text-sm transition-colors"
                 >
                   Again
-                  <span className="block text-[10px] font-normal text-red-600">{currentCard ? intervalLabel(currentCard, 'again') : ''}</span>
+                  <span className="block text-[10px] font-normal text-red-700">{currentCard ? intervalLabel(currentCard, 'again') : ''}</span>
                 </button>
                 <button
                   type="button"

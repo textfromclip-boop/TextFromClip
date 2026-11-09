@@ -3,6 +3,7 @@
 // services mocked: Workers AI (LLM + Whisper) and YouTube caption fetching (seeded cache).
 // Usage: node e2e/server.mjs [port]
 import http from 'node:http';
+import { gzipSync } from 'node:zlib';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
 import { build } from 'esbuild';
@@ -151,6 +152,11 @@ http
       const url = new URL(req.url, `http://localhost:${PORT}`);
       if (!url.pathname.startsWith('/api/') && url.pathname !== '/robots.txt' && url.pathname !== '/sitemap.xml') {
         const { body, type } = serveStatic(url.pathname);
+        // Cloudflare compresses text assets in production; mirror that so Lighthouse is realistic.
+        if (/gzip/.test(req.headers['accept-encoding'] || '') && /text|javascript|json|svg/.test(type)) {
+          res.writeHead(200, { 'content-type': type, 'content-encoding': 'gzip', 'cache-control': url.pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
+          return res.end(gzipSync(body));
+        }
         res.writeHead(200, { 'content-type': type });
         return res.end(body);
       }

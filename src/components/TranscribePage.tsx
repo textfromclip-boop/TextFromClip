@@ -301,6 +301,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
         return updated;
       });
     } catch (e: any) {
+      if (/limit|used all/i.test(e?.message || '')) trackEvent('limit_hit');
       setError(e?.message || 'Failed to upload and transcribe the selected file.');
     } finally {
       setLoading(false);

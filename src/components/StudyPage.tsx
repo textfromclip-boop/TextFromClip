@@ -19,6 +19,7 @@ import {
   generateAnkiCsv,
   generatePackMarkdown,
 } from '../utils/packExporters';
+import { trackEvent } from '../utils/analytics';
 
 export const StudyPage: React.FC = () => {
   const [decks, setDecks] = useState<StoredStudyDeck[]>([]);
@@ -127,6 +128,7 @@ export const StudyPage: React.FC = () => {
 
   const handleGrade = async (rating: Sm2Rating) => {
     if (!currentDueItem) return;
+    trackEvent('card_reviewed', '/study');
     const { meta: updatedMeta } = await recordCardReviewInStore(
       currentDueItem.deck.id,
       currentDueItem.card.id,
@@ -174,6 +176,7 @@ export const StudyPage: React.FC = () => {
   };
 
   const downloadFile = (content: string, ext: string, mime: string, title: string) => {
+    trackEvent('export_clicked', '/study');
     const base =
       (title || 'study-deck')
         .toLowerCase()
@@ -587,7 +590,10 @@ export const StudyPage: React.FC = () => {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setQuizDone(true)}
+                        onClick={() => {
+                          trackEvent('quiz_finished', '/study');
+                          setQuizDone(true);
+                        }}
                         className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] text-white text-xs font-bold"
                       >
                         Finish Quiz →
@@ -751,7 +757,10 @@ export const StudyPage: React.FC = () => {
                       <div className="flex items-center gap-2 text-xs">
                         <button
                           type="button"
-                          onClick={() => exportRevisionPackPdf(deck.pack)}
+                          onClick={() => {
+                            trackEvent('export_clicked', '/study');
+                            exportRevisionPackPdf(deck.pack);
+                          }}
                           className="font-semibold text-muted hover:text-accent"
                         >
                           PDF
