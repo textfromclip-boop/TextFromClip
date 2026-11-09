@@ -23,6 +23,8 @@ export const PAID_MAX_LECTURE_SECONDS = 4 * 3600; // 4 hours
 export const FREE_MAX_CARDS_PER_PACK = 30;
 export const PAID_MAX_CARDS_PER_PACK = 150;
 export const TARGET_QUIZ_QUESTIONS = 10;
+export const MAX_LLM_CHUNKS = 6;
+export const MIN_CARDS_BEFORE_PADDING = 5;
 
 export interface TranscriptTimeChunk {
   index: number;
@@ -127,10 +129,11 @@ export function verifyAndAnchorQuote(
 
   const rawQuote = candidate.quote.trim();
   const normQuote = normalizeForQuoteCheck(rawQuote);
-  if (!normQuote || normQuote.length < 6) return null;
+  if (!normQuote) return null;
 
+  // Too-short quotes ("of the", "it is") would "verify" almost anything.
   const quoteWords = normQuote.split(' ').filter(Boolean);
-  if (quoteWords.length < 2) return null;
+  if (quoteWords.length < 3 || (quoteWords.length < 4 && normQuote.length < 18)) return null;
 
   const reqStart =
     typeof candidate.start_seconds === 'number' && Number.isFinite(candidate.start_seconds)
@@ -147,17 +150,15 @@ export function verifyAndAnchorQuote(
   const findMatchInSegments = (pool: TranscriptSegment[]): SourceAnchor | null => {
     if (pool.length === 0) return null;
 
-    // 1. Check single or consecutive 1..4 segments for exact normalized substring match
-    for (let i = 0; i < pool.length; i++) {
-      let combinedNorm = '';
-      for (let span = 0; span < 4 && i + span < pool.length; span++) {
-        const seg = pool[i + span];
-        const segNorm = normalizeForQuoteCheck(seg.text);
-        combinedNorm = combinedNorm ? `${combinedNorm} ${segNorm}` : segNorm;
-
+    // 1. Smallest window first: a single segment, then 2, 3 or 4 consecutive segments, so the
+    //    anchor points at the segment where the quote actually starts.
+    const normPool = pool.map((seg) => normalizeForQuoteCheck(seg.text));
+    for (let span = 1; span <= 4; span++) {
+      for (let i = 0; i + span <= pool.length; i++) {
+        const combinedNorm = normPool.slice(i, i + span).join(' ');
         if (combinedNorm.includes(normQuote)) {
           const startSeg = pool[i];
-          const endSeg = pool[i + span];
+          const endSeg = pool[i + span - 1];
           return {
             start_seconds: Math.floor(startSeg.start),
             end_seconds: Math.ceil(endSeg.start + (endSeg.duration || 4)),
@@ -167,11 +168,17 @@ export function verifyAndAnchorQuote(
       }
     }
 
-    // 2. Check if a single segment's normalized text is contained inside an overly long quote (if >= 4 words)
+    // 2. The model sometimes quotes a whole sentence that is slightly longer than one caption
+    //    line. Accept it only if a real segment makes up most (>= 60%) of the quote, and keep
+    //    ONLY the verbatim segment text as the quote (the unverified remainder is discarded).
     for (const seg of pool) {
       const segNorm = normalizeForQuoteCheck(seg.text);
       const segWords = segNorm.split(' ').filter(Boolean);
-      if (segWords.length >= 4 && normQuote.includes(segNorm)) {
+      if (
+        segWords.length >= 4 &&
+        segWords.length >= Math.ceil(quoteWords.length * 0.6) &&
+        normQuote.includes(segNorm)
+      ) {
         return {
           start_seconds: Math.floor(seg.start),
           end_seconds: Math.ceil(seg.start + (seg.duration || 4)),
@@ -183,17 +190,18 @@ export function verifyAndAnchorQuote(
     return null;
   };
 
-  // Pass 1: Search segments within [reqStart - toleranceSeconds, reqEnd + toleranceSeconds]
+  // Only segments near the cited timestamp count: a real quote cited at the wrong moment of
+  // the lecture is rejected, so "From lecture · MM:SS" always points at where it was said.
+  // (The returned anchor is snapped to the exact matching segment.)
+  if (!(typeof candidate.start_seconds === 'number' && Number.isFinite(candidate.start_seconds))) {
+    return null;
+  }
   const nearbyPool = segments.filter(
     (s) =>
       s.start + (s.duration || 4) >= reqStart - toleranceSeconds &&
       s.start <= reqEnd + toleranceSeconds
   );
-  const nearbyMatch = findMatchInSegments(nearbyPool);
-  if (nearbyMatch) return nearbyMatch;
-
-  // Pass 2: Search full transcript in case the LLM cited a valid verbatim quote with an off timestamp
-  return findMatchInSegments(segments);
+  return findMatchInSegments(nearbyPool);
 }
 
 /**
@@ -334,6 +342,45 @@ ${formattedSegments}`;
 /**
  * Extracts a JSON object from an LLM response string (handling accidental markdown fences).
  */
+/**
+ * Attempts to recover a JSON object from output that was cut off by max_tokens: truncates at the
+ * last complete array element / property and closes the open brackets.
+ */
+export function repairTruncatedJson(text: string): any | null {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+  const src = text.slice(start);
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  const cutPoints: Array<{ pos: number; closers: string }> = [];
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
+    else if (ch === '}' || ch === ']') {
+      stack.pop();
+      // position right after a completed value: a valid place to cut
+      cutPoints.push({ pos: i + 1, closers: stack.slice().reverse().join('') });
+    }
+  }
+  for (let k = cutPoints.length - 1, tries = 0; k >= 0 && tries < 400; k--, tries++) {
+    const { pos, closers } = cutPoints[k];
+    try {
+      return JSON.parse(src.slice(0, pos) + closers);
+    } catch {
+      // try an earlier cut point
+    }
+  }
+  return null;
+}
+
 export function parseJsonFromLlmResponse(raw: string): any | null {
   if (!raw || typeof raw !== 'string') return null;
   const trimmed = raw
@@ -351,10 +398,11 @@ export function parseJsonFromLlmResponse(raw: string): any | null {
       try {
         return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
       } catch {
-        return null;
+        // fall through to truncation repair
       }
     }
-    return null;
+    const repaired = repairTruncatedJson(trimmed);
+    return repaired && typeof repaired === 'object' && !Array.isArray(repaired) ? repaired : null;
   }
 }
 
@@ -809,37 +857,47 @@ function deduplicateAndMergePacks(
     }
   }
 
+  // Round-robin across chunks so that, when there are more candidates than slots, the cards and
+  // quiz questions are spread over the whole lecture instead of all coming from the beginning.
+  const roundRobin = <T,>(lists: T[][]): T[] => {
+    const out: T[] = [];
+    const max = Math.max(0, ...lists.map((l) => l.length));
+    for (let i = 0; i < max; i++) {
+      for (const l of lists) if (i < l.length) out.push(l[i]);
+    }
+    return out;
+  };
+
   const mergedCards: Flashcard[] = [];
   const seenCards = new Set<string>();
-  for (const res of chunkResults) {
-    for (const c of res.flashcards) {
-      const key = normalizeForQuoteCheck(c.front).slice(0, 65);
-      if (!seenCards.has(key)) {
-        seenCards.add(key);
-        mergedCards.push(c);
-      }
+  for (const c of roundRobin(chunkResults.map((r) => r.flashcards))) {
+    const key = normalizeForQuoteCheck(c.front).slice(0, 65);
+    if (!seenCards.has(key)) {
+      seenCards.add(key);
+      mergedCards.push(c);
     }
   }
 
   const mergedQuiz: QuizQuestion[] = [];
   const seenQuiz = new Set<string>();
-  for (const res of chunkResults) {
-    for (const q of res.quiz) {
-      const key = normalizeForQuoteCheck(q.question).slice(0, 65);
-      if (!seenQuiz.has(key)) {
-        seenQuiz.add(key);
-        mergedQuiz.push(q);
-      }
+  for (const q of roundRobin(chunkResults.map((r) => r.quiz))) {
+    const key = normalizeForQuoteCheck(q.question).slice(0, 65);
+    if (!seenQuiz.has(key)) {
+      seenQuiz.add(key);
+      mergedQuiz.push(q);
     }
   }
 
+  const byTime = <T extends { source: { start_seconds: number } }>(a: T, b: T) =>
+    a.source.start_seconds - b.source.start_seconds;
+
   return {
-    notes: mergedNotes.slice(0, 12),
-    flashcards: mergedCards.slice(0, maxCards).map((c, idx) => ({
+    notes: mergedNotes.slice(0, 30),
+    flashcards: mergedCards.slice(0, maxCards).sort(byTime).map((c, idx) => ({
       ...c,
       id: `card-${idx + 1}-${c.source.start_seconds}`,
     })),
-    quiz: mergedQuiz.slice(0, targetQuiz).map((q, idx) => ({
+    quiz: mergedQuiz.slice(0, targetQuiz).sort(byTime).map((q, idx) => ({
       ...q,
       id: `quiz-${idx + 1}-${q.source.start_seconds}`,
     })),
@@ -891,19 +949,17 @@ export async function generateVerifiedRevisionPack(
     ? req.secondLanguage
     : undefined;
 
-  const chunks = chunkTranscriptByTime(
-    rawSegments,
+  // Long lectures are chunked by time. The window grows with the lecture so that at most
+  // MAX_LLM_CHUNKS windows cover the WHOLE lecture (the previous version sampled 6 of N windows
+  // and silently skipped the rest of long lectures).
+  const firstStart = rawSegments.reduce((m, sg) => Math.min(m, sg.start), Infinity);
+  const span = Math.max(1, computedDuration - (Number.isFinite(firstStart) ? firstStart : 0));
+  const windowSeconds = Math.max(
     CHUNK_WINDOW_SECONDS,
-    CHUNK_OVERLAP_SECONDS
+    Math.ceil(span / MAX_LLM_CHUNKS) + CHUNK_OVERLAP_SECONDS
   );
-
-  // Cap concurrent LLM chunk calls to at most 6 windows (sampling evenly if > 6 windows)
-  const activeChunks =
-    chunks.length <= 6
-      ? chunks
-      : Array.from({ length: 6 }, (_, i) =>
-          chunks[Math.min(chunks.length - 1, Math.floor((i * chunks.length) / 6))]
-        );
+  const chunks = chunkTranscriptByTime(rawSegments, windowSeconds, CHUNK_OVERLAP_SECONDS);
+  const activeChunks = chunks;
 
   const cardsPerChunk = Math.max(
     5,
@@ -913,6 +969,9 @@ export async function generateVerifiedRevisionPack(
     3,
     Math.ceil(TARGET_QUIZ_QUESTIONS / Math.max(1, activeChunks.length))
   );
+  // Enough output room for the requested items (each carries a verbatim quote), so the JSON is
+  // not cut off mid-way; truncated output is additionally repaired by parseJsonFromLlmResponse.
+  const maxOutputTokens = Math.min(7000, 1600 + cardsPerChunk * 120 + quizPerChunk * 180);
 
   let totalVerified = 0;
   let totalDropped = 0;
@@ -944,7 +1003,7 @@ export async function generateVerifiedRevisionPack(
             try {
               const payload: Record<string, unknown> = {
                 messages,
-                max_tokens: 3200,
+                max_tokens: maxOutputTokens,
                 temperature: 0.2,
               };
               if (model.includes('gemma-4')) {
@@ -993,12 +1052,15 @@ export async function generateVerifiedRevisionPack(
     TARGET_QUIZ_QUESTIONS
   );
 
-  // Replenish any missing sections, cards, or quiz questions with deterministic verbatim-verified items
-  if (
+  // Fallback ONLY when the model produced too little verified content (or no AI is bound):
+  // top up with deterministic items built directly from verbatim transcript lines, so the pack
+  // always has notes, a usable deck and a 10-question quiz. A healthy model response with e.g.
+  // 18 good cards is NOT padded up to 30 with template cards.
+  const deterministicItemsUsed =
     merged.notes.length === 0 ||
-    merged.flashcards.length < Math.min(maxCards, rawSegments.length) ||
-    merged.quiz.length < Math.min(TARGET_QUIZ_QUESTIONS, rawSegments.length)
-  ) {
+    merged.flashcards.length < Math.min(MIN_CARDS_BEFORE_PADDING, maxCards, rawSegments.length) ||
+    merged.quiz.length < Math.min(TARGET_QUIZ_QUESTIONS, rawSegments.length);
+  if (deterministicItemsUsed) {
     const fallbackItems = buildDeterministicVerifiedItems({
       segments: rawSegments,
       videoTitle: req.videoTitle || 'Lecture',
@@ -1007,9 +1069,17 @@ export async function generateVerifiedRevisionPack(
       secondLanguage,
     });
 
+    const enoughCards = merged.flashcards.length >= Math.min(MIN_CARDS_BEFORE_PADDING, maxCards);
     merged = deduplicateAndMergePacks(
-      [merged, fallbackItems],
-      maxCards,
+      [
+        merged,
+        {
+          notes: merged.notes.length === 0 ? fallbackItems.notes : [],
+          flashcards: enoughCards ? [] : fallbackItems.flashcards,
+          quiz: fallbackItems.quiz,
+        },
+      ],
+      enoughCards ? merged.flashcards.length : maxCards,
       TARGET_QUIZ_QUESTIONS
     );
   }

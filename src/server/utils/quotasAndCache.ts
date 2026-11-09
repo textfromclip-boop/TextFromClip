@@ -414,9 +414,8 @@ export async function getDailyQuotaStatus(params: {
     const ip = await readSingleQuotaBucket(params.networkFallbackKey, utcDate, params.db);
     // Effective "used" = limit - min(remaining for this student, remaining for this IP)
     const eff = (used: number, limit: number, ipUsed: number, ipLimit: number) => {
-      const remaining = Math.min(limit - used, ipLimit - ipUsed);
-      if (ipLimit - ipUsed < limit - used) ipCeilingReached = ipCeilingReached || ipLimit - ipUsed <= 0;
-      return Math.max(used, limit - Math.max(0, remaining));
+      if (ipLimit - ipUsed < limit - used && ipLimit - ipUsed <= 0) ipCeilingReached = true;
+      return Math.max(used, limit - (ipLimit - ipUsed));
     };
     linksUsed = eff(linksUsed, linksLimit, ip.linksUsed, ceiling.linksPerDay);
     aiHalfUsed = eff(aiHalfUsed, aiLimitHalf, ip.aiActionsHalfUnits, ceiling.aiActionsPerDay * 2);
@@ -525,10 +524,94 @@ export async function consumeQuota(params: {
   }
 }
 
+type QuotaField = 'links' | 'uploadSeconds' | 'aiHalfUnits' | 'mockExams';
+const FIELD_COLUMN: Record<QuotaField, string> = {
+  links: 'links_used',
+  uploadSeconds: 'upload_seconds_used',
+  aiHalfUnits: 'ai_actions_half_units',
+  mockExams: 'mock_exams_used',
+};
+const FIELD_MEM: Record<QuotaField, keyof QuotaBucket> = {
+  links: 'linksUsed',
+  uploadSeconds: 'uploadSecondsUsed',
+  aiHalfUnits: 'aiActionsHalfUnits',
+  mockExams: 'mockExamsUsed',
+};
+
 /**
- * Atomically reserves quota BEFORE doing expensive work: increments the counters first, re-reads,
- * and rolls back if any limit is now exceeded. Because D1 increments are atomic, N parallel
- * requests can never all pass a "check then consume" race. Call `release()` if the work fails.
+ * Atomic "increment only if it stays within the limit" on one counter of one bucket.
+ * D1: a single conditional UPDATE (race-free across isolates). Memory: synchronous check-and-set.
+ * `windowFromDate` makes the limit apply to the SUM over [windowFromDate, utcDate] (rolling windows).
+ */
+async function tryIncrement(
+  bucketKey: string,
+  utcDate: string,
+  field: QuotaField,
+  amount: number,
+  limit: number,
+  db?: D1Database,
+  windowFromDate?: string
+): Promise<boolean> {
+  if (amount <= 0) return true;
+  const col = FIELD_COLUMN[field];
+  if (db) {
+    try {
+      const nowSec = Math.floor(Date.now() / 1000);
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO daily_quotas (actor_key, utc_date, links_used, upload_seconds_used, ai_actions_half_units, mock_exams_used, updated_at)
+           VALUES (?1, ?2, 0, 0, 0, 0, ?3)`
+        )
+        .bind(bucketKey, utcDate, nowSec)
+        .run();
+      const usedExpr = windowFromDate
+        ? `(SELECT COALESCE(SUM(${col}), 0) FROM daily_quotas WHERE actor_key = ?1 AND utc_date >= ?5 AND utc_date <= ?2)`
+        : col;
+      const stmt = db.prepare(
+        `UPDATE daily_quotas SET ${col} = ${col} + ?3, updated_at = ?6
+         WHERE actor_key = ?1 AND utc_date = ?2 AND ${usedExpr} + ?3 <= ?4`
+      );
+      const res = await stmt.bind(bucketKey, utcDate, amount, limit, windowFromDate || utcDate, nowSec).run();
+      const ok = Number(res?.meta?.changes || 0) > 0;
+      if (ok) {
+        const memKey = `${bucketKey}:${utcDate}`;
+        const prev = memQuotas.get(memKey) || { ...EMPTY_BUCKET };
+        prev[FIELD_MEM[field]] += amount;
+        memQuotas.set(memKey, prev);
+      }
+      return ok;
+    } catch (err) {
+      console.error('[LearnFromClip] quota reservation failed (is migration 0002 applied?):', err);
+      // Fail closed for anonymous cost-bearing work if D1 is broken.
+      return false;
+    }
+  }
+  // Memory: no awaits between read and write, so this is atomic within the isolate.
+  let used = 0;
+  if (windowFromDate) {
+    for (const [key, val] of memQuotas.entries()) {
+      const sep = key.lastIndexOf(':');
+      if (key.slice(0, sep) === bucketKey && key.slice(sep + 1) >= windowFromDate && key.slice(sep + 1) <= utcDate) {
+        used += val[FIELD_MEM[field]];
+      }
+    }
+  } else {
+    used = memQuotas.get(`${bucketKey}:${utcDate}`)?.[FIELD_MEM[field]] || 0;
+  }
+  if (used + amount > limit) return false;
+  const memKey = `${bucketKey}:${utcDate}`;
+  const prev = memQuotas.get(memKey) || { ...EMPTY_BUCKET };
+  prev[FIELD_MEM[field]] += amount;
+  memQuotas.set(memKey, prev);
+  return true;
+}
+
+/**
+ * Atomically reserves quota BEFORE doing expensive work. Each counter is incremented only if it
+ * stays within the limit (conditional UPDATE), first for the student, then for the shared per-IP
+ * ceiling; if any step fails, the earlier steps are rolled back. Parallel requests therefore can
+ * never overshoot a limit, and a double-click never makes both requests fail.
+ * Call `release()` if the work fails so the student is not charged.
  */
 export async function reserveQuota(params: {
   actorKey: string;
@@ -544,38 +627,63 @@ export async function reserveQuota(params: {
   release: () => Promise<void>;
 }> {
   const utcDate = getCurrentUtcDate();
-  const ipKey = params.plan === 'free' ? params.networkFallbackKey : undefined;
-  await consumeQuota({ actorKey: params.actorKey, networkFallbackKey: ipKey, utcDate, db: params.db, ...params.delta });
-  const negate = () =>
-    consumeQuota({
-      actorKey: params.actorKey,
-      networkFallbackKey: ipKey,
-      utcDate,
-      db: params.db,
-      links: -(params.delta.links || 0),
-      uploadSeconds: -(params.delta.uploadSeconds || 0),
-      aiHalfUnits: -(params.delta.aiHalfUnits || 0),
-      mockExams: -(params.delta.mockExams || 0),
-    });
+  const isPaid = params.plan !== 'free';
+  const ipKey = isPaid ? undefined : params.networkFallbackKey;
+  const ceiling = params.ipCeiling || DEFAULT_IP_CEILING;
 
-  const status = await getDailyQuotaStatus({
-    actorKey: params.actorKey,
-    networkFallbackKey: ipKey,
-    plan: params.plan,
-    utcDate,
-    db: params.db,
-    ipCeiling: params.ipCeiling,
-  });
+  const userLimits: Record<QuotaField, { limit: number; windowFrom?: string }> = {
+    links: { limit: isPaid ? PAID_LIMITS.linksPerDay : FREE_LIMITS.linksPerDay },
+    aiHalfUnits: { limit: (isPaid ? PAID_LIMITS.aiActionsPerDay : FREE_LIMITS.aiActionsPerDay) * 2 },
+    mockExams: { limit: isPaid ? PAID_LIMITS.mockExamsPerDay : FREE_LIMITS.mockExamsPerDay },
+    uploadSeconds:
+      params.plan === 'exam_pass'
+        ? { limit: PAID_LIMITS.examPassUploadSeconds, windowFrom: utcDateDaysAgo(utcDate, 6) }
+        : isPaid
+        ? { limit: PAID_LIMITS.monthlyUploadSeconds, windowFrom: utcDateDaysAgo(utcDate, 29) }
+        : { limit: FREE_LIMITS.uploadSecondsPerDay },
+  };
+  const ipLimits: Record<QuotaField, number> = {
+    links: ceiling.linksPerDay,
+    aiHalfUnits: ceiling.aiActionsPerDay * 2,
+    mockExams: ceiling.mockExamsPerDay,
+    uploadSeconds: ceiling.uploadSecondsPerDay,
+  };
+  const exceededName: Record<QuotaField, 'links' | 'upload' | 'ai' | 'mockExams'> = {
+    links: 'links',
+    uploadSeconds: 'upload',
+    aiHalfUnits: 'ai',
+    mockExams: 'mockExams',
+  };
+
+  const done: Array<{ key: string; field: QuotaField; amount: number }> = [];
+  const rollback = async () => {
+    for (const d of done.reverse()) {
+      await incrementBucket(d.key, utcDate, { [d.field]: -d.amount } as any, params.db);
+    }
+    done.length = 0;
+  };
 
   let exceeded: 'links' | 'upload' | 'ai' | 'mockExams' | undefined;
-  if (params.delta.links && status.linksUsed > status.linksLimit) exceeded = 'links';
-  else if (params.delta.uploadSeconds && status.uploadSecondsUsed > status.uploadSecondsLimit) exceeded = 'upload';
-  else if (params.delta.aiHalfUnits && status.aiActionsUsed > status.aiActionsLimit) exceeded = 'ai';
-  else if (params.delta.mockExams && status.mockExamsUsed > status.mockExamsLimit) exceeded = 'mockExams';
+  for (const field of ['links', 'uploadSeconds', 'aiHalfUnits', 'mockExams'] as QuotaField[]) {
+    const amount = Math.ceil(Number(params.delta[field] || 0));
+    if (amount <= 0) continue;
+    const u = userLimits[field];
+    if (!(await tryIncrement(params.actorKey, utcDate, field, amount, u.limit, params.db, u.windowFrom))) {
+      exceeded = exceededName[field];
+      break;
+    }
+    done.push({ key: params.actorKey, field, amount });
+    if (ipKey) {
+      if (!(await tryIncrement(ipKey, utcDate, field, amount, ipLimits[field], params.db))) {
+        exceeded = exceededName[field];
+        break;
+      }
+      done.push({ key: ipKey, field, amount });
+    }
+  }
 
-  if (exceeded) {
-    await negate();
-    const after = await getDailyQuotaStatus({
+  const readStatus = () =>
+    getDailyQuotaStatus({
       actorKey: params.actorKey,
       networkFallbackKey: ipKey,
       plan: params.plan,
@@ -583,17 +691,23 @@ export async function reserveQuota(params: {
       db: params.db,
       ipCeiling: params.ipCeiling,
     });
-    return { ok: false, status: after, exceeded, release: async () => {} };
+
+  if (exceeded) {
+    await rollback();
+    return { ok: false, status: await readStatus(), exceeded, release: async () => {} };
   }
 
+  const reserved = done.slice();
   let released = false;
   return {
     ok: true,
-    status,
+    status: await readStatus(),
     release: async () => {
       if (released) return;
       released = true;
-      await negate();
+      for (const d of reserved.reverse()) {
+        await incrementBucket(d.key, utcDate, { [d.field]: -d.amount } as any, params.db);
+      }
     },
   };
 }
