@@ -145,7 +145,8 @@ Legend: **PASS** works as specified · **FIXED** was broken/missing, fixed on th
 ## Merge with `main` (`216ea99`)
 
 While the audit ran, `main` gained `216ea99` (refund page, Turnstile widget, webhook idempotency, Worker/Pages configs). It is merged into this branch:
-- **Kept from main:** `/refund` page and Terms structure, `TurnstileWidget` (works with the server's Turnstile gate), `wrangler.toml` as the Worker config + `wrangler.pages.toml`.
+- **Kept from main:** `/refund` page and Terms structure, `TurnstileWidget` (works with the server's Turnstile gate).
+- **Deploy fix:** main's change of `wrangler.toml` into a Worker config made Cloudflare Pages ignore it and fall back to the dashboard output dir `..\dist-pages`, so the production build of `216ea99` **failed** (live site still on `0295576`). `wrangler.toml` is the Pages config again, the Worker config is `wrangler.worker.toml` (`npm run deploy`); preview build of this branch succeeds.
 - **Replaced:** main's webhook de-duplication keyed on `data.id`, which would drop legitimate later `subscription_updated` events for the same subscription; this branch de-duplicates by the hash of each delivery. The `processed_webhooks` table main added to 0002 is harmless but unused. Privacy text claiming decks *and streaks* sync to "encrypted R2 storage" was corrected (decks sync to D1; streaks stay on the device). Migration scripts use `wrangler d1 migrations apply` instead of executing a single file.
 - **Added:** SEO metadata + sitemap entry for `/refund`; `.env.example` now uses the variable names the code actually reads (it had `LEMON_SQUEEZY_*` and an unused `MAGIC_LINK_SECRET`).
 - After the merge: 183/183 tests, 62/62 E2E checks.
@@ -210,7 +211,7 @@ npm run test
 
 **DNS / Cloudflare:** custom domain `learnfromclip.com` (+ `www` redirect) on the Pages project; R2 lifecycle rule "delete after 1 day" on the uploads bucket; nothing needed for textfromclip.com.
 
-**D1 (decision needed):** `wrangler.toml` binds `textfromclip-db` (`0dd853ee…`), but your commit `2c6140f` bound a separate `learnfromclip-db` (`269a6c4e…`) that a later Gemini commit reverted. I did not change the binding. Pick the production database, set it in `wrangler.toml`/`pages/wrangler.toml` (and the dashboard binding), then run:
+**D1:** the only database in the Cloudflare account is `textfromclip-db` (`0dd853ee…`), which matches `wrangler.toml`; `learnfromclip-db` does not exist, so no change is needed. The production database currently has **only the 0001 tables**: the LearnFromClip tables from 0002 were never applied. Previously: `wrangler.toml` binds `textfromclip-db` (`0dd853ee…`), but your commit `2c6140f` bound a separate `learnfromclip-db` (`269a6c4e…`) that a later Gemini commit reverted. I did not change the binding. Pick the production database, set it in `wrangler.toml`/`pages/wrangler.toml` (and the dashboard binding), then run:
 ```bash
 npm run d1:migrate:prod
 ```
