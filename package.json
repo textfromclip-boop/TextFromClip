@@ -1,5 +1,5 @@
 {
-  "name": "textfromclip",
+  "name": "learnfromclip",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "deploy": "wrangler deploy -c wrangler.worker.toml",
     "build:pages": "npm run build",
     "deploy:pages": "npm run build && wrangler pages deploy dist-pages --project-name textfromclip --branch main",
-    "d1:migrate:local": "wrangler d1 execute textfromclip-db --local --file=./migrations/0001_initial_schema.sql",
-    "d1:migrate:prod": "wrangler d1 execute textfromclip-db --remote --file=./migrations/0001_initial_schema.sql"
+    "d1:migrate:local": "wrangler d1 migrations apply DB --local",
+    "d1:migrate:prod": "wrangler d1 migrations apply DB --remote"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -38,4 +38,3 @@
     "wrangler": "^3.111.0"
   }
 }
-

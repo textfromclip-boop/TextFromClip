@@ -179,21 +179,6 @@ async function resolveRequestActor(c: any) {
   };
 }
 
-// 301 Redirect old textfromclip.com domain paths to learnfromclip.com
-app.use('*', async (c, next) => {
-  try {
-    const reqUrl = new URL(c.req.url);
-    const host = (c.req.header('host') || reqUrl.hostname || '').toLowerCase();
-    if (host === 'textfromclip.com' || host === 'www.textfromclip.com') {
-      const target = `https://learnfromclip.com${reqUrl.pathname}${reqUrl.search}`;
-      return c.redirect(target, 301);
-    }
-  } catch {
-    // ignore malformed host headers
-  }
-  await next();
-});
-
 // Security Headers Middleware
 app.use('*', async (c, next) => {
   await next();
@@ -553,7 +538,7 @@ app.post('/api/transcript', async (c) => {
   }
 });
 
-// R2 File Upload: Store temporary audio/video chunk in R2 bucket (textfromclip-uploads)
+// R2 File Upload: Store temporary audio/video chunk in the UPLOADS_BUCKET R2 binding
 app.post('/api/upload/chunk', async (c) => {
   if (!c.env.UPLOADS_BUCKET) {
     return c.json(
