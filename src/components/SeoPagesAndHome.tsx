@@ -323,6 +323,7 @@ export const SeoLandingPage: React.FC<{
     headingPrefix: spec.headingPrefix,
     headingHighlight: spec.headingHighlight,
     intro: spec.intro,
+    defaultSecondLanguage: spec.bilingualLanguage,
   };
 
   return (

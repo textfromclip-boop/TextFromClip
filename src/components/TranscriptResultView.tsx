@@ -22,6 +22,8 @@ import { trackEvent } from '../utils/analytics';
 interface Props {
   result: TranscriptResult;
   sourceUrl?: string;
+  /** Preselected second language for bilingual cards (e.g. on /flashcards-in-arabic). */
+  defaultSecondLanguage?: string;
   onReset: () => void;
   onUpdateResult?: (updated: TranscriptResult) => void;
   onRevisionPackCreated?: (pack: RevisionPack, sourceUrl?: string) => void;
@@ -66,6 +68,7 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const TranscriptResultView: React.FC<Props> = ({
   result,
   sourceUrl,
+  defaultSecondLanguage,
   onReset,
   onUpdateResult,
   onRevisionPackCreated,
@@ -83,7 +86,7 @@ export const TranscriptResultView: React.FC<Props> = ({
 
   // Revision Pack state (Core LearnFromClip flow)
   const [revisionPack, setRevisionPack] = useState<RevisionPack | null>(null);
-  const [packSecondLang, setPackSecondLang] = useState<string>('');
+  const [packSecondLang, setPackSecondLang] = useState<string>(defaultSecondLanguage || '');
   const [packLoading, setPackLoading] = useState(false);
   const [packError, setPackError] = useState<string | null>(null);
   const [packProgress, setPackProgress] = useState<{

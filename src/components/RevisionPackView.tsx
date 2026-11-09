@@ -11,6 +11,13 @@ import {
   generatePackMarkdown,
 } from '../utils/packExporters';
 import { trackEvent } from '../utils/analytics';
+import { scheduleFlashcardSm2, Sm2Rating } from '../utils/sm2';
+
+/** Shows the interval SM-2 will actually schedule for this card and rating. */
+function intervalLabel(card: Flashcard, rating: Sm2Rating): string {
+  const days = scheduleFlashcardSm2(card, rating).interval;
+  return days === 0 ? 'today' : `${days}d`;
+}
 
 interface RevisionPackViewProps {
   pack: RevisionPack;
@@ -186,7 +193,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
         <span className="inline-flex items-center gap-1 px-2 py-0.5 mr-2 rounded bg-[#502EF0] text-white font-bold text-[10px] uppercase tracking-wider">
           AI explanation
         </span>
-        <span>{aiExplanation}</span>
+        <bdi dir="auto">{aiExplanation}</bdi>
       </div>
     );
   };
@@ -583,7 +590,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                   className="py-2.5 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800 font-bold text-xs sm:text-sm transition-colors"
                 >
                   Again
-                  <span className="block text-[10px] font-normal text-red-600">&lt; 10m</span>
+                  <span className="block text-[10px] font-normal text-red-600">{currentCard ? intervalLabel(currentCard, 'again') : ''}</span>
                 </button>
                 <button
                   type="button"
@@ -591,7 +598,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                   className="py-2.5 px-3 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs sm:text-sm transition-colors"
                 >
                   Hard
-                  <span className="block text-[10px] font-normal text-amber-700">1d</span>
+                  <span className="block text-[10px] font-normal text-amber-700">{currentCard ? intervalLabel(currentCard, 'hard') : ''}</span>
                 </button>
                 <button
                   type="button"
@@ -599,7 +606,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                   className="py-2.5 px-3 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs sm:text-sm transition-colors"
                 >
                   Good
-                  <span className="block text-[10px] font-normal text-emerald-700">3d</span>
+                  <span className="block text-[10px] font-normal text-emerald-700">{currentCard ? intervalLabel(currentCard, 'good') : ''}</span>
                 </button>
                 <button
                   type="button"
@@ -607,7 +614,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                   className="py-2.5 px-3 rounded-xl border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-900 font-bold text-xs sm:text-sm transition-colors"
                 >
                   Easy
-                  <span className="block text-[10px] font-normal text-sky-700">7d</span>
+                  <span className="block text-[10px] font-normal text-sky-700">{currentCard ? intervalLabel(currentCard, 'easy') : ''}</span>
                 </button>
               </div>
             </div>

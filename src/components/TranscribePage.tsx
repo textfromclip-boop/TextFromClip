@@ -72,6 +72,8 @@ export interface PlatformConfig {
   hosts: string[];
   status: { working: boolean; title: string; text: string };
   notes: string[];
+  /** Second language preselected for bilingual flashcards (bilingual SEO landing pages). */
+  defaultSecondLanguage?: string;
 }
 
 export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config }) => {
@@ -1062,6 +1064,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
             <TranscriptResultView
               result={result}
               sourceUrl={url}
+              defaultSecondLanguage={config.defaultSecondLanguage}
               onReset={reset}
               onUpdateResult={handleUpdateResult}
               onRevisionPackCreated={(pack, src) => {

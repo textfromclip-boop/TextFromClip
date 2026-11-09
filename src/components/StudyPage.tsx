@@ -405,7 +405,7 @@ export const StudyPage: React.FC = () => {
                           <span className="inline-block px-2 py-0.5 mr-2 rounded bg-[#502EF0] text-white font-bold text-[10px] uppercase">
                             AI explanation
                           </span>
-                          {currentDueItem.card.ai_explanation}
+                          <bdi dir="auto">{currentDueItem.card.ai_explanation}</bdi>
                         </div>
                       )}
                     </div>

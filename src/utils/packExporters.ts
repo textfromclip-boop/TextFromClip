@@ -161,9 +161,9 @@ export function buildPrintablePackHtml(pack: RevisionPack): string {
                 <div class="quote-line" dir="auto">“${escapeHtml(b.source.quote)}”</div>
                 ${
                   b.ai_explanation
-                    ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> ${escapeHtml(
+                    ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> <bdi dir="auto">${escapeHtml(
                         b.ai_explanation
-                      )}</div>`
+                      )}</bdi></div>`
                     : ''
                 }
               </li>`;
@@ -199,9 +199,9 @@ export function buildPrintablePackHtml(pack: RevisionPack): string {
         <div class="quote-line" dir="auto">“${escapeHtml(c.source.quote)}”</div>
         ${
           c.ai_explanation
-            ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> ${escapeHtml(
+            ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> <bdi dir="auto">${escapeHtml(
                 c.ai_explanation
-              )}</div>`
+              )}</bdi></div>`
             : ''
         }
       </div>`;
@@ -234,9 +234,9 @@ export function buildPrintablePackHtml(pack: RevisionPack): string {
         </div>
         ${
           q.ai_explanation
-            ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> ${escapeHtml(
+            ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> <bdi dir="auto">${escapeHtml(
                 q.ai_explanation
-              )}</div>`
+              )}</bdi></div>`
             : ''
         }
       </div>`;
