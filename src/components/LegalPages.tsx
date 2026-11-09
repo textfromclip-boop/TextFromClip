@@ -24,7 +24,10 @@ export const PrivacyPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">2. Paid Passes & Cloud Sync</h2>
         <p>
-          When you purchase an Exam Pass, Monthly plan, or Semester Pass—or click <strong>“Save my streak”</strong>—you sign in with an email magic link (no passwords). Your synced study decks, card intervals, and entitlement expiry dates are stored in our Cloudflare D1 database so you can study across devices.
+          With an Exam Pass, Monthly plan or Semester Pass you can sign in with an email magic link (no passwords). We then store your email address, your plan and its expiry date, and your study decks (cards, review schedule) in our database on Cloudflare so you can study across devices. Sign-in links are single-use, expire after 15 minutes and are stored only as a one-way hash. Sign-in emails are sent by our email provider (Resend).
+        </p>
+        <p className="mt-2">
+          Payments are handled by <strong>Lemon Squeezy</strong>, our merchant of record. We never see or store your card details; Lemon Squeezy shares your email, the product you bought and your billing country with us so we can activate your pass.
         </p>
       </section>
 
@@ -38,7 +41,7 @@ export const PrivacyPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">4. Fair-Use Quotas & Abuse Protection</h2>
         <p>
-          To protect university students who share campus IP addresses, anonymous daily limits use a combination of a signed cookie ID, coarse network checks, and invisible Cloudflare Turnstile verification. We use privacy-friendly aggregate event counters without selling personal data or running third-party ad networks.
+          Free daily limits use a signed, anonymous browser cookie plus a shared per-network ceiling, and may ask you to pass an invisible Cloudflare Turnstile check. For rate limits and quotas we store only a one-way hash of your IP address, never the address itself, and these counters are kept per day. Product analytics are aggregate event counts (for example “quiz finished”) with the page path and plan type only: no names, emails, IP addresses or lecture content. We do not sell personal data or use ad networks.
         </p>
       </section>
 
@@ -80,16 +83,26 @@ export const TermsPage: React.FC = () => (
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-ink mb-2">3. Plans, Passes & Refunds</h2>
+        <h2 className="text-xl font-bold text-ink mb-2">3. Plans, Passes & Payments</h2>
         <p>
-          <strong>Exam Pass</strong> (7 days) and <strong>Semester Pass</strong> (4 months) are one-time purchases that never auto-renew. The <strong>Monthly</strong> plan is a recurring subscription that you can cancel anytime. Payments and international taxes are processed by our merchant of record. If a pass is refunded, paid entitlements revert to the Free plan immediately.
+          <strong>Exam Pass</strong> (7 days) and <strong>Semester Pass</strong> (4 months) are one-time purchases that never auto-renew. The <strong>Monthly</strong> plan is a recurring subscription that you can cancel at any time; after cancelling you keep access until the end of the period you paid for. Our order process is conducted by our online reseller <strong>Lemon Squeezy</strong>, who is the Merchant of Record for all our orders and handles payments, taxes and invoices.
+        </p>
+        <p className="mt-2">
+          Regional student prices are only available for billing addresses in the listed countries. If a regional price is used with a billing country outside those countries, the pass is not activated and the payment is refunded.
+        </p>
+      </section>
+
+      <section id="refunds">
+        <h2 className="text-xl font-bold text-ink mb-2">4. Refund Policy</h2>
+        <p>
+          If LearnFromClip does not work for you, email <span className="font-mono font-semibold">support@learnfromclip.com</span> within <strong>14 days</strong> of your purchase (or of a Monthly renewal) with the email address you used at checkout, and we will refund that payment in full. Refunds are issued through Lemon Squeezy to your original payment method. When a payment is refunded, the paid features it unlocked end immediately and your account returns to the Free plan; decks already saved on your device are kept. This does not affect any statutory rights you have under consumer law in your country.
         </p>
       </section>
 
       <section>
-        <h2 className="text-xl font-bold text-ink mb-2">4. Fair Use & Referral Rules</h2>
+        <h2 className="text-xl font-bold text-ink mb-2">5. Fair Use & Referral Rules</h2>
         <p>
-          Free and paid plans are subject to the daily and monthly fair-use limits listed on our <Link to="/pricing" className="text-accent font-semibold underline">Pricing</Link> page. Self-referrals from the same device, cookie, or account are not eligible for referral passes.
+          Free and paid plans are subject to the daily, weekly and monthly fair-use limits listed on our <Link to="/pricing" className="text-accent font-semibold underline">Pricing</Link> page; daily limits reset at 00:00 UTC. Self-referrals from the same device, browser or account are not eligible for referral passes, and each person can receive at most 5 referral rewards.
         </p>
       </section>
     </article>

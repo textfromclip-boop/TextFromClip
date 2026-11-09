@@ -13,7 +13,6 @@ export const PricingPage: React.FC = () => {
   }, []);
 
   // Referral state
-  const [refEmail, setRefEmail] = useState('');
   const [refCodeLink, setRefCodeLink] = useState<string | null>(null);
   const [refCopied, setRefCopied] = useState(false);
 
@@ -31,18 +30,17 @@ export const PricingPage: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          planType: checkoutPlan,
+          plan: checkoutPlan,
           email: checkoutEmail.trim(),
         }),
       });
-      const json: any = await res.json();
-      if (json?.data?.checkoutUrl) {
+      const json: any = await res.json().catch(() => null);
+      if (res.ok && json?.data?.checkoutUrl) {
         window.location.href = json.data.checkoutUrl;
         return;
       }
       setCheckoutNotice(
-        json?.data?.message ||
-          'Checkout session ready! Configure your Lemon Squeezy store URL in environment variables to accept live card payments.'
+        json?.error?.message || 'Could not start checkout right now. Please try again.'
       );
     } catch {
       setCheckoutNotice('Could not start checkout right now. Please try again.');
@@ -51,17 +49,16 @@ export const PricingPage: React.FC = () => {
 
   const handleGenerateReferral = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!refEmail.trim()) return;
     try {
+      // The invite is tied to this browser (or your signed-in account): no email needed.
       const res = await fetch('/api/referral/code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: refEmail.trim() }),
+        body: '{}',
       });
       const json: any = await res.json();
-      if (res.ok && json?.data?.referralCode) {
-        const link = `https://learnfromclip.com/?ref=${json.data.referralCode}`;
-        setRefCodeLink(link);
+      if (res.ok && json?.data?.shareUrl) {
+        setRefCodeLink(json.data.shareUrl);
         trackEvent('referral_sent', '/pricing');
       }
     } catch {
@@ -262,7 +259,7 @@ export const PricingPage: React.FC = () => {
       </div>
 
       <p className="mt-3 text-center text-xs text-muted">
-        *Regional pricing is automatically applied at checkout for cards billed in Egypt, Turkey, India, Pakistan, Morocco, Indonesia, and similar lower-income countries.
+        *Regional pricing is offered automatically in Egypt, Turkey, India, Pakistan, Morocco, Indonesia and similar countries, and is confirmed against your billing country at checkout.
       </p>
 
       {/* Referral Box: "Invite a friend" */}
@@ -282,19 +279,11 @@ export const PricingPage: React.FC = () => {
 
           <div className="md:col-span-5">
             <form onSubmit={handleGenerateReferral} className="flex flex-col sm:flex-row gap-2">
-              <input
-                type="email"
-                required
-                value={refEmail}
-                onChange={(e) => setRefEmail(e.target.value)}
-                placeholder="Enter your email for invite link"
-                className="flex-1 px-3.5 py-2.5 rounded-xl bg-white/10 border border-white/20 text-white placeholder:text-slate-300 text-sm focus:outline-none focus:border-sky-400"
-              />
               <button
                 type="submit"
                 className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] text-white font-bold text-xs sm:text-sm shrink-0"
               >
-                Invite a friend
+                Get my invite link
               </button>
             </form>
 
@@ -321,9 +310,9 @@ export const PricingPage: React.FC = () => {
       {/* Checkout Modal */}
       {checkoutPlan && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl bg-surface border border-rule p-6 shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="checkout-title" className="w-full max-w-md rounded-2xl bg-surface border border-rule p-6 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black text-ink">
+              <h3 id="checkout-title" className="text-lg font-black text-ink">
                 Continue to Checkout ({checkoutPlan.replace('_', ' ')})
               </h3>
               <button
@@ -332,6 +321,7 @@ export const PricingPage: React.FC = () => {
                   setCheckoutPlan(null);
                   setCheckoutNotice(null);
                 }}
+                aria-label="Close checkout"
                 className="text-muted hover:text-ink"
               >
                 ✕
@@ -341,9 +331,12 @@ export const PricingPage: React.FC = () => {
               Enter your email so your pass and magic-link deck sync are linked to your account immediately after payment.
             </p>
             <form onSubmit={handleConfirmCheckout} className="mt-4 space-y-3">
+              <label htmlFor="checkout-email" className="sr-only">Email address</label>
               <input
+                id="checkout-email"
                 type="email"
                 required
+                autoFocus
                 value={checkoutEmail}
                 onChange={(e) => setCheckoutEmail(e.target.value)}
                 placeholder="you@university.edu"

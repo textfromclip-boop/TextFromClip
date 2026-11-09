@@ -159,6 +159,86 @@ export async function saveStudyDeck(
   return deck;
 }
 
+/** Writes a deck exactly as given (used when pulling newer decks from cloud sync). */
+export async function putStudyDeckRaw(deck: StoredStudyDeck): Promise<void> {
+  memoryDecks.set(deck.id, deck);
+  if (hasIndexedDb()) {
+    try {
+      const db = await openStudyDb();
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(STORE_DECKS, 'readwrite');
+        tx.objectStore(STORE_DECKS).put(deck);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      return;
+    } catch {
+      // fall through
+    }
+  }
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(FALLBACK_DECKS_KEY);
+      const all: StoredStudyDeck[] = raw ? JSON.parse(raw) : [];
+      localStorage.setItem(FALLBACK_DECKS_KEY, JSON.stringify([deck, ...all.filter((d) => d.id !== deck.id)]));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * Two-way cloud sync for signed-in paid users: pulls decks that are newer in the cloud, then
+ * pushes local decks. Returns false when cloud sync is not available (free / signed out).
+ */
+export async function syncDecksWithCloud(onlyDeckIds?: string[]): Promise<boolean> {
+  if (typeof fetch === 'undefined') return false;
+  try {
+    const res = await fetch('/api/decks/sync', { credentials: 'same-origin' });
+    if (!res.ok) return false;
+    const json: any = await res.json();
+    const cloud: Array<{ id: string; packJson: string; updatedAt: number }> = json?.data?.decks || [];
+    const local = await loadAllStudyDecks();
+    const localById = new Map(local.map((d) => [d.id, d]));
+    for (const c of cloud) {
+      const l = localById.get(c.id);
+      if (!l || c.updatedAt > l.updatedAt) {
+        try {
+          const deck = JSON.parse(c.packJson) as StoredStudyDeck;
+          if (deck && deck.id && deck.pack && Array.isArray(deck.pack.flashcards)) {
+            await putStudyDeckRaw({ ...deck, id: c.id, updatedAt: c.updatedAt, syncedToCloud: true });
+          }
+        } catch {
+          // skip malformed cloud deck
+        }
+      }
+    }
+    const cloudById = new Map(cloud.map((c) => [c.id, c]));
+    const toPush = (await loadAllStudyDecks()).filter(
+      (d) =>
+        (!onlyDeckIds || onlyDeckIds.includes(d.id)) &&
+        (!cloudById.has(d.id) || d.updatedAt > (cloudById.get(d.id)!.updatedAt || 0))
+    );
+    if (toPush.length > 0) {
+      await fetch('/api/decks/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decks: toPush.slice(0, 50).map((d) => ({
+            id: d.id,
+            title: d.title,
+            updatedAt: d.updatedAt,
+            packJson: JSON.stringify({ ...d, syncedToCloud: true }),
+          })),
+        }),
+      });
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function deleteStudyDeck(deckId: string): Promise<void> {
   memoryDecks.delete(deckId);
 
@@ -309,11 +389,14 @@ export async function createMissedQuestionsDeck(
   provider: string = 'youtube',
   videoId: string = 'missed'
 ): Promise<StoredStudyDeck> {
+  // Unique videoId: saveStudyDeck de-duplicates by provider + videoId, so re-using the lecture's
+  // videoId here used to OVERWRITE the student's original deck with only the missed cards.
+  const stamp = Date.now();
   const pack: RevisionPack = {
-    id: `missed-pack-${Date.now()}`,
+    id: `missed-pack-${stamp}`,
     title: `${parentTitle} — Missed Quiz Review`,
     provider,
-    videoId,
+    videoId: `missed:${videoId}:${stamp}`,
     durationSeconds: 0,
     notes: [],
     flashcards: missedCards,

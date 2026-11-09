@@ -14,6 +14,7 @@ import {
 } from './components/SeoPagesAndHome';
 import { useRoute } from './router';
 import { checkAndTrackDay7Return, trackEvent } from './utils/analytics';
+import { captureReferralFromUrl } from './utils/apiClient';
 
 export const YOUTUBE: PlatformConfig = {
   id: 'youtube',
@@ -189,10 +190,21 @@ export const App: React.FC = () => {
   const route = useRoute();
 
   useEffect(() => {
-    checkAndTrackDay7Return();
-    if (route === '/pricing') {
-      trackEvent('pricing_viewed', '/pricing');
+    captureReferralFromUrl();
+    // Lemon Squeezy redirects back to /study?purchase=success after payment
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('purchase') === 'success' && !sessionStorage.getItem('lfc_purchase_tracked')) {
+        sessionStorage.setItem('lfc_purchase_tracked', '1');
+        trackEvent('purchase');
+      }
+    } catch {
+      // ignore
     }
+  }, []);
+
+  useEffect(() => {
+    checkAndTrackDay7Return();
   }, [route]);
 
   const seoSpec = SEO_LANDING_PAGES[route];

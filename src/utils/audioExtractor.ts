@@ -1,10 +1,13 @@
 import { ApiResponse, TranscriptResult } from '../types';
+import { generateSrt, generateVtt } from '../server/utils/formatters';
+import { apiFetch } from './apiClient';
 
 export const MAX_RAW_FILE_BYTES = 200 * 1024 * 1024; // 200 MB client-side input file limit
 export const MAX_DIRECT_FALLBACK_BYTES = 20 * 1024 * 1024; // 20 MB fallback when browser cannot decode
 export const TARGET_SAMPLE_RATE = 16000; // 16 kHz mono for Whisper
 export const CHUNK_DURATION_SECONDS = 180; // 3-minute chunks (~5.5 MB per 16 kHz mono WAV chunk)
-export const MAX_AUDIO_CHUNKS = 10; // Up to 30 minutes total audio
+export const MAX_AUDIO_CHUNKS = 80; // Up to 4 hours total audio (paid max lecture length)
+export const CHUNKS_PER_TRANSCRIBE_BATCH = 10; // Server accepts up to 10 chunks (30 min) per request
 
 export const SUPPORTED_MEDIA_EXTENSIONS = new Set([
   'mp4',
@@ -318,88 +321,130 @@ export async function uploadAndTranscribeMediaFile(
   const onProgress = options?.onProgress;
   const { chunks, totalDurationSeconds } = await extractAudioChunksFromFile(file, onProgress);
 
-  const uploadedKeys: string[] = [];
-  const chunkOffsetsSec: number[] = [];
+  // Long recordings are uploaded + transcribed in batches of 30 minutes. (Previously everything
+  // after the first 10 chunks / 30 minutes was silently dropped.)
+  const totalSec = totalDurationSeconds || chunks.reduce((acc, c) => acc + (c.durationSec || 0), 0);
+  const batches: ExtractedAudioChunk[][] = [];
+  for (let i = 0; i < chunks.length; i += CHUNKS_PER_TRANSCRIBE_BATCH) {
+    batches.push(chunks.slice(i, i + CHUNKS_PER_TRANSCRIBE_BATCH));
+  }
 
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const partLabel = chunks.length > 1 ? ` (Part ${i + 1} of ${chunks.length})` : '';
-    const uploadPercent = Math.round(45 + ((i + 1) / chunks.length) * 25);
-    const stageText = `Uploading your file${partLabel}…`;
-    onProgress?.(stageText, {
-      stage: stageText,
-      detail: 'Sending audio securely for transcription',
-      percent: uploadPercent,
-      step: 3,
+  const merged: TranscriptResult[] = [];
+  let uploadedSoFar = 0;
+  for (let b = 0; b < batches.length; b++) {
+    const batch = batches[b];
+    const uploadedKeys: string[] = [];
+    const chunkOffsetsSec: number[] = [];
+
+    for (let i = 0; i < batch.length; i++) {
+      const chunk = batch[i];
+      uploadedSoFar++;
+      const partLabel = chunks.length > 1 ? ` (Part ${uploadedSoFar} of ${chunks.length})` : '';
+      const uploadPercent = Math.round(45 + (uploadedSoFar / chunks.length) * 40);
+      const stageText = `Uploading your file${partLabel}…`;
+      onProgress?.(stageText, {
+        stage: stageText,
+        detail: 'Sending audio securely for transcription',
+        percent: uploadPercent,
+        step: 3,
+        totalSteps: 4,
+      });
+
+      const uploadRes = await fetch(
+        `/api/upload/chunk?fileName=${encodeURIComponent(chunk.fileName)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': chunk.mimeType || 'audio/wav',
+            'X-File-Name': chunk.fileName,
+          },
+          body: chunk.buffer,
+        }
+      );
+
+      let uploadJson: ApiResponse<{ key: string; sizeBytes: number }>;
+      try {
+        uploadJson = await uploadRes.json();
+      } catch {
+        throw new Error(`Upload failed with HTTP ${uploadRes.status}.`);
+      }
+
+      if (!uploadRes.ok || !uploadJson.success) {
+        const msg = !uploadJson.success
+          ? uploadJson.error.message
+          : `Upload failed with HTTP ${uploadRes.status}.`;
+        throw new Error(msg);
+      }
+
+      uploadedKeys.push(uploadJson.data.key);
+      chunkOffsetsSec.push(chunk.startOffsetSec);
+    }
+
+    const stage = batches.length > 1 ? `Turning speech into text (${b + 1} of ${batches.length})…` : 'Turning speech into text…';
+    onProgress?.(stage, {
+      stage,
+      detail: 'Writing your transcript and timestamps (this takes a few seconds)',
+      percent: Math.min(98, 85 + Math.round(((b + 1) / batches.length) * 13)),
+      step: 4,
       totalSteps: 4,
     });
 
-    const uploadRes = await fetch(
-      `/api/upload/chunk?fileName=${encodeURIComponent(chunk.fileName)}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': chunk.mimeType || 'audio/wav',
-          'X-File-Name': chunk.fileName,
-        },
-        body: chunk.buffer,
-      }
-    );
+    const transcribeRes = await apiFetch('/api/upload/transcribe', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        keys: uploadedKeys,
+        chunkOffsetsSec,
+        fileName: file.name,
+        videoDurationSeconds: totalSec || undefined,
+        batchDurationSeconds: batch.reduce((acc, c) => acc + (c.durationSec || 0), 0) || undefined,
+        preferredLanguage: options?.preferredLanguage || 'en',
+      }),
+    });
 
-    let uploadJson: ApiResponse<{ key: string; sizeBytes: number }>;
+    let transcribeJson: ApiResponse<TranscriptResult>;
     try {
-      uploadJson = await uploadRes.json();
+      transcribeJson = await transcribeRes.json();
     } catch {
-      throw new Error(`Upload failed with HTTP ${uploadRes.status}.`);
+      throw new Error(`Transcription request failed with HTTP ${transcribeRes.status}.`);
     }
 
-    if (!uploadRes.ok || !uploadJson.success) {
-      const msg = !uploadJson.success
-        ? uploadJson.error.message
-        : `Upload failed with HTTP ${uploadRes.status}.`;
+    if (!transcribeRes.ok || !transcribeJson.success) {
+      const msg = !transcribeJson.success
+        ? transcribeJson.error.message
+        : `Transcription failed with HTTP ${transcribeRes.status}.`;
+      // A later batch failing (e.g. quota) still returns what was transcribed, clearly marked.
+      if (merged.length > 0) {
+        const partial = mergeTranscriptBatches(merged);
+        partial.videoTitle = `${partial.videoTitle || 'Uploaded Media'} (first ${Math.round(
+          (partial.segments[partial.segments.length - 1]?.start || 0) / 60
+        )} min — ${msg})`;
+        return partial;
+      }
       throw new Error(msg);
     }
-
-    uploadedKeys.push(uploadJson.data.key);
-    chunkOffsetsSec.push(chunk.startOffsetSec);
+    merged.push(transcribeJson.data);
   }
 
-  onProgress?.('Turning speech into text…', {
-    stage: 'Turning speech into text…',
-    detail: 'Writing your transcript and timestamps (this takes a few seconds)',
-    percent: 85,
-    step: 4,
-    totalSteps: 4,
-  });
-
-  const transcribeRes = await fetch('/api/upload/transcribe', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      keys: uploadedKeys,
-      chunkOffsetsSec,
-      fileName: file.name,
-      videoDurationSeconds: totalDurationSeconds || undefined,
-      preferredLanguage: options?.preferredLanguage || 'en',
-    }),
-  });
-
-  let transcribeJson: ApiResponse<TranscriptResult>;
-  try {
-    transcribeJson = await transcribeRes.json();
-  } catch {
-    throw new Error(`Transcription request failed with HTTP ${transcribeRes.status}.`);
-  }
-
-  if (!transcribeRes.ok || !transcribeJson.success) {
-    const msg = !transcribeJson.success
-      ? transcribeJson.error.message
-      : `Transcription failed with HTTP ${transcribeRes.status}.`;
-    throw new Error(msg);
-  }
-
-  return transcribeJson.data;
+  return mergeTranscriptBatches(merged);
 }
 
+/** Merges per-batch transcripts (already offset to absolute lecture time) into one result. */
+export function mergeTranscriptBatches(parts: TranscriptResult[]): TranscriptResult {
+  if (parts.length === 1) return parts[0];
+  const first = parts[0];
+  const segments = parts
+    .flatMap((p) => p.segments)
+    .sort((a, b) => a.start - b.start)
+    .map((seg, idx) => ({ ...seg, id: idx + 1 }));
+  return {
+    ...first,
+    segments,
+    fullText: segments.map((s) => s.text).join(' ').trim(),
+    srt: generateSrt(segments),
+    vtt: generateVtt(segments),
+    videoDurationSeconds: Math.max(...parts.map((p) => p.videoDurationSeconds || 0)),
+  };
+}
