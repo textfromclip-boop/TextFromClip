@@ -93,5 +93,23 @@ export interface CloudflareBindings {
   TURNSTILE_SECRET_KEY?: string;
   LEMONSQUEEZY_WEBHOOK_SECRET?: string;
   LEMONSQUEEZY_API_KEY?: string;
-  ADMIN_SECRET?: string;
+  LEMONSQUEEZY_STORE_ID?: string;
+  LEMONSQUEEZY_VARIANT_EXAM_PASS?: string;
+  LEMONSQUEEZY_VARIANT_EXAM_PASS_REGIONAL?: string;
+  LEMONSQUEEZY_VARIANT_MONTHLY?: string;
+  LEMONSQUEEZY_VARIANT_MONTHLY_REGIONAL?: string;
+  LEMONSQUEEZY_VARIANT_SEMESTER_PASS?: string;
+  LEMONSQUEEZY_VARIANT_SEMESTER_PASS_REGIONAL?: string;
+  /** Bearer token for /api/admin/costs (min 24 chars). Unset = admin endpoint disabled. */
+  ADMIN_TOKEN?: string;
+  /** Resend API key for magic-link emails. */
+  RESEND_API_KEY?: string;
+  /** Verified sender, e.g. "LearnFromClip <login@learnfromclip.com>". */
+  EMAIL_FROM?: string;
+  /** Canonical site origin used in emailed links, e.g. https://learnfromclip.com */
+  APP_BASE_URL?: string;
+  IP_DAILY_AI_ACTIONS?: string;
+  IP_DAILY_LINKS?: string;
+  IP_DAILY_UPLOAD_MINUTES?: string;
+  IP_DAILY_QUIZZES?: string;
 }

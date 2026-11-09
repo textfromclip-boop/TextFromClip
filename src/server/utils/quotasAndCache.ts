@@ -1,5 +1,6 @@
 import { CloudflareBindings, RevisionPack, TranscriptResult } from '../../types';
 import { fnv1aHash } from '../../utils/transformCache';
+import { hmacSha256Hex, randomId, sha256Hex, timingSafeEqual } from './crypto';
 
 export type PlanTier = 'free' | 'exam_pass' | 'monthly' | 'semester_pass';
 
@@ -11,12 +12,16 @@ export interface DailyQuotaStatus {
   linksLimit: number;
   uploadSecondsUsed: number;
   uploadSecondsLimit: number;
+  /** 'day' for free (resets 00:00 UTC), 'week' (rolling 7 days) for Exam Pass, 'month' (rolling 30 days) otherwise. */
+  uploadWindow: 'day' | 'week' | 'month';
   aiActionsUsed: number; // e.g. 1.5
   aiActionsLimit: number; // 3 for free, 100 for paid
   mockExamsUsed: number;
   mockExamsLimit: number; // 1 for free, 9999 for paid
   maxCardsPerPack: number; // 30 for free, 150 for paid
   maxLectureSeconds: number; // 7200 for free, 14400 for paid
+  /** True when the shared per-IP daily ceiling (campus-friendly anti-abuse cap) is what is limiting this actor. */
+  ipCeilingReached: boolean;
 }
 
 export const FREE_LIMITS = {
@@ -30,24 +35,61 @@ export const FREE_LIMITS = {
 
 export const PAID_LIMITS = {
   linksPerDay: 50,
-  examPassUploadSeconds: 10 * 3600, // 10 hours/week
-  monthlyUploadSeconds: 30 * 3600, // 30 hours/month
+  examPassUploadSeconds: 10 * 3600, // 10 hours per rolling 7 days
+  monthlyUploadSeconds: 30 * 3600, // 30 hours per rolling 30 days
   aiActionsPerDay: 100, // 200 half-units
   cardsPerPack: 150,
   mockExamsPerDay: 9999, // Unlimited
   maxLectureSeconds: 4 * 3600, // 4 hours
 };
 
+/**
+ * Per-IP daily ceiling for ANONYMOUS (free) usage. Clearing cookies creates a new anonymous
+ * identity, but every identity on the same IP (IPv6: same /64) shares this ceiling, so a single
+ * person cannot get unlimited free AI actions. The ceiling is ~10x the per-student limit so a
+ * campus or dorm behind one NAT IP still works for many students. Paid users are exempt.
+ * Overridable with env vars IP_DAILY_AI_ACTIONS / IP_DAILY_LINKS / IP_DAILY_UPLOAD_MINUTES / IP_DAILY_QUIZZES.
+ */
+export const DEFAULT_IP_CEILING = {
+  aiActionsPerDay: 30,
+  linksPerDay: 50,
+  uploadSecondsPerDay: 200 * 60,
+  mockExamsPerDay: 10,
+};
+
+export type IpCeiling = typeof DEFAULT_IP_CEILING;
+
+export function resolveIpCeiling(env?: Record<string, any>): IpCeiling {
+  const num = (v: any, fallback: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : fallback;
+  };
+  return {
+    aiActionsPerDay: num(env?.IP_DAILY_AI_ACTIONS, DEFAULT_IP_CEILING.aiActionsPerDay),
+    linksPerDay: num(env?.IP_DAILY_LINKS, DEFAULT_IP_CEILING.linksPerDay),
+    uploadSecondsPerDay: env?.IP_DAILY_UPLOAD_MINUTES
+      ? num(env.IP_DAILY_UPLOAD_MINUTES, 200) * 60
+      : DEFAULT_IP_CEILING.uploadSecondsPerDay,
+    mockExamsPerDay: num(env?.IP_DAILY_QUIZZES, DEFAULT_IP_CEILING.mockExamsPerDay),
+  };
+}
+
+interface QuotaBucket {
+  linksUsed: number;
+  uploadSecondsUsed: number;
+  aiActionsHalfUnits: number;
+  mockExamsUsed: number;
+}
+
+const EMPTY_BUCKET: QuotaBucket = {
+  linksUsed: 0,
+  uploadSecondsUsed: 0,
+  aiActionsHalfUnits: 0,
+  mockExamsUsed: 0,
+};
+
 // In-memory fallback stores for local dev & unit tests when D1 is not bound
-const memQuotas = new Map<
-  string,
-  {
-    linksUsed: number;
-    uploadSecondsUsed: number;
-    aiActionsHalfUnits: number;
-    mockExamsUsed: number;
-  }
->();
+const memQuotas = new Map<string, QuotaBucket>();
 const memTranscriptCache = new Map<string, TranscriptResult>();
 const memPackCache = new Map<string, RevisionPack>();
 const memCostTelemetry = new Map<
@@ -65,11 +107,18 @@ const memCostTelemetry = new Map<
 
 // Concurrency queue limiter per Worker isolate
 let activeHeavyJobs = 0;
-const MAX_CONCURRENT_HEAVY_JOBS = 6;
+export const MAX_CONCURRENT_HEAVY_JOBS = 6;
+
+export class QueueBusyError extends Error {
+  code = 'QUEUE_BUSY';
+  constructor() {
+    super('High lecture processing demand right now. Please retry in a few seconds.');
+  }
+}
 
 export async function withJobConcurrencyLimit<T>(fn: () => Promise<T>): Promise<T> {
   if (activeHeavyJobs >= MAX_CONCURRENT_HEAVY_JOBS) {
-    throw new Error('SERVER_BUSY: High lecture processing demand. Please retry in a few seconds.');
+    throw new QueueBusyError();
   }
   activeHeavyJobs++;
   try {
@@ -83,27 +132,50 @@ export function getCurrentUtcDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function utcDateDaysAgo(utcDate: string, days: number): string {
+  const d = new Date(`${utcDate}T00:00:00.000Z`);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+export const DEV_ONLY_COOKIE_SECRET = 'lfc-dev-only-cookie-secret-do-not-use-in-production';
+
 /**
- * Simple deterministic HMAC/FNV signature for anonymous cookie IDs so clients cannot forge arbitrary IDs.
+ * Signs a cookie value with HMAC-SHA256. `purpose` binds the signature to one cookie
+ * (e.g. 'aid' anonymous id vs 'uid' logged-in user) so one signed value cannot be
+ * replayed as another cookie.
  */
-export function signAnonymousCookieId(rawId: string, secret: string = 'lfc-default-edge-secret'): string {
-  const cleanId = rawId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 36);
-  const sig = fnv1aHash(`${cleanId}:${secret}`);
+export async function signCookieValue(
+  rawId: string,
+  secret: string,
+  purpose: 'aid' | 'uid' | 'hv' = 'aid'
+): Promise<string> {
+  const cleanId = rawId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  const sig = (await hmacSha256Hex(secret, `lfc:${purpose}:${cleanId}`)).slice(0, 43);
   return `${cleanId}.${sig}`;
 }
 
-export function verifySignedCookieId(
+export async function verifySignedCookieValue(
   signedValue: string | undefined | null,
-  secret: string = 'lfc-default-edge-secret'
-): string | null {
-  if (!signedValue || typeof signedValue !== 'string') return null;
-  const parts = signedValue.split('.');
-  if (parts.length !== 2) return null;
-  const [id, sig] = parts;
-  if (!id || id.length < 8) return null;
-  const expected = fnv1aHash(`${id}:${secret}`);
-  return sig === expected ? id : null;
+  secret: string,
+  purpose: 'aid' | 'uid' | 'hv' = 'aid'
+): Promise<string | null> {
+  if (!signedValue || typeof signedValue !== 'string' || !secret) return null;
+  const idx = signedValue.lastIndexOf('.');
+  if (idx <= 0) return null;
+  const id = signedValue.slice(0, idx);
+  const sig = signedValue.slice(idx + 1);
+  if (!id || id.length < 8 || !/^[a-zA-Z0-9_-]+$/.test(id)) return null;
+  const expected = (await hmacSha256Hex(secret, `lfc:${purpose}:${id}`)).slice(0, 43);
+  return timingSafeEqual(sig, expected) ? id : null;
 }
+
+/** @deprecated kept for backwards compatibility in tests; use signCookieValue. */
+export const signAnonymousCookieId = (rawId: string, secret: string) =>
+  signCookieValue(rawId, secret, 'aid');
+/** @deprecated kept for backwards compatibility in tests; use verifySignedCookieValue. */
+export const verifySignedCookieId = (value: string | undefined | null, secret: string) =>
+  verifySignedCookieValue(value, secret, 'aid');
 
 /**
  * Parses cookies from the Cookie header.
@@ -116,59 +188,75 @@ export function parseCookies(cookieHeader: string | undefined | null): Record<st
     if (idx > 0) {
       const k = pair.slice(0, idx).trim();
       const v = pair.slice(idx + 1).trim();
-      out[k] = decodeURIComponent(v);
+      try {
+        out[k] = decodeURIComponent(v);
+      } catch {
+        out[k] = v;
+      }
     }
   }
   return out;
 }
 
 /**
- * Resolves the anonymous or authenticated actor identity from:
- * 1. Signed cookie `lfc_aid`
- * 2. IP address (`cf-connecting-ip` / `x-forwarded-for`)
- * 3. Optional Turnstile token (`cf-turnstile-response` / `x-turnstile-token`)
- *
- * University shared-IP protection:
- * - Two students on the same university IP get distinct signed `lfc_aid` cookies, so their
- *   quotas are tracked separately (`anon:${cookieId}:${ipPrefix}`).
- * - If a user clears cookies on the same IP without a verified Turnstile token, we also check
- *   a per-IP-plus-UserAgent fallback bucket (`net:${ipHash}`) so clearing cookies repeatedly
- *   cannot bypass daily limits on the same network device.
+ * Normalises an IP for the per-IP ceiling. IPv6 addresses are reduced to their /64 prefix,
+ * because a single IPv6 user typically controls a whole /64 and could otherwise rotate.
  */
-export function resolveActorIdentity(params: {
+export function normalizeIpForCeiling(rawIp: string): string {
+  const ip = (rawIp || '').split(',')[0].trim().toLowerCase();
+  if (!ip.includes(':')) return ip || 'unknown';
+  // Expand '::' to get the first 4 hextets
+  const [head, tail = ''] = ip.split('::');
+  const headParts = head ? head.split(':') : [];
+  const tailParts = tail ? tail.split(':') : [];
+  const missing = Math.max(0, 8 - headParts.length - tailParts.length);
+  const full = [...headParts, ...Array(missing).fill('0'), ...tailParts];
+  return `${full.slice(0, 4).map((h) => h || '0').join(':')}::/64`;
+}
+
+export function cookieAttributes(maxAgeSeconds: number, secure: boolean): string {
+  return `Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax; HttpOnly${secure ? '; Secure' : ''}`;
+}
+
+/**
+ * Resolves the anonymous or authenticated actor identity from:
+ * 1. Signed (HMAC-SHA256) cookie `lfc_aid` — one per browser, so students sharing a campus IP
+ *    get separate per-student quotas.
+ * 2. IP address — every anonymous identity on one IP (IPv6 /64) also counts against a shared,
+ *    much higher per-IP daily ceiling (see DEFAULT_IP_CEILING), so clearing cookies cannot
+ *    produce unlimited free AI actions.
+ * 3. Turnstile (verified separately in the API layer when TURNSTILE_SECRET_KEY is set).
+ */
+export async function resolveActorIdentity(params: {
   cookieHeader?: string | null;
   ip?: string | null;
   userAgent?: string | null;
   userId?: string | null;
-  cookieSecret?: string;
-}): {
+  cookieSecret: string;
+  secureCookies?: boolean;
+}): Promise<{
   actorKey: string;
   networkFallbackKey: string;
   cookieId: string;
   isNewCookie: boolean;
   signedCookieHeader: string;
-} {
-  const secret = params.cookieSecret || 'lfc-default-edge-secret';
+}> {
+  const secret = params.cookieSecret;
   const cookies = parseCookies(params.cookieHeader);
-  const existingCookieId = verifySignedCookieId(cookies['lfc_aid'], secret);
+  const existingCookieId = await verifySignedCookieValue(cookies['lfc_aid'], secret, 'aid');
   const isNewCookie = !existingCookieId;
-  const cookieId =
-    existingCookieId ||
-    `u_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-  const signedVal = signAnonymousCookieId(cookieId, secret);
-  const signedCookieHeader = `lfc_aid=${encodeURIComponent(
-    signedVal
-  )}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`;
+  const cookieId = existingCookieId || randomId('u_', 12);
+  const signedVal = await signCookieValue(cookieId, secret, 'aid');
+  const signedCookieHeader = `lfc_aid=${encodeURIComponent(signedVal)}; ${cookieAttributes(
+    31536000,
+    Boolean(params.secureCookies)
+  )}`;
 
-  const rawIp = (params.ip || '127.0.0.1').trim();
-  const uaHash = fnv1aHash((params.userAgent || 'browser').slice(0, 120));
-  const ipHash = fnv1aHash(rawIp);
+  const ipKeyHash = (await sha256Hex(`ip:${normalizeIpForCeiling(params.ip || '127.0.0.1')}`)).slice(0, 32);
 
-  const actorKey = params.userId
-    ? `user:${params.userId}`
-    : `anon:${cookieId}`;
-  // Network + browser fingerprint bucket to survive simple cookie clearing on the same machine
-  const networkFallbackKey = `net:${ipHash}:${uaHash}`;
+  const actorKey = params.userId ? `user:${params.userId}` : `anon:${cookieId}`;
+  // Shared per-IP ceiling bucket (NOT combined with user agent: identical UAs are common on campus).
+  const networkFallbackKey = `ip:${ipKeyHash}`;
 
   return {
     actorKey,
@@ -180,15 +268,15 @@ export function resolveActorIdentity(params: {
 }
 
 /**
- * Verifies an invisible Cloudflare Turnstile token when `TURNSTILE_SECRET_KEY` is configured.
- * If `TURNSTILE_SECRET_KEY` is not yet configured in environment, returns `true` so development works seamlessly.
+ * Verifies a Cloudflare Turnstile token when `TURNSTILE_SECRET_KEY` is configured.
+ * If `TURNSTILE_SECRET_KEY` is not configured, returns `true` (development / not yet configured).
  */
 export async function verifyTurnstileToken(
   token: string | undefined | null,
   secretKey: string | undefined,
   remoteIp?: string
 ): Promise<boolean> {
-  if (!secretKey || secretKey === 'test' || secretKey === 'disabled') {
+  if (!secretKey || secretKey === 'disabled') {
     return true;
   }
   if (!token || typeof token !== 'string') {
@@ -206,7 +294,10 @@ export async function verifyTurnstileToken(
     });
     const data: any = await res.json();
     return Boolean(data?.success);
-  } catch {
+  } catch (err) {
+    // Fail open only if Cloudflare's own verification endpoint is unreachable; the per-IP
+    // ceiling still bounds abuse in that case.
+    console.warn('[LearnFromClip] Turnstile siteverify unreachable, failing open:', err);
     return true;
   }
 }
@@ -215,12 +306,7 @@ async function readSingleQuotaBucket(
   actorKey: string,
   utcDate: string,
   db?: D1Database
-): Promise<{
-  linksUsed: number;
-  uploadSecondsUsed: number;
-  aiActionsHalfUnits: number;
-  mockExamsUsed: number;
-}> {
+): Promise<QuotaBucket> {
   const memKey = `${actorKey}:${utcDate}`;
   const memVal = memQuotas.get(memKey);
 
@@ -241,24 +327,51 @@ async function readSingleQuotaBucket(
           mockExamsUsed: Number(row.mock_exams_used) || 0,
         };
       }
+      return { ...EMPTY_BUCKET };
     } catch {
       // fall back to memQuotas
     }
   }
 
-  return (
-    memVal || {
-      linksUsed: 0,
-      uploadSecondsUsed: 0,
-      aiActionsHalfUnits: 0,
-      mockExamsUsed: 0,
+  return memVal ? { ...memVal } : { ...EMPTY_BUCKET };
+}
+
+/** Sums upload seconds over the last `days` UTC days (inclusive of today) for an actor. */
+async function readUploadSecondsInWindow(
+  actorKey: string,
+  utcDate: string,
+  days: number,
+  db?: D1Database
+): Promise<number> {
+  const fromDate = utcDateDaysAgo(utcDate, days - 1);
+  if (db) {
+    try {
+      const row = await db
+        .prepare(
+          `SELECT COALESCE(SUM(upload_seconds_used), 0) AS total
+           FROM daily_quotas WHERE actor_key = ?1 AND utc_date >= ?2 AND utc_date <= ?3`
+        )
+        .bind(actorKey, fromDate, utcDate)
+        .first<any>();
+      return Number(row?.total) || 0;
+    } catch {
+      // fall through to memory
     }
-  );
+  }
+  let total = 0;
+  for (const [key, val] of memQuotas.entries()) {
+    const sep = key.lastIndexOf(':');
+    const k = key.slice(0, sep);
+    const d = key.slice(sep + 1);
+    if (k === actorKey && d >= fromDate && d <= utcDate) total += val.uploadSecondsUsed;
+  }
+  return total;
 }
 
 /**
- * Reads current daily quota usage for an actor (combining cookie actorKey and network+UA fallback
- * when anonymous so clearing cookies on the same browser/IP still respects limits).
+ * Reads current usage for an actor. Free users: per-student daily limits, further capped by the
+ * shared per-IP ceiling. Paid users: per-user limits only (uploads use a rolling 7/30-day window).
+ * All daily counters reset at 00:00 UTC.
  */
 export async function getDailyQuotaStatus(params: {
   actorKey: string;
@@ -266,49 +379,72 @@ export async function getDailyQuotaStatus(params: {
   plan?: PlanTier;
   utcDate?: string;
   db?: D1Database;
+  ipCeiling?: IpCeiling;
 }): Promise<DailyQuotaStatus> {
   const utcDate = params.utcDate || getCurrentUtcDate();
   const plan: PlanTier = params.plan || 'free';
   const isPaid = plan !== 'free';
+  const ceiling = params.ipCeiling || DEFAULT_IP_CEILING;
 
   const primary = await readSingleQuotaBucket(params.actorKey, utcDate, params.db);
-  const netBucket =
-    !isPaid && params.networkFallbackKey
-      ? await readSingleQuotaBucket(params.networkFallbackKey, utcDate, params.db)
-      : { linksUsed: 0, uploadSecondsUsed: 0, aiActionsHalfUnits: 0, mockExamsUsed: 0 };
 
-  const linksUsed = Math.max(primary.linksUsed, netBucket.linksUsed);
-  const uploadSecondsUsed = Math.max(
-    primary.uploadSecondsUsed,
-    netBucket.uploadSecondsUsed
-  );
-  const aiActionsHalfUnits = Math.max(
-    primary.aiActionsHalfUnits,
-    netBucket.aiActionsHalfUnits
-  );
-  const mockExamsUsed = Math.max(primary.mockExamsUsed, netBucket.mockExamsUsed);
+  const linksLimit = isPaid ? PAID_LIMITS.linksPerDay : FREE_LIMITS.linksPerDay;
+  const aiLimitHalf = (isPaid ? PAID_LIMITS.aiActionsPerDay : FREE_LIMITS.aiActionsPerDay) * 2;
+  const mockLimit = isPaid ? PAID_LIMITS.mockExamsPerDay : FREE_LIMITS.mockExamsPerDay;
+
+  let uploadWindow: 'day' | 'week' | 'month' = 'day';
+  let uploadSecondsLimit = FREE_LIMITS.uploadSecondsPerDay;
+  let uploadSecondsUsed = primary.uploadSecondsUsed;
+  if (plan === 'exam_pass') {
+    uploadWindow = 'week';
+    uploadSecondsLimit = PAID_LIMITS.examPassUploadSeconds;
+    uploadSecondsUsed = await readUploadSecondsInWindow(params.actorKey, utcDate, 7, params.db);
+  } else if (isPaid) {
+    uploadWindow = 'month';
+    uploadSecondsLimit = PAID_LIMITS.monthlyUploadSeconds;
+    uploadSecondsUsed = await readUploadSecondsInWindow(params.actorKey, utcDate, 30, params.db);
+  }
+
+  let linksUsed = primary.linksUsed;
+  let aiHalfUsed = primary.aiActionsHalfUnits;
+  let mockUsed = primary.mockExamsUsed;
+  let ipCeilingReached = false;
+
+  if (!isPaid && params.networkFallbackKey) {
+    const ip = await readSingleQuotaBucket(params.networkFallbackKey, utcDate, params.db);
+    // Effective "used" = limit - min(remaining for this student, remaining for this IP)
+    const eff = (used: number, limit: number, ipUsed: number, ipLimit: number) => {
+      const remaining = Math.min(limit - used, ipLimit - ipUsed);
+      if (ipLimit - ipUsed < limit - used) ipCeilingReached = ipCeilingReached || ipLimit - ipUsed <= 0;
+      return Math.max(used, limit - Math.max(0, remaining));
+    };
+    linksUsed = eff(linksUsed, linksLimit, ip.linksUsed, ceiling.linksPerDay);
+    aiHalfUsed = eff(aiHalfUsed, aiLimitHalf, ip.aiActionsHalfUnits, ceiling.aiActionsPerDay * 2);
+    mockUsed = eff(mockUsed, mockLimit, ip.mockExamsUsed, ceiling.mockExamsPerDay);
+    uploadSecondsUsed = eff(
+      uploadSecondsUsed,
+      uploadSecondsLimit,
+      ip.uploadSecondsUsed,
+      ceiling.uploadSecondsPerDay
+    );
+  }
 
   return {
     actorKey: params.actorKey,
     utcDate,
     plan,
     linksUsed,
-    linksLimit: isPaid ? PAID_LIMITS.linksPerDay : FREE_LIMITS.linksPerDay,
+    linksLimit,
     uploadSecondsUsed,
-    uploadSecondsLimit:
-      plan === 'exam_pass'
-        ? PAID_LIMITS.examPassUploadSeconds
-        : isPaid
-        ? PAID_LIMITS.monthlyUploadSeconds
-        : FREE_LIMITS.uploadSecondsPerDay,
-    aiActionsUsed: aiActionsHalfUnits / 2,
-    aiActionsLimit: isPaid ? PAID_LIMITS.aiActionsPerDay : FREE_LIMITS.aiActionsPerDay,
-    mockExamsUsed,
-    mockExamsLimit: isPaid ? PAID_LIMITS.mockExamsPerDay : FREE_LIMITS.mockExamsPerDay,
+    uploadSecondsLimit,
+    uploadWindow,
+    aiActionsUsed: aiHalfUsed / 2,
+    aiActionsLimit: aiLimitHalf / 2,
+    mockExamsUsed: mockUsed,
+    mockExamsLimit: mockLimit,
     maxCardsPerPack: isPaid ? PAID_LIMITS.cardsPerPack : FREE_LIMITS.cardsPerPack,
-    maxLectureSeconds: isPaid
-      ? PAID_LIMITS.maxLectureSeconds
-      : FREE_LIMITS.maxLectureSeconds,
+    maxLectureSeconds: isPaid ? PAID_LIMITS.maxLectureSeconds : FREE_LIMITS.maxLectureSeconds,
+    ipCeilingReached,
   };
 }
 
@@ -324,17 +460,12 @@ async function incrementBucket(
   db?: D1Database
 ): Promise<void> {
   const memKey = `${bucketKey}:${utcDate}`;
-  const prev = memQuotas.get(memKey) || {
-    linksUsed: 0,
-    uploadSecondsUsed: 0,
-    aiActionsHalfUnits: 0,
-    mockExamsUsed: 0,
-  };
+  const prev = memQuotas.get(memKey) || { ...EMPTY_BUCKET };
   const next = {
-    linksUsed: prev.linksUsed + (delta.links || 0),
-    uploadSecondsUsed: prev.uploadSecondsUsed + (delta.uploadSeconds || 0),
-    aiActionsHalfUnits: prev.aiActionsHalfUnits + (delta.aiHalfUnits || 0),
-    mockExamsUsed: prev.mockExamsUsed + (delta.mockExams || 0),
+    linksUsed: Math.max(0, prev.linksUsed + (delta.links || 0)),
+    uploadSecondsUsed: Math.max(0, prev.uploadSecondsUsed + (delta.uploadSeconds || 0)),
+    aiActionsHalfUnits: Math.max(0, prev.aiActionsHalfUnits + (delta.aiHalfUnits || 0)),
+    mockExamsUsed: Math.max(0, prev.mockExamsUsed + (delta.mockExams || 0)),
   };
   memQuotas.set(memKey, next);
 
@@ -344,12 +475,12 @@ async function incrementBucket(
       await db
         .prepare(
           `INSERT INTO daily_quotas (actor_key, utc_date, links_used, upload_seconds_used, ai_actions_half_units, mock_exams_used, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+           VALUES (?1, ?2, MAX(?3, 0), MAX(?4, 0), MAX(?5, 0), MAX(?6, 0), ?7)
            ON CONFLICT(actor_key, utc_date) DO UPDATE SET
-             links_used = links_used + ?3,
-             upload_seconds_used = upload_seconds_used + ?4,
-             ai_actions_half_units = ai_actions_half_units + ?5,
-             mock_exams_used = mock_exams_used + ?6,
+             links_used = MAX(links_used + ?3, 0),
+             upload_seconds_used = MAX(upload_seconds_used + ?4, 0),
+             ai_actions_half_units = MAX(ai_actions_half_units + ?5, 0),
+             mock_exams_used = MAX(mock_exams_used + ?6, 0),
              updated_at = ?7`
         )
         .bind(
@@ -362,22 +493,25 @@ async function incrementBucket(
           nowSec
         )
         .run();
-    } catch {
-      // ignore if migration not yet applied
+    } catch (err) {
+      console.error('[LearnFromClip] daily_quotas write failed (is migration 0002 applied?):', err);
     }
   }
+}
+
+export interface QuotaDelta {
+  links?: number;
+  uploadSeconds?: number;
+  aiHalfUnits?: number; // 2 = 1 full action, 1 = 0.5 cached pack action
+  mockExams?: number;
 }
 
 export async function consumeQuota(params: {
   actorKey: string;
   networkFallbackKey?: string;
   utcDate?: string;
-  links?: number;
-  uploadSeconds?: number;
-  aiHalfUnits?: number; // 2 = 1 full action, 1 = 0.5 cached pack action
-  mockExams?: number;
   db?: D1Database;
-}): Promise<void> {
+} & QuotaDelta): Promise<void> {
   const utcDate = params.utcDate || getCurrentUtcDate();
   const delta = {
     links: params.links || 0,
@@ -389,6 +523,79 @@ export async function consumeQuota(params: {
   if (params.networkFallbackKey) {
     await incrementBucket(params.networkFallbackKey, utcDate, delta, params.db);
   }
+}
+
+/**
+ * Atomically reserves quota BEFORE doing expensive work: increments the counters first, re-reads,
+ * and rolls back if any limit is now exceeded. Because D1 increments are atomic, N parallel
+ * requests can never all pass a "check then consume" race. Call `release()` if the work fails.
+ */
+export async function reserveQuota(params: {
+  actorKey: string;
+  networkFallbackKey?: string;
+  plan: PlanTier;
+  delta: QuotaDelta;
+  db?: D1Database;
+  ipCeiling?: IpCeiling;
+}): Promise<{
+  ok: boolean;
+  status: DailyQuotaStatus;
+  exceeded?: 'links' | 'upload' | 'ai' | 'mockExams';
+  release: () => Promise<void>;
+}> {
+  const utcDate = getCurrentUtcDate();
+  const ipKey = params.plan === 'free' ? params.networkFallbackKey : undefined;
+  await consumeQuota({ actorKey: params.actorKey, networkFallbackKey: ipKey, utcDate, db: params.db, ...params.delta });
+  const negate = () =>
+    consumeQuota({
+      actorKey: params.actorKey,
+      networkFallbackKey: ipKey,
+      utcDate,
+      db: params.db,
+      links: -(params.delta.links || 0),
+      uploadSeconds: -(params.delta.uploadSeconds || 0),
+      aiHalfUnits: -(params.delta.aiHalfUnits || 0),
+      mockExams: -(params.delta.mockExams || 0),
+    });
+
+  const status = await getDailyQuotaStatus({
+    actorKey: params.actorKey,
+    networkFallbackKey: ipKey,
+    plan: params.plan,
+    utcDate,
+    db: params.db,
+    ipCeiling: params.ipCeiling,
+  });
+
+  let exceeded: 'links' | 'upload' | 'ai' | 'mockExams' | undefined;
+  if (params.delta.links && status.linksUsed > status.linksLimit) exceeded = 'links';
+  else if (params.delta.uploadSeconds && status.uploadSecondsUsed > status.uploadSecondsLimit) exceeded = 'upload';
+  else if (params.delta.aiHalfUnits && status.aiActionsUsed > status.aiActionsLimit) exceeded = 'ai';
+  else if (params.delta.mockExams && status.mockExamsUsed > status.mockExamsLimit) exceeded = 'mockExams';
+
+  if (exceeded) {
+    await negate();
+    const after = await getDailyQuotaStatus({
+      actorKey: params.actorKey,
+      networkFallbackKey: ipKey,
+      plan: params.plan,
+      utcDate,
+      db: params.db,
+      ipCeiling: params.ipCeiling,
+    });
+    return { ok: false, status: after, exceeded, release: async () => {} };
+  }
+
+  let released = false;
+  return {
+    ok: true,
+    status,
+    release: async () => {
+      if (released) return;
+      released = true;
+      await negate();
+    },
+  };
 }
 
 /**

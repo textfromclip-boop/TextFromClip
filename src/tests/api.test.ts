@@ -17,14 +17,14 @@ describe('Backend API Endpoints', () => {
     expect(body.service).toBe('LearnFromClip');
   });
 
-  it('301 redirects old textfromclip.com requests to learnfromclip.com preserving path', async () => {
+  it('does not redirect textfromclip.com (domain is not owned by LearnFromClip)', async () => {
     const res = await app.request(
-      'https://textfromclip.com/youtube?v=123',
+      'https://textfromclip.com/api/health',
       { headers: { host: 'textfromclip.com' } },
       mockEnv
     );
-    expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe('https://learnfromclip.com/youtube?v=123');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('location')).toBeNull();
   });
 
   it('GET /api/platforms returns registered platform adapters', async () => {
