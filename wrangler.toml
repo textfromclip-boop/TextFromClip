@@ -1,7 +1,12 @@
 name = "textfromclip"
-pages_build_output_dir = "dist-pages"
+main = "src/server/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare Static Assets (serves built React SPA from ./dist)
+[assets]
+directory = "./dist"
+binding = "ASSETS"
 
 # Cloudflare D1 Database Binding
 [[d1_databases]]
@@ -23,5 +28,5 @@ bucket_name = "textfromclip-uploads"
 [vars]
 ENVIRONMENT = "production"
 MAX_REQUESTS_PER_MINUTE = "30"
-MAX_VIDEO_DURATION_SECONDS = "14400" # 4 hours max
-CACHE_TTL_SECONDS = "86400" # 24 hours
+MAX_VIDEO_DURATION_SECONDS = "14400"
+CACHE_TTL_SECONDS = "86400"

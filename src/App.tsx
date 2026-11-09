@@ -6,7 +6,7 @@ import { GuidePage } from './components/GuidePage';
 import { AboutPage } from './components/AboutPage';
 import { StudyPage } from './components/StudyPage';
 import { PricingPage } from './components/PricingPage';
-import { PrivacyPage, TermsPage } from './components/LegalPages';
+import { PrivacyPage, TermsPage, RefundPolicyPage } from './components/LegalPages';
 import {
   HomeSectionsBelowTool,
   SEO_LANDING_PAGES,
@@ -234,6 +234,7 @@ export const App: React.FC = () => {
         {route === '/about' && <AboutPage />}
         {route === '/privacy' && <PrivacyPage />}
         {route === '/terms' && <TermsPage />}
+        {(route === '/refund' || route === '/refund-policy') && <RefundPolicyPage />}
         {seoSpec && <SeoLandingPage key={seoSpec.path} spec={seoSpec} baseConfig={YOUTUBE} />}
       </main>
       <Footer />

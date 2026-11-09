@@ -1964,6 +1964,7 @@ app.get('/sitemap.xml', (c) => {
     { path: '/about', priority: '0.4', changefreq: 'monthly' },
     { path: '/privacy', priority: '0.3', changefreq: 'monthly' },
     { path: '/terms', priority: '0.3', changefreq: 'monthly' },
+    { path: '/refund', priority: '0.3', changefreq: 'monthly' },
   ];
 
   const urlsXml = paths

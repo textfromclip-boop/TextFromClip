@@ -8,6 +8,8 @@ export type RoutePath =
   | '/pricing'
   | '/privacy'
   | '/terms'
+  | '/refund'
+  | '/refund-policy'
   | '/youtube'
   | '/tiktok'
   | '/instagram'
@@ -44,6 +46,8 @@ export const ALL_KNOWN_ROUTES: { path: RoutePath; title: string }[] = [
   { path: '/about', title: 'About' },
   { path: '/privacy', title: 'Privacy Policy' },
   { path: '/terms', title: 'Terms of Service' },
+  { path: '/refund', title: 'Refund Policy & Money-Back Guarantee' },
+  { path: '/refund-policy', title: 'Refund Policy & Money-Back Guarantee' },
   { path: '/youtube-lecture-to-flashcards', title: 'YouTube Lecture to Flashcards' },
   { path: '/lecture-to-notes', title: 'Lecture to Structured Notes' },
   { path: '/video-to-quiz', title: 'Video to Multiple-Choice Quiz' },

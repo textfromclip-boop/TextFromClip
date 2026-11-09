@@ -63,6 +63,15 @@ export const ROUTE_META: Record<string, RouteMeta> = {
     title: 'Terms of Service & Refund Policy — LearnFromClip',
     description: 'Terms of use, plans, refund policy and fair-use limits for LearnFromClip.',
   },
+  '/refund': {
+    title: 'Refund Policy — 14-Day Money-Back Guarantee — LearnFromClip',
+    description: 'Full refund within 14 days of any LearnFromClip purchase. How to request a refund, timelines, cancelling Monthly, and Lemon Squeezy as Merchant of Record.',
+  },
+  '/refund-policy': {
+    title: 'Refund Policy (alias) — LearnFromClip',
+    description: 'LearnFromClip refund policy: full refund within 14 days of purchase, processed by Lemon Squeezy.',
+    canonical: '/refund',
+  },
   '/youtube-lecture-to-flashcards': {
     title: 'YouTube Lecture to Flashcards (Free, Quote-Verified) — LearnFromClip',
     description: 'Paste a YouTube lecture link and get up to 30 free flashcards, each linked to the exact moment in the lecture. Export to Anki.',

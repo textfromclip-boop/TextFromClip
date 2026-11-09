@@ -142,6 +142,14 @@ Legend: **PASS** works as specified · **FIXED** was broken/missing, fixed on th
 | [`f851df9`](https://github.com/textfromclip-boop/TextFromClip/commit/f851df9) | Real SM-2 interval hints; bilingual SEO pages preselect language; bidi fix; E2E harness. |
 | [`187c7a9`](https://github.com/textfromclip-boop/TextFromClip/commit/187c7a9) | Contrast fix; /study analytics; regression E2E. |
 
+## Merge with `main` (`216ea99`)
+
+While the audit ran, `main` gained `216ea99` (refund page, Turnstile widget, webhook idempotency, Worker/Pages configs). It is merged into this branch:
+- **Kept from main:** `/refund` page and Terms structure, `TurnstileWidget` (works with the server's Turnstile gate), `wrangler.toml` as the Worker config + `wrangler.pages.toml`.
+- **Replaced:** main's webhook de-duplication keyed on `data.id`, which would drop legitimate later `subscription_updated` events for the same subscription; this branch de-duplicates by the hash of each delivery. The `processed_webhooks` table main added to 0002 is harmless but unused. Privacy text claiming decks *and streaks* sync to "encrypted R2 storage" was corrected (decks sync to D1; streaks stay on the device). Migration scripts use `wrangler d1 migrations apply` instead of executing a single file.
+- **Added:** SEO metadata + sitemap entry for `/refund`; `.env.example` now uses the variable names the code actually reads (it had `LEMON_SQUEEZY_*` and an unused `MAGIC_LINK_SECRET`).
+- After the merge: 183/183 tests, 62/62 E2E checks.
+
 ## How to re-run the checks
 
 ```bash

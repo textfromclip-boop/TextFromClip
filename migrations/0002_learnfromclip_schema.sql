@@ -133,3 +133,13 @@ CREATE TABLE IF NOT EXISTS analytics_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_analytics_events_name_time ON analytics_events (event_name, created_at DESC);
+
+-- 10. Webhook Idempotency (prevents duplicate pass grants)
+CREATE TABLE IF NOT EXISTS processed_webhooks (
+    event_id TEXT PRIMARY KEY,
+    event_name TEXT NOT NULL,
+    provider_order_id TEXT,
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_processed_webhooks_order ON processed_webhooks (provider_order_id);

@@ -19,6 +19,7 @@ export const Footer: React.FC = () => (
           <Link to="/guide" className="hover:text-accent transition-colors">Guide</Link>
           <Link to="/privacy" className="hover:text-accent transition-colors">Privacy</Link>
           <Link to="/terms" className="hover:text-accent transition-colors">Terms</Link>
+          <Link to="/refund" className="hover:text-accent transition-colors">Refund Policy</Link>
         </nav>
       </div>
 

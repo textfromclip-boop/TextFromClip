@@ -102,7 +102,7 @@ let ctx = await newCtx();
 // ---- 3. Routes on direct load + refresh, unique title/description/canonical
 const ROUTES = ['/', '/app', '/study', '/pricing', '/privacy', '/terms', '/youtube', '/tiktok', '/instagram', '/upload', '/guide', '/about',
   '/youtube-lecture-to-flashcards', '/lecture-to-notes', '/video-to-quiz', '/youtube-to-text', '/youtube-transcript-to-pdf',
-  '/flashcards-in-arabic', '/flashcards-in-spanish', '/flashcards-in-french', '/flashcards-in-german', '/flashcards-in-turkish', '/flashcards-in-portuguese', '/flashcards-in-hindi'];
+  '/flashcards-in-arabic', '/flashcards-in-spanish', '/flashcards-in-french', '/flashcards-in-german', '/flashcards-in-turkish', '/flashcards-in-portuguese', '/flashcards-in-hindi', '/refund'];
 {
   const page = await ctx.newPage();
   const titles = new Map();
