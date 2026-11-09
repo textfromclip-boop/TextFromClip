@@ -17,12 +17,14 @@ describe('Backend API Endpoints', () => {
     expect(body.service).toBe('LearnFromClip');
   });
 
-  it('serves learnfromclip.com traffic without obsolete external domain redirects', async () => {
-    const res = await app.request('/api/health', { headers: { host: 'learnfromclip.com' } }, mockEnv);
+  it('does not redirect textfromclip.com (domain is not owned by LearnFromClip)', async () => {
+    const res = await app.request(
+      'https://textfromclip.com/api/health',
+      { headers: { host: 'textfromclip.com' } },
+      mockEnv
+    );
     expect(res.status).toBe(200);
-    const body: any = await res.json();
-    expect(body.status).toBe('ok');
-    expect(body.service).toBe('LearnFromClip');
+    expect(res.headers.get('location')).toBeNull();
   });
 
   it('GET /api/platforms returns registered platform adapters', async () => {

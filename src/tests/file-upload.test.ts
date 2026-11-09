@@ -39,6 +39,10 @@ function createMockR2Bucket() {
         },
       };
     },
+    async head(key: string) {
+      const buf = store.get(key);
+      return buf ? { key, size: buf.byteLength } : null;
+    },
     async delete(key: string) {
       deletedKeys.push(key);
       store.delete(key);

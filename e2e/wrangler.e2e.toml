@@ -1,0 +1,14 @@
+# Local-only config for end-to-end tests (no Workers AI binding: AI is mocked in e2e/server.mjs)
+name = "learnfromclip-e2e"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "learnfromclip-e2e-db"
+database_id = "00000000-0000-0000-0000-00000000e2e0"
+migrations_dir = "../migrations"
+
+[[r2_buckets]]
+binding = "UPLOADS_BUCKET"
+bucket_name = "learnfromclip-e2e-uploads"

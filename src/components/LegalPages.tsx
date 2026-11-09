@@ -24,7 +24,10 @@ export const PrivacyPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">2. Paid Passes & Cloud Storage Sync</h2>
         <p>
-          When you purchase a paid plan (Exam Pass, Monthly subscription, or Semester Pass) or click <strong>“Save my streak”</strong>, you log in using a passwordless email magic link. To enable seamless multi-device studying, <strong>paid users’ study decks, flashcards, spaced-repetition intervals, and review streaks are stored and synced in the cloud</strong> via Cloudflare D1 databases and encrypted Cloudflare R2 storage. This allows you to revise and review your materials seamlessly across your laptop, tablet, and mobile phone.
+          With an Exam Pass, Monthly plan or Semester Pass you can sign in with an email magic link (no passwords). We then store your email address, your plan and its expiry date, and your study decks (cards, review schedule) in our database on Cloudflare so you can study across devices. Sign-in links are single-use, expire after 15 minutes and are stored only as a one-way hash. Sign-in emails are sent by our email provider (Resend).
+        </p>
+        <p className="mt-2">
+          Payments are handled by <strong>Lemon Squeezy</strong>, our merchant of record. We never see or store your card details; Lemon Squeezy shares your email, the product you bought and your billing country with us so we can activate your pass.
         </p>
       </section>
 
@@ -38,7 +41,7 @@ export const PrivacyPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">4. Fair-Use Quotas & Turnstile Protection</h2>
         <p>
-          To protect students sharing campus Wi-Fi and university network addresses, anonymous daily quotas use signed browser cookie identifiers, coarse network rate limiting, and invisible Cloudflare Turnstile verification. We never sell student data or share private information with third-party ad networks.
+          Free daily limits use a signed, anonymous browser cookie plus a shared per-network ceiling, and may ask you to pass an invisible Cloudflare Turnstile check. For rate limits and quotas we store only a one-way hash of your IP address, never the address itself, and these counters are kept per day. Product analytics are aggregate event counts (for example “quiz finished”) with the page path and plan type only: no names, emails, IP addresses or lecture content. We do not sell personal data or use ad networks.
         </p>
       </section>
 
@@ -91,12 +94,15 @@ export const TermsPage: React.FC = () => (
         <p>
           <strong>Exam Pass</strong> (7 days) and <strong>Semester Pass</strong> (4 months) are one-time payments that never auto-renew. The <strong>Monthly</strong> plan is a recurring subscription that you can cancel at any time with one click from your billing receipt or by contacting support. Upon cancellation, you retain full access until the end of the paid billing period.
         </p>
+        <p className="mt-2">
+          Regional student prices are only available for billing addresses in the listed countries. If a regional price is used with a billing country outside those countries, the pass is not activated and the payment is refunded.
+        </p>
       </section>
 
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">5. Fair Use & Prohibited Conduct</h2>
         <p>
-          Usage is subject to the daily and monthly fair-use limits detailed on our <Link to="/pricing" className="text-accent font-semibold underline">Pricing</Link> page. Reverse engineering, programmatic scraping, and artificial multi-account referral abuse are strictly prohibited.
+          Usage is subject to the daily and monthly fair-use limits detailed on our <Link to="/pricing" className="text-accent font-semibold underline">Pricing</Link> page. Reverse engineering, programmatic scraping, and artificial multi-account referral abuse are strictly prohibited. Daily limits reset at 00:00 UTC. Self-referrals from the same device, browser or account do not earn referral passes, and each person can receive at most 5 referral rewards.
         </p>
       </section>
     </article>
@@ -144,7 +150,7 @@ export const RefundPolicyPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">3. Refund Processing & Payout Timeline</h2>
         <p>
-          Once approved, refunds are initiated immediately through Lemon Squeezy. Depending on your bank or credit card provider, the funds typically appear back in your account within <strong>3 to 5 business days</strong>.
+          Once approved, refunds are initiated immediately through Lemon Squeezy. Depending on your bank or credit card provider, the funds typically appear back in your account within <strong>3 to 5 business days</strong>. When a payment is refunded, the paid features it unlocked end immediately and your account returns to the Free plan; decks already saved on your device are kept.
         </p>
       </section>
 

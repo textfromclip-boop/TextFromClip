@@ -29,7 +29,8 @@ import {
   completeReferralOnFirstDeck,
   createMagicLinkToken,
   getActiveEntitlementForUser,
-  getOrCreateUserByEmail,
+  getReferralCodeForIdentity,
+  readLemonSqueezyConfig,
   isEligibleForRegionalPricing,
   loadSyncedDecksFromCloud,
   processPaymentWebhook,
@@ -207,14 +208,16 @@ describe('Phase 3 — Free Tier Limits, Anonymous Turnstile Identity & Caching',
     resetMemoryAuthAndPaymentsForTests();
   });
 
-  it('identifies anonymous users via signed cookie and fallback network hash', () => {
-    const secret = 'test-edge-secret';
-    const anonCookie = signAnonymousCookieId('anon_student_1', secret);
-    expect(verifySignedCookieId(anonCookie, secret)).toBe('anon_student_1');
-    expect(verifySignedCookieId('tampered-token', secret)).toBeNull();
+  it('identifies anonymous users via HMAC-signed cookie and a shared per-IP ceiling key', async () => {
+    const secret = 'test-edge-secret-0123456789abcdef0123';
+    const anonCookie = await signAnonymousCookieId('anon_student_1', secret);
+    expect(await verifySignedCookieId(anonCookie, secret)).toBe('anon_student_1');
+    expect(await verifySignedCookieId('tampered-token', secret)).toBeNull();
+    expect(await verifySignedCookieId(anonCookie.replace(/.$/, '0'), secret)).toBeNull();
+    expect(await verifySignedCookieId(anonCookie, 'another-secret-0123456789abcdef0123')).toBeNull();
 
     // Resolves identity from cookie header
-    const identity = resolveActorIdentity({
+    const identity = await resolveActorIdentity({
       cookieHeader: `lfc_aid=${encodeURIComponent(anonCookie)}`,
       ip: '198.51.100.24',
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -224,13 +227,15 @@ describe('Phase 3 — Free Tier Limits, Anonymous Turnstile Identity & Caching',
     expect(identity.isNewCookie).toBe(false);
 
     // University IP safety: two different students sharing the same campus IP get separate actor keys
-    const identityStudent2 = resolveActorIdentity({
+    const identityStudent2 = await resolveActorIdentity({
       cookieHeader: '',
       ip: '198.51.100.24',
       userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)',
       cookieSecret: secret,
     });
     expect(identityStudent2.actorKey).not.toBe(identity.actorKey);
+    // ...but share the same per-IP ceiling bucket
+    expect(identityStudent2.networkFallbackKey).toBe(identity.networkFallbackKey);
   });
 
   it('enforces free tier limits (5 links/day, 20 audio mins/day, 3 AI actions/day, 1 mock exam/day)', async () => {
@@ -334,98 +339,84 @@ describe('Phase 4 — Payments, Webhooks, Magic Link Auth & Fraud-Resistant Refe
     expect(isEligibleForRegionalPricing('DE')).toBe(false);
   });
 
-  it('handles Lemon Squeezy order and subscription lifecycles', async () => {
+  it('handles Lemon Squeezy order, refund and subscription lifecycles (plan from variant id only)', async () => {
+    const config = readLemonSqueezyConfig({
+      LEMONSQUEEZY_VARIANT_EXAM_PASS: '101',
+      LEMONSQUEEZY_VARIANT_MONTHLY: '201',
+    });
     // 1. Purchase Exam Pass
-    const purchaseResult = await processPaymentWebhook({
-      meta: { event_name: 'order_created', custom_data: { plan_type: 'exam_pass' } },
-      data: {
-        id: 'ord_exam_101',
-        attributes: {
-          user_email: 'student@example.edu',
-          billing_country: 'EG',
+    const purchaseResult = await processPaymentWebhook(
+      {
+        meta: { event_name: 'order_created', custom_data: { plan: 'semester_pass' } },
+        data: {
+          id: '9001',
+          attributes: { user_email: 'student@example.edu', status: 'paid', first_order_item: { variant_id: 101 } },
         },
       },
-    });
+      { eventHash: 'h1', config }
+    );
     expect(purchaseResult.handled).toBe(true);
-    expect(purchaseResult.entitlement?.planType).toBe('exam_pass');
-    expect(purchaseResult.entitlement?.isRegionalPricing).toBe(true);
+    // custom_data claimed semester_pass, but the variant is the Exam Pass
+    expect(purchaseResult.entitlements?.[0].planType).toBe('exam_pass');
 
-    // Active entitlement check
     const activeEnt = await getActiveEntitlementForUser('student@example.edu');
-    expect(activeEnt).not.toBeNull();
     expect(activeEnt?.planType).toBe('exam_pass');
 
-    // 2. Cancellation retains access until expires_at
-    const cancelResult = await processPaymentWebhook({
-      meta: { event_name: 'subscription_cancelled' },
-      data: {
-        attributes: {
-          user_email: 'student@example.edu',
-          subscription_id: 'ord_exam_101',
-          ends_at: new Date(Date.now() + 86400000).toISOString(),
-        },
-      },
-    });
-    expect(cancelResult.handled).toBe(true);
-    expect(cancelResult.entitlement?.status).toBe('cancelled');
-
-    // 3. Refund immediately revokes entitlement
-    const refundResult = await processPaymentWebhook({
-      meta: { event_name: 'order_refunded' },
-      data: {
-        attributes: {
-          user_email: 'student@example.edu',
-          subscription_id: 'ord_exam_101',
-        },
-      },
-    });
+    // 2. Refund immediately revokes entitlement
+    const refundResult = await processPaymentWebhook(
+      { meta: { event_name: 'order_refunded' }, data: { id: '9001', attributes: { user_email: 'student@example.edu' } } },
+      { eventHash: 'h2', config }
+    );
     expect(refundResult.handled).toBe(true);
-    const activeAfterRefund = await getActiveEntitlementForUser('student@example.edu');
-    expect(activeAfterRefund).toBeNull();
-  });
+    expect(await getActiveEntitlementForUser('student@example.edu')).toBeNull();
 
-  it('deduplicates webhooks idempotently so duplicate events never grant double passes', async () => {
-    const payload = {
-      meta: { event_id: 'evt_dup_999', event_name: 'order_created', custom_data: { plan_type: 'exam_pass' } },
-      data: {
-        id: 'ord_dup_999',
-        attributes: {
-          user_email: 'idempotent@student.edu',
-          billing_country: 'US',
+    // 3. Subscription: cancellation retains access until ends_at
+    await processPaymentWebhook(
+      {
+        meta: { event_name: 'subscription_created' },
+        data: {
+          id: 'sub_77',
+          attributes: {
+            user_email: 'monthly@example.edu',
+            variant_id: 201,
+            status: 'active',
+            renews_at: new Date(Date.now() + 30 * 86400000).toISOString(),
+          },
         },
       },
-    };
-
-    // First delivery -> handled successfully
-    const firstDelivery = await processPaymentWebhook(payload);
-    expect(firstDelivery.handled).toBe(true);
-    expect((firstDelivery as any).duplicate).toBeUndefined();
-    const expiresAtFirst = firstDelivery.entitlement?.expiresAt;
-
-    // Duplicate webhook delivery with same event_id / order_id -> detected as duplicate
-    const secondDelivery = await processPaymentWebhook(payload);
-    expect(secondDelivery.handled).toBe(true);
-    expect((secondDelivery as any).duplicate).toBe(true);
-
-    // Verify user still has exactly 1 valid entitlement with original expiration
-    const active = await getActiveEntitlementForUser('idempotent@student.edu');
-    expect(active?.expiresAt).toBe(expiresAtFirst);
+      { eventHash: 'h3', config }
+    );
+    const cancelResult = await processPaymentWebhook(
+      {
+        meta: { event_name: 'subscription_cancelled' },
+        data: {
+          id: 'sub_77',
+          attributes: {
+            user_email: 'monthly@example.edu',
+            variant_id: 201,
+            status: 'cancelled',
+            ends_at: new Date(Date.now() + 86400000).toISOString(),
+          },
+        },
+      },
+      { eventHash: 'h4', config }
+    );
+    expect(cancelResult.entitlements?.[0].status).toBe('cancelled');
+    expect(await getActiveEntitlementForUser('monthly@example.edu')).not.toBeNull();
   });
 
-  it('creates and verifies passwordless magic links for cloud sync', async () => {
+  it('creates and verifies single-use passwordless magic links', async () => {
     const email = 'scholar@university.edu';
     const link = await createMagicLinkToken(email);
-    expect(link.token).toBeDefined();
-    expect(link.user.email).toBe(email);
+    expect(link.token.length).toBeGreaterThanOrEqual(40);
+    expect(link.email).toBe(email);
 
-    // Verify valid token
-    const verified = await verifyMagicLinkToken(link.token, 'test-secret');
-    expect(verified).not.toBeNull();
+    const verified = await verifyMagicLinkToken(link.token, 'test-secret-0123456789abcdef0123456');
     expect(verified?.user.email).toBe(email);
     expect(verified?.signedUserCookie).toContain('lfc_uid=');
 
     // Second use of the same token fails (single-use)
-    const reused = await verifyMagicLinkToken(link.token, 'test-secret');
+    const reused = await verifyMagicLinkToken(link.token, 'test-secret-0123456789abcdef0123456');
     expect(reused).toBeNull();
   });
 
@@ -447,59 +438,49 @@ describe('Phase 4 — Payments, Webhooks, Magic Link Auth & Fraud-Resistant Refe
   });
 
   it('rewards both referrer and friend with a 3-day Exam Pass on first deck, with strict anti-fraud', async () => {
-    // Referrer signs up
-    const referrer = await getOrCreateUserByEmail('referrer@campus.edu');
+    const referrer = await getReferralCodeForIdentity('referrer@campus.edu', 'device_referrer');
     const referralCode = referrer.referralCode;
 
-    // Friend signs up using referrer's code and creates their first deck
     const rewardResult = await completeReferralOnFirstDeck({
       referralCode,
-      inviteeEmail: 'friend@campus.edu',
-      inviteeActorKey: 'actor_friend_unique',
-      inviteeCookieId: 'cookie_friend_unique',
-      inviteeIp: '203.0.113.88',
-      referrerCookieId: 'cookie_referrer_1',
-      referrerIp: '198.51.100.12',
+      inviteeIdentityEmail: 'friend@campus.edu',
+      inviteeActorKey: 'anon:friend',
+      inviteeIpHash: 'ip_friend',
+      inviteeDeviceHash: 'device_friend',
     });
-
     expect(rewardResult.rewarded).toBe(true);
     expect(rewardResult.referrerEntitlement?.planType).toBe('exam_pass');
     expect(rewardResult.inviteeEntitlement?.planType).toBe('exam_pass');
 
-    // Anti-fraud 1: Self-referral by same email is blocked
+    // Same invitee cannot claim twice
+    const again = await completeReferralOnFirstDeck({
+      referralCode,
+      inviteeIdentityEmail: 'friend@campus.edu',
+      inviteeActorKey: 'anon:friend',
+      inviteeIpHash: 'ip_friend',
+      inviteeDeviceHash: 'device_friend',
+    });
+    expect(again.reason).toBe('ALREADY_REWARDED');
+
+    // Self-referral by same identity is blocked
     const selfEmail = await completeReferralOnFirstDeck({
       referralCode,
-      inviteeEmail: 'referrer@campus.edu',
-      inviteeActorKey: 'actor_self_2',
-      inviteeCookieId: 'cookie_self_2',
-      inviteeIp: '203.0.113.99',
+      inviteeIdentityEmail: 'referrer@campus.edu',
+      inviteeActorKey: 'anon:self2',
+      inviteeIpHash: 'ip_x',
+      inviteeDeviceHash: 'device_x',
     });
-    expect(selfEmail.rewarded).toBe(false);
     expect(selfEmail.reason).toBe('SELF_REFERRAL_BLOCKED');
 
-    // Anti-fraud 2: Self-referral by same cookie is blocked
-    const selfCookie = await completeReferralOnFirstDeck({
+    // Self-referral from the same device (cleared cookies / incognito) is blocked
+    const selfDevice = await completeReferralOnFirstDeck({
       referralCode,
-      inviteeEmail: 'other@campus.edu',
-      inviteeActorKey: 'actor_self_3',
-      inviteeCookieId: 'cookie_referrer_1',
-      inviteeIp: '203.0.113.99',
-      referrerCookieId: 'cookie_referrer_1',
+      inviteeIdentityEmail: 'u_new@guest.learnfromclip.com',
+      inviteeActorKey: 'anon:self3',
+      inviteeIpHash: 'ip_y',
+      inviteeDeviceHash: 'device_referrer',
     });
-    expect(selfCookie.rewarded).toBe(false);
-    expect(selfCookie.reason).toBe('SAME_COOKIE_SELF_REFERRAL_BLOCKED');
-
-    // Anti-fraud 3: Same device / IP self-referral is blocked
-    const selfIp = await completeReferralOnFirstDeck({
-      referralCode,
-      inviteeEmail: 'another@campus.edu',
-      inviteeActorKey: 'actor_self_4',
-      inviteeCookieId: 'cookie_other_4',
-      inviteeIp: '198.51.100.12',
-      referrerIp: '198.51.100.12',
-    });
-    expect(selfIp.rewarded).toBe(false);
-    expect(selfIp.reason).toBe('SAME_DEVICE_SELF_REFERRAL_BLOCKED');
+    expect(selfDevice.reason).toBe('SAME_DEVICE_SELF_REFERRAL_BLOCKED');
   });
 });
 

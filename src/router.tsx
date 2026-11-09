@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { applyRouteMeta } from './seo/routeMeta';
 
 export type RoutePath =
   | '/'
@@ -89,10 +90,7 @@ export function useRoute(): RoutePath {
     }
     setPath(next);
 
-    const route = ALL_KNOWN_ROUTES.find((r) => r.path === next);
-    document.title = route
-      ? `${route.title} — LearnFromClip`
-      : 'LearnFromClip — 2-hour lecture → 10-minute revision pack.';
+    applyRouteMeta(next);
 
     requestAnimationFrame(() => {
       const id = window.location.hash.slice(1);

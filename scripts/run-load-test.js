@@ -8,7 +8,7 @@ const concurrentUsers = parseInt(process.argv[3] || '50', 10);
 const durationSeconds = parseInt(process.argv[4] || '5', 10);
 
 console.log(`\n======================================================`);
-console.log(`TextFromClip Concurrency Load Test Runner`);
+console.log(`LearnFromClip Concurrency Load Test Runner`);
 console.log(`Target: ${targetUrl}`);
 console.log(`Simulated Concurrent Users: ${concurrentUsers}`);
 console.log(`Duration: ${durationSeconds}s`);

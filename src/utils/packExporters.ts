@@ -161,9 +161,9 @@ export function buildPrintablePackHtml(pack: RevisionPack): string {
                 <div class="quote-line" dir="auto">“${escapeHtml(b.source.quote)}”</div>
                 ${
                   b.ai_explanation
-                    ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> ${escapeHtml(
+                    ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> <bdi dir="auto">${escapeHtml(
                         b.ai_explanation
-                      )}</div>`
+                      )}</bdi></div>`
                     : ''
                 }
               </li>`;
@@ -199,9 +199,9 @@ export function buildPrintablePackHtml(pack: RevisionPack): string {
         <div class="quote-line" dir="auto">“${escapeHtml(c.source.quote)}”</div>
         ${
           c.ai_explanation
-            ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> ${escapeHtml(
+            ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> <bdi dir="auto">${escapeHtml(
                 c.ai_explanation
-              )}</div>`
+              )}</bdi></div>`
             : ''
         }
       </div>`;
@@ -234,9 +234,9 @@ export function buildPrintablePackHtml(pack: RevisionPack): string {
         </div>
         ${
           q.ai_explanation
-            ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> ${escapeHtml(
+            ? `<div class="ai-box" dir="auto"><span class="ai-label">AI explanation</span> <bdi dir="auto">${escapeHtml(
                 q.ai_explanation
-              )}</div>`
+              )}</bdi></div>`
             : ''
         }
       </div>`;
@@ -247,6 +247,7 @@ export function buildPrintablePackHtml(pack: RevisionPack): string {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(pack.title)} — LearnFromClip Revision Pack</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -392,13 +393,20 @@ export function exportRevisionPackPdf(pack: RevisionPack): void {
     printWin.document.write(html);
     printWin.document.close();
     printWin.focus();
-    window.setTimeout(() => {
+    // Wait for the Arabic/Latin web fonts before printing, otherwise the PDF can be rendered with
+    // a fallback font (and Arabic may print unshaped). Cap the wait at 4 s.
+    const doPrint = () => {
       try {
         printWin.print();
       } catch {
         // user can manually press Ctrl+P
       }
-    }, 450);
+    };
+    const fontsReady: Promise<unknown> | undefined = (printWin.document as any).fonts?.ready;
+    Promise.race([
+      fontsReady || Promise.resolve(),
+      new Promise((r) => window.setTimeout(r, 4000)),
+    ]).then(() => window.setTimeout(doPrint, 150));
   } else {
     // Fallback if popup blocked: download printable HTML document
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' });

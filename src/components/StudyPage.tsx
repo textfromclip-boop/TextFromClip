@@ -9,9 +9,9 @@ import {
   loadAllStudyDecks,
   loadStudyMeta,
   recordCardReviewInStore,
-  saveStudyMeta,
   StoredStudyDeck,
   StudyMetaState,
+  syncDecksWithCloud,
 } from '../utils/studyStore';
 import { isCardDueToday, Sm2Rating } from '../utils/sm2';
 import {
@@ -19,6 +19,7 @@ import {
   generateAnkiCsv,
   generatePackMarkdown,
 } from '../utils/packExporters';
+import { trackEvent } from '../utils/analytics';
 
 export const StudyPage: React.FC = () => {
   const [decks, setDecks] = useState<StoredStudyDeck[]>([]);
@@ -67,8 +68,35 @@ export const StudyPage: React.FC = () => {
     setLoading(false);
   };
 
+  // Cloud sync (paid + signed in): who am I, then pull/push decks
+  const [account, setAccount] = useState<{ signedIn: boolean; email: string | null; cloudSync: boolean } | null>(null);
+  const [devLoginUrl, setDevLoginUrl] = useState<string | null>(null);
+
   useEffect(() => {
     refreshStore();
+    (async () => {
+      try {
+        const res = await fetch('/api/me');
+        const json: any = await res.json();
+        if (json?.success) {
+          setAccount(json.data);
+          if (json.data.cloudSync && (await syncDecksWithCloud())) {
+            await refreshStore();
+          }
+        }
+      } catch {
+        // offline: local decks still work
+      }
+    })();
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('login') === 'expired') {
+        setSyncStatus('That sign-in link has expired or was already used. Request a new one below.');
+        setSyncModalOpen(true);
+      }
+    } catch {
+      // ignore
+    }
   }, []);
 
   const totalDueToday = decks.reduce(
@@ -100,6 +128,7 @@ export const StudyPage: React.FC = () => {
 
   const handleGrade = async (rating: Sm2Rating) => {
     if (!currentDueItem) return;
+    trackEvent('card_reviewed', '/study');
     const { meta: updatedMeta } = await recordCardReviewInStore(
       currentDueItem.deck.id,
       currentDueItem.card.id,
@@ -108,6 +137,9 @@ export const StudyPage: React.FC = () => {
     const refreshedDecks = await loadAllStudyDecks();
     setDecks(refreshedDecks);
     setMeta(updatedMeta);
+    if (account?.cloudSync) {
+      void syncDecksWithCloud([currentDueItem.deck.id]);
+    }
     setFlipped(false);
     if (cardIdx + 1 < dueQueue.length) {
       setCardIdx(cardIdx);
@@ -127,22 +159,14 @@ export const StudyPage: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: syncEmail.trim() }),
       });
-      const json: any = await res.json();
+      const json: any = await res.json().catch(() => null);
       if (res.ok && json?.success) {
-        const updated = await saveStudyMeta({
-          ...meta,
-          syncedUserEmail: syncEmail.trim(),
-        });
-        setMeta(updated);
+        setDevLoginUrl(json.data?.devVerifyUrl || null);
         setSyncStatus(
-          json.data?.message ||
-            `Magic link sent to ${syncEmail.trim()}! Check your inbox to sync your decks across devices.`
+          `Sign-in link sent to ${syncEmail.trim()}. It works once and expires in 15 minutes.`
         );
       } else {
-        setSyncStatus(
-          json?.error?.message ||
-            'Cloud sync requires an active Exam Pass, Monthly, or Semester Pass. Visit Pricing to upgrade!'
-        );
+        setSyncStatus(json?.error?.message || 'Could not send the sign-in link. Please try again.');
       }
     } catch {
       setSyncStatus('Could not send magic link right now. Please try again.');
@@ -152,6 +176,7 @@ export const StudyPage: React.FC = () => {
   };
 
   const downloadFile = (content: string, ext: string, mime: string, title: string) => {
+    trackEvent('export_clicked', '/study');
     const base =
       (title || 'study-deck')
         .toLowerCase()
@@ -178,8 +203,10 @@ export const StudyPage: React.FC = () => {
             <div className="flex flex-wrap items-center gap-2.5 text-xs font-semibold">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-emerald-300 border border-emerald-400/30">
                 <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                {meta.syncedUserEmail
-                  ? `Synced (${meta.syncedUserEmail})`
+                {account?.cloudSync && account.email
+                  ? `Synced to cloud (${account.email})`
+                  : account?.signedIn && account.email
+                  ? `Signed in (${account.email}) · saved on this device`
                   : 'Saved on this device'}
               </span>
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold">
@@ -381,7 +408,7 @@ export const StudyPage: React.FC = () => {
                           <span className="inline-block px-2 py-0.5 mr-2 rounded bg-[#502EF0] text-white font-bold text-[10px] uppercase">
                             AI explanation
                           </span>
-                          {currentDueItem.card.ai_explanation}
+                          <bdi dir="auto">{currentDueItem.card.ai_explanation}</bdi>
                         </div>
                       )}
                     </div>
@@ -563,7 +590,10 @@ export const StudyPage: React.FC = () => {
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setQuizDone(true)}
+                        onClick={() => {
+                          trackEvent('quiz_finished', '/study');
+                          setQuizDone(true);
+                        }}
                         className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] text-white text-xs font-bold"
                       >
                         Finish Quiz →
@@ -727,7 +757,10 @@ export const StudyPage: React.FC = () => {
                       <div className="flex items-center gap-2 text-xs">
                         <button
                           type="button"
-                          onClick={() => exportRevisionPackPdf(deck.pack)}
+                          onClick={() => {
+                            trackEvent('export_clicked', '/study');
+                            exportRevisionPackPdf(deck.pack);
+                          }}
                           className="font-semibold text-muted hover:text-accent"
                         >
                           PDF
@@ -786,15 +819,16 @@ export const StudyPage: React.FC = () => {
       {/* "Save my streak" Magic Link Modal */}
       {syncModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-md rounded-2xl bg-surface border border-rule p-6 shadow-2xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="sync-title" className="w-full max-w-md rounded-2xl bg-surface border border-rule p-6 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-black text-ink">Save my streak & sync decks</h3>
+              <h3 id="sync-title" className="text-lg font-black text-ink">Sign in & sync decks</h3>
               <button
                 type="button"
                 onClick={() => {
                   setSyncModalOpen(false);
                   setSyncStatus(null);
                 }}
+                aria-label="Close"
                 className="text-muted hover:text-ink text-sm"
               >
                 ✕
@@ -805,9 +839,12 @@ export const StudyPage: React.FC = () => {
             </p>
 
             <form onSubmit={handleRequestMagicLink} className="mt-4 space-y-3">
+              <label htmlFor="sync-email" className="sr-only">Email address</label>
               <input
+                id="sync-email"
                 type="email"
                 required
+                autoFocus
                 value={syncEmail}
                 onChange={(e) => setSyncEmail(e.target.value)}
                 placeholder="you@university.edu"
@@ -834,6 +871,12 @@ export const StudyPage: React.FC = () => {
               </div>
             </form>
 
+            {devLoginUrl && (
+              <p className="mt-2 text-xs text-muted">
+                Development mode (no email provider configured):{' '}
+                <a href={devLoginUrl} className="text-accent underline font-semibold">open sign-in link</a>
+              </p>
+            )}
             {syncStatus && (
               <p className="mt-3 p-3 rounded-xl bg-accent-soft text-accent text-xs font-semibold">
                 {syncStatus}

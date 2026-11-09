@@ -7,6 +7,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "textfromclip-db"
 database_id = "0dd853ee-3624-40d3-ba49-a3f41ede2684"
+migrations_dir = "../migrations"
 
 [[r2_buckets]]
 binding = "UPLOADS_BUCKET"

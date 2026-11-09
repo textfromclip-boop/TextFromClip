@@ -15,6 +15,7 @@ import {
   saveStudyDeck,
 } from '../utils/studyStore';
 import { trackEvent } from '../utils/analytics';
+import { apiFetch } from '../utils/apiClient';
 
 const HISTORY_STORAGE_KEY = 'learnfromclip_history_v1';
 const LEGACY_HISTORY_KEY = 'textfromclip_history_v1';
@@ -72,6 +73,8 @@ export interface PlatformConfig {
   hosts: string[];
   status: { working: boolean; title: string; text: string };
   notes: string[];
+  /** Second language preselected for bilingual flashcards (bilingual SEO landing pages). */
+  defaultSecondLanguage?: string;
 }
 
 export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config }) => {
@@ -87,6 +90,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const resultSectionRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const savedDeckIdRef = useRef<Record<string, Promise<string>>>({});
 
   const isFileLoading = loading && Boolean(uploadProgress);
   const isUrlLoading = loading && !uploadProgress;
@@ -202,7 +206,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
     trackEvent('link_submitted');
 
     try {
-      const res = await fetch('/api/transcript', {
+      const res = await apiFetch('/api/transcript', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -307,6 +311,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
         return updated;
       });
     } catch (e: any) {
+      if (/limit|used all/i.test(e?.message || '')) trackEvent('limit_hit');
       setError(e?.message || 'Failed to upload and transcribe the selected file.');
     } finally {
       setLoading(false);
@@ -787,6 +792,14 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     <div className="flex-1">
                       <p className="font-semibold text-red-950">Notice</p>
                       <p className="text-red-800 text-[13.5px] mt-0.5 leading-snug">{error}</p>
+                      {/limit|used all|upgrade/i.test(error) && (
+                        <Link
+                          to="/pricing"
+                          className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-bold hover:opacity-95"
+                        >
+                          See plans & upgrade →
+                        </Link>
+                      )}
                     </div>
                   </div>
                   <button
@@ -1065,13 +1078,17 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
             <TranscriptResultView
               result={result}
               sourceUrl={url}
+              defaultSecondLanguage={config.defaultSecondLanguage}
               onReset={reset}
               onUpdateResult={handleUpdateResult}
               onRevisionPackCreated={(pack, src) => {
-                saveStudyDeck(pack, src);
+                // The store may reuse an existing deck id for the same lecture; remember the real id
+                // so inline reviews are saved to the right deck.
+                savedDeckIdRef.current[pack.id] = saveStudyDeck(pack, src).then((d) => d.id);
               }}
-              onCardReviewed={(packId, card, rating) => {
-                recordCardReviewInStore(packId, card.id, rating);
+              onCardReviewed={async (packId, card, rating) => {
+                const deckId = (await savedDeckIdRef.current[packId]) || packId;
+                await recordCardReviewInStore(deckId, card.id, rating);
               }}
               onBuildMissedDeck={(packTitle, missedCards) => {
                 createMissedQuestionsDeck(

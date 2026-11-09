@@ -8,3 +8,7 @@ dist/
 
 
 dist-pages/
+.dev.vars
+e2e/.build/
+e2e/artifacts/
+e2e/server.log

@@ -7,6 +7,8 @@ import {
   TranscriptSegment,
 } from '../types';
 import { formatTimestamp, generateSrt, generateVtt } from '../server/utils/formatters';
+import { apiFetch, clearPendingReferral, getPendingReferral } from '../utils/apiClient';
+import { navigate } from '../router';
 import { buildTranscriptScopeKey, createScopedResultCache, fnv1aHash } from '../utils/transformCache';
 import {
   ContentTabKind,
@@ -20,6 +22,8 @@ import { trackEvent } from '../utils/analytics';
 interface Props {
   result: TranscriptResult;
   sourceUrl?: string;
+  /** Preselected second language for bilingual cards (e.g. on /flashcards-in-arabic). */
+  defaultSecondLanguage?: string;
   onReset: () => void;
   onUpdateResult?: (updated: TranscriptResult) => void;
   onRevisionPackCreated?: (pack: RevisionPack, sourceUrl?: string) => void;
@@ -64,6 +68,7 @@ const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 export const TranscriptResultView: React.FC<Props> = ({
   result,
   sourceUrl,
+  defaultSecondLanguage,
   onReset,
   onUpdateResult,
   onRevisionPackCreated,
@@ -81,7 +86,7 @@ export const TranscriptResultView: React.FC<Props> = ({
 
   // Revision Pack state (Core LearnFromClip flow)
   const [revisionPack, setRevisionPack] = useState<RevisionPack | null>(null);
-  const [packSecondLang, setPackSecondLang] = useState<string>('');
+  const [packSecondLang, setPackSecondLang] = useState<string>(defaultSecondLanguage || '');
   const [packLoading, setPackLoading] = useState(false);
   const [packError, setPackError] = useState<string | null>(null);
   const [packProgress, setPackProgress] = useState<{
@@ -374,7 +379,8 @@ export const TranscriptResultView: React.FC<Props> = ({
     const reqScope = scopeKey;
 
     try {
-      const res = await fetch('/api/revision-pack', {
+      const pendingReferral = getPendingReferral();
+      const res = await apiFetch('/api/revision-pack', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -384,6 +390,7 @@ export const TranscriptResultView: React.FC<Props> = ({
           durationSeconds: result.videoDurationSeconds,
           segments,
           secondLanguage: chosenLang || undefined,
+          referralCode: pendingReferral,
         }),
       });
       if (res.status === 429) {
@@ -404,6 +411,7 @@ export const TranscriptResultView: React.FC<Props> = ({
 
       if (latestScopeRef.current !== reqScope) return;
 
+      if (pendingReferral && json.referral) clearPendingReferral();
       const generatedPack: RevisionPack = json.data;
       trackEvent('pack_done');
       setRevisionPack(generatedPack);
@@ -444,7 +452,7 @@ export const TranscriptResultView: React.FC<Props> = ({
     setAiLoading(true);
 
     try {
-      const res = await fetch('/api/transform', {
+      const res = await apiFetch('/api/transform', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -514,7 +522,7 @@ export const TranscriptResultView: React.FC<Props> = ({
     setAiLoading(true);
 
     try {
-      const res = await fetch('/api/translate', {
+      const res = await apiFetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -665,8 +673,20 @@ export const TranscriptResultView: React.FC<Props> = ({
         )}
 
         {packError && (
-          <div className="mt-4 p-3.5 rounded-xl bg-red-500/20 border border-red-400/40 text-red-100 text-xs sm:text-sm">
+          <div role="alert" className="mt-4 p-3.5 rounded-xl bg-red-500/20 border border-red-400/40 text-red-100 text-xs sm:text-sm">
             {packError}
+            {/limit|used all|upgrade|quiz per day/i.test(packError) && (
+              <a
+                href="/pricing"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigate('/pricing');
+                }}
+                className="ml-2 inline-flex items-center px-3 py-1 rounded-lg bg-white text-[#021433] text-xs font-bold"
+              >
+                See plans & upgrade →
+              </a>
+            )}
           </div>
         )}
       </div>
