@@ -196,42 +196,28 @@ export const StudyPage: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-5 pt-8 sm:pt-12 pb-12">
-      {/* TODAY HEADER */}
-      <div className="rounded-2xl bg-gradient-to-r from-[#021433] via-[#0B2559] to-[#1E1B4B] p-6 sm:p-8 text-white shadow-xl border border-slate-800">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-5">
-          <div>
-            <div className="flex flex-wrap items-center gap-2.5 text-xs font-semibold">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-emerald-300 border border-emerald-400/30">
-                <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                {account?.cloudSync && account.email
-                  ? `Synced to cloud (${account.email})`
-                  : account?.signedIn && account.email
-                  ? `Signed in (${account.email}) · saved on this device`
-                  : 'Saved on this device'}
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30 font-bold">
-                🔥 {meta.streakDays} {meta.streakDays === 1 ? 'day' : 'days'} streak
-              </span>
-              <span className="text-slate-300">
-                {meta.totalReviewsCount} total card reviews
-              </span>
-            </div>
+      {/* Today header */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-8 border-b border-rule">
+        <div>
+          <p className="text-sm text-muted">
+            {account?.cloudSync && account.email
+              ? `Synced to cloud (${account.email})`
+              : account?.signedIn && account.email
+              ? `Signed in (${account.email}) · saved on this device`
+              : 'Saved on this device'}
+          </p>
+          <h1 className="mt-1 text-4xl sm:text-5xl text-ink leading-[1.1]">Today’s study</h1>
+          <p className="mt-3 text-base text-muted">
+            {totalDueToday > 0
+              ? `You have ${totalDueToday} ${
+                  totalDueToday === 1 ? 'flashcard' : 'flashcards'
+                } due for review today.`
+              : decks.length > 0
+              ? 'All caught up for today. You can still review any deck or take a quiz below.'
+              : 'Paste a lecture link or upload a recording to build your first study deck.'}
+          </p>
 
-            <h1 className="mt-3 text-3xl sm:text-4xl font-black tracking-tight text-white">
-              Today’s Study Schedule
-            </h1>
-            <p className="mt-1.5 text-sm sm:text-base text-slate-300">
-              {totalDueToday > 0
-                ? `You have ${totalDueToday} ${
-                    totalDueToday === 1 ? 'flashcard' : 'flashcards'
-                  } due for spaced-repetition review today.`
-                : decks.length > 0
-                ? 'All caught up for today! You can still review any deck or take a mock exam below.'
-                : 'Paste a lecture link or upload a recording to build your first study deck.'}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             {totalDueToday > 0 && mode === 'dashboard' && (
               <button
                 type="button"
@@ -241,29 +227,48 @@ export const StudyPage: React.FC = () => {
                   setFlipped(false);
                   setMode('review');
                 }}
-                className="px-5 py-3 rounded-xl font-extrabold text-sm text-white bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] shadow-lg hover:opacity-95 transition-opacity"
+                className="px-4 py-2.5 rounded-md font-semibold text-sm text-white bg-accent hover:bg-accent-dark transition-colors"
               >
-                Review {totalDueToday} Due Today →
+                Review {totalDueToday} due today
               </button>
             )}
-
             <button
               type="button"
               onClick={() => setSyncModalOpen(true)}
-              className="px-4 py-3 rounded-xl font-bold text-xs sm:text-sm bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-colors"
+              className="px-4 py-2.5 rounded-md font-semibold text-sm text-ink border border-rule bg-surface hover:border-ink transition-colors"
             >
-              🔒 Save my streak
+              Sign in to sync
             </button>
           </div>
         </div>
+
+        <dl className="grid grid-cols-3 gap-8 text-sm">
+          <div>
+            <dd aria-hidden="true" className="font-serif text-4xl text-ink tabular-nums">{totalDueToday}</dd>
+            <dt className="mt-1 text-muted">due today</dt>
+          </div>
+          <div>
+            <dd aria-hidden="true" className="font-serif text-4xl text-ink tabular-nums">{meta.streakDays}</dd>
+            <dt className="mt-1 text-muted">
+              <span className="sr-only">{meta.streakDays} </span>
+              {meta.streakDays === 1 ? 'day' : 'days'} streak
+            </dt>
+          </div>
+          <div>
+            <dd aria-hidden="true" className="font-serif text-4xl text-ink tabular-nums">{meta.totalReviewsCount}</dd>
+            <dt className="mt-1 text-muted">
+              <span className="sr-only">{meta.totalReviewsCount} </span>total card reviews
+            </dt>
+          </div>
+        </dl>
       </div>
 
       {/* Interactive Lecture Timestamp Player (when "From lecture · MM:SS" is tapped) */}
       {seekInfo && (
-        <div className="mt-6 p-4 sm:p-5 rounded-2xl bg-slate-900 text-white border border-slate-800 shadow-lg">
+        <div className="mt-6 p-4 sm:p-5 rounded-lg bg-slate-900 text-white border border-slate-800">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold">
-              <span className="px-2.5 py-0.5 rounded-full bg-[#2E62F4] text-white font-mono text-xs">
+              <span className="font-mono text-xs text-sky-300">
                 From lecture · {formatTimestamp(seekInfo.seconds)}
               </span>
               <span className="text-slate-300 truncate max-w-md" dir="auto">
@@ -279,7 +284,7 @@ export const StudyPage: React.FC = () => {
             </button>
           </div>
           {seekInfo.provider === 'youtube' && seekInfo.videoId ? (
-            <div className="aspect-video w-full max-w-2xl mx-auto rounded-xl overflow-hidden bg-black">
+            <div className="aspect-video w-full max-w-2xl mx-auto rounded-md overflow-hidden bg-black">
               <iframe
                 key={`${seekInfo.videoId}-${seekInfo.seconds}`}
                 title="Lecture player"
@@ -319,7 +324,7 @@ export const StudyPage: React.FC = () => {
 
           {currentDueItem ? (
             <div className="max-w-2xl mx-auto">
-              <div className="rounded-2xl border-2 border-accent/25 bg-surface p-6 sm:p-8 shadow-md">
+              <div className="rounded-lg border-2 border-accent/25 bg-surface p-6 sm:p-8">
                 <div className="flex items-center justify-between gap-2 mb-4">
                   <span className="text-xs font-bold text-muted truncate">
                     {currentDueItem.deck.title}
@@ -335,7 +340,7 @@ export const StudyPage: React.FC = () => {
                         sourceUrl: currentDueItem.deck.sourceUrl,
                       })
                     }
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-accent-soft text-accent hover:bg-accent hover:text-white transition-colors"
+                    className="inline-flex items-center gap-1.5 font-mono text-xs text-accent hover:underline underline-offset-2"
                     dir="ltr"
                   >
                     <span>
@@ -361,7 +366,7 @@ export const StudyPage: React.FC = () => {
                       <span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-[11px] font-mono uppercase text-muted mb-2">
                         Question · Tap to flip
                       </span>
-                      <p dir="auto" className="text-lg sm:text-xl font-bold text-ink">
+                      <p dir="auto" className="font-serif text-2xl sm:text-[1.7rem] text-ink leading-snug">
                         {currentDueItem.card.front}
                       </p>
                       {currentDueItem.card.front_translation && (
@@ -371,7 +376,7 @@ export const StudyPage: React.FC = () => {
                               ? 'rtl'
                               : 'auto'
                           }
-                          className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200 text-base text-slate-800"
+                          className="mt-3 p-3 rounded-md bg-slate-50 border border-slate-200 text-base text-slate-800"
                         >
                           {currentDueItem.card.front_translation}
                         </p>
@@ -382,7 +387,7 @@ export const StudyPage: React.FC = () => {
                       <span className="inline-block px-2 py-0.5 rounded bg-emerald-50 text-[11px] font-mono uppercase text-emerald-700 mb-2">
                         Answer
                       </span>
-                      <p dir="auto" className="text-base sm:text-lg font-semibold text-ink">
+                      <p dir="auto" className="text-lg sm:text-xl text-ink leading-relaxed">
                         {currentDueItem.card.back}
                       </p>
                       {currentDueItem.card.back_translation && (
@@ -392,7 +397,7 @@ export const StudyPage: React.FC = () => {
                               ? 'rtl'
                               : 'auto'
                           }
-                          className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200 text-base text-slate-800"
+                          className="mt-3 p-3 rounded-md bg-slate-50 border border-slate-200 text-base text-slate-800"
                         >
                           {currentDueItem.card.back_translation}
                         </p>
@@ -403,7 +408,7 @@ export const StudyPage: React.FC = () => {
                       {currentDueItem.card.ai_explanation && (
                         <div
                           dir="auto"
-                          className="mt-3 p-3 rounded-xl bg-[#F5F3FF] border border-[#502EF0]/25 text-xs text-[#1E1B4B]"
+                          className="mt-3 p-3 rounded-md bg-[#F5F3FF] border border-[#502EF0]/25 text-xs text-[#1E1B4B]"
                         >
                           <span className="inline-block px-2 py-0.5 mr-2 rounded bg-[#502EF0] text-white font-bold text-[10px] uppercase">
                             AI explanation
@@ -420,7 +425,7 @@ export const StudyPage: React.FC = () => {
                       {currentDueItem.card.reps}
                     </span>
                     <span className="font-semibold text-accent">
-                      {flipped ? 'Show Question' : 'Flip Card →'}
+                      {flipped ? 'Show Question' : 'Flip card'}
                     </span>
                   </div>
                 </div>
@@ -431,47 +436,47 @@ export const StudyPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => handleGrade('again')}
-                  className="py-3 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-900 font-bold text-xs sm:text-sm"
+                  className="py-3 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm"
                 >
                   Again
-                  <span className="block text-[10px] font-normal text-red-700">Due today</span>
+                  <span className="block text-[11px] font-normal text-muted">Due today</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleGrade('hard')}
-                  className="py-3 px-3 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs sm:text-sm"
+                  className="py-3 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm"
                 >
                   Hard
-                  <span className="block text-[10px] font-normal text-amber-700">Short interval</span>
+                  <span className="block text-[11px] font-normal text-muted">Short interval</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleGrade('good')}
-                  className="py-3 px-3 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs sm:text-sm"
+                  className="py-3 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm"
                 >
                   Good
-                  <span className="block text-[10px] font-normal text-emerald-700">Standard SM-2</span>
+                  <span className="block text-[11px] font-normal text-muted">Standard SM-2</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleGrade('easy')}
-                  className="py-3 px-3 rounded-xl border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-900 font-bold text-xs sm:text-sm"
+                  className="py-3 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm"
                 >
                   Easy
-                  <span className="block text-[10px] font-normal text-sky-700">Bonus interval</span>
+                  <span className="block text-[11px] font-normal text-muted">Bonus interval</span>
                 </button>
               </div>
             </div>
           ) : (
-            <div className="max-w-lg mx-auto text-center p-8 rounded-2xl bg-surface border border-rule">
-              <h3 className="text-xl font-black text-ink">🎉 You finished today’s queue!</h3>
+            <div className="max-w-lg mx-auto text-center p-8 rounded-lg bg-surface border border-rule">
+              <h3 className="text-xl font-semibold text-ink">You finished today’s queue.</h3>
               <p className="mt-1.5 text-sm text-muted">
                 Your streak is now {meta.streakDays} {meta.streakDays === 1 ? 'day' : 'days'}.
               </p>
               <button
                 type="button"
                 onClick={() => setMode('dashboard')}
-                className="mt-5 px-5 py-2.5 rounded-xl bg-accent text-white font-bold text-xs sm:text-sm"
+                className="mt-5 px-5 py-2.5 rounded-md bg-accent text-white font-bold text-xs sm:text-sm"
               >
                 Return to Decks
               </button>
@@ -499,7 +504,7 @@ export const StudyPage: React.FC = () => {
               const q = selectedDeck.pack.quiz[quizIdx];
               const chosen = quizAnswers[q.id];
               return (
-                <div className="rounded-2xl border border-rule bg-surface p-6 shadow-sm">
+                <div className="rounded-lg border border-rule bg-surface p-6">
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <span className="text-xs font-mono font-bold text-accent uppercase">
                       Question {quizIdx + 1} of {selectedDeck.pack.quiz.length}
@@ -515,7 +520,7 @@ export const StudyPage: React.FC = () => {
                           sourceUrl: selectedDeck.sourceUrl,
                         })
                       }
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-accent-soft text-accent"
+                      className="inline-flex items-center gap-1.5 font-mono text-xs text-accent hover:underline underline-offset-2"
                       dir="ltr"
                     >
                       From lecture · {formatTimestamp(q.source.start_seconds)}
@@ -546,7 +551,7 @@ export const StudyPage: React.FC = () => {
                             setQuizAnswers((prev) => ({ ...prev, [q.id]: oIdx }))
                           }
                           dir="auto"
-                          className={`w-full text-left p-3.5 rounded-xl border text-sm flex items-start gap-3 ${cls}`}
+                          className={`w-full text-left p-3.5 rounded-md border text-sm flex items-start gap-3 ${cls}`}
                         >
                           <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 text-ink">
                             {String.fromCharCode(65 + oIdx)}
@@ -558,11 +563,11 @@ export const StudyPage: React.FC = () => {
                   </div>
 
                   {chosen !== undefined && (
-                    <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm">
+                    <div className="mt-4 p-4 rounded-md bg-slate-50 border border-slate-200 text-xs sm:text-sm">
                       <p className="font-bold text-ink">
                         {chosen === q.correct_index
-                          ? '✓ Correct!'
-                          : `✕ Incorrect — Answer is ${String.fromCharCode(65 + q.correct_index)}`}
+                          ? 'Correct'
+                          : `Incorrect. Answer is ${String.fromCharCode(65 + q.correct_index)}`}
                       </p>
                       <p dir="auto" className="mt-1 text-slate-700">
                         {q.explanation}
@@ -583,7 +588,7 @@ export const StudyPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setQuizIdx((i) => i + 1)}
-                        className="px-4 py-2 rounded-xl bg-accent text-white text-xs font-bold"
+                        className="px-4 py-2 rounded-md bg-accent text-white text-xs font-bold"
                       >
                         Next Question →
                       </button>
@@ -594,7 +599,7 @@ export const StudyPage: React.FC = () => {
                           trackEvent('quiz_finished', '/study');
                           setQuizDone(true);
                         }}
-                        className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] text-white text-xs font-bold"
+                        className="px-5 py-2 rounded-md bg-accent text-white text-xs font-bold"
                       >
                         Finish Quiz →
                       </button>
@@ -610,8 +615,8 @@ export const StudyPage: React.FC = () => {
               );
               const score = selectedDeck.pack.quiz.length - wrongQs.length;
               return (
-                <div className="rounded-2xl border border-rule bg-surface p-6 text-center">
-                  <h3 className="text-2xl font-black text-ink">
+                <div className="rounded-lg border border-rule bg-surface p-6 text-center">
+                  <h3 className="text-2xl font-semibold text-ink">
                     Score: {score} / {selectedDeck.pack.quiz.length}
                   </h3>
                   <div className="mt-5 flex flex-wrap justify-center gap-3">
@@ -643,7 +648,7 @@ export const StudyPage: React.FC = () => {
                           setFlipped(false);
                           setMode('review');
                         }}
-                        className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] text-white font-bold text-xs sm:text-sm"
+                        className="px-5 py-2.5 rounded-md bg-accent text-white font-bold text-xs sm:text-sm"
                       >
                         Review what you missed ({wrongQs.length} cards) →
                       </button>
@@ -651,7 +656,7 @@ export const StudyPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setMode('dashboard')}
-                      className="px-4 py-2.5 rounded-xl border border-rule font-bold text-xs sm:text-sm"
+                      className="px-4 py-2.5 rounded-md border border-rule font-bold text-xs sm:text-sm"
                     >
                       Back to Decks
                     </button>
@@ -669,17 +674,17 @@ export const StudyPage: React.FC = () => {
           {loading ? (
             <p className="text-sm text-muted py-12 text-center">Loading your study decks…</p>
           ) : decks.length === 0 ? (
-            <div className="rounded-2xl border border-rule bg-surface p-10 text-center max-w-xl mx-auto">
-              <h2 className="text-xl font-black text-ink">No revision packs saved yet</h2>
+            <div className="rounded-lg border border-rule bg-surface p-10 text-center max-w-xl mx-auto">
+              <h2 className="text-xl font-medium text-ink">No revision packs saved yet</h2>
               <p className="mt-2 text-sm text-muted">
                 Paste a YouTube lecture link or upload a recording, then click{' '}
                 <strong>Make my revision pack</strong> to build your first deck.
               </p>
               <Link
                 to="/youtube"
-                className="mt-5 inline-flex items-center gap-2 px-6 py-3 rounded-xl font-bold text-sm text-white bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] shadow-md"
+                className="mt-5 inline-flex items-center gap-2 px-6 py-3 rounded-md font-bold text-sm text-white bg-accent"
               >
-                Create my first revision pack →
+                Create my first revision pack
               </Link>
             </div>
           ) : (
@@ -689,33 +694,31 @@ export const StudyPage: React.FC = () => {
                 return (
                   <div
                     key={deck.id}
-                    className="rounded-2xl border border-rule bg-surface p-5 shadow-sm flex flex-col justify-between"
+                    className="rounded-lg border border-rule bg-surface p-5 flex flex-col justify-between"
                   >
                     <div>
                       <div className="flex items-center justify-between gap-2 text-xs font-semibold text-muted">
-                        <span className="px-2.5 py-0.5 rounded-md bg-accent-soft text-accent uppercase font-mono">
-                          {deck.provider}
-                        </span>
+                        <span className="uppercase tracking-[0.12em] text-[11px]">{deck.provider.replace('_', ' ')}</span>
                         <span>
                           {stats.dueTodayCount} due today · {stats.totalCards} cards
                         </span>
                       </div>
 
-                      <h3 dir="auto" className="mt-2.5 text-lg font-extrabold text-ink">
+                      <h3 dir="auto" className="mt-2 font-serif text-2xl text-ink leading-snug">
                         {deck.title}
                       </h3>
 
                       {/* Progress bar per deck */}
                       <div className="mt-3">
                         <div className="flex items-center justify-between text-xs text-muted mb-1">
-                          <span>Mastery schedule progress</span>
-                          <span className="font-mono font-bold text-ink">
+                          <span>Reviewed and scheduled</span>
+                          <span className="tabular-nums text-ink">
                             {stats.progressPercent}%
                           </span>
                         </div>
-                        <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
+                        <div className="h-1 w-full rounded-full bg-slate-200 overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0]"
+                            className="h-full rounded-full bg-ink"
                             style={{ width: `${stats.progressPercent}%` }}
                           />
                         </div>
@@ -732,9 +735,9 @@ export const StudyPage: React.FC = () => {
                             setFlipped(false);
                             setMode('review');
                           }}
-                          className="px-4 py-2 rounded-xl bg-accent text-white text-xs font-bold hover:opacity-95"
+                          className="px-3.5 py-2 rounded-md bg-ink text-white text-sm font-semibold hover:bg-ink/90"
                         >
-                          Study Cards ({stats.dueTodayCount || stats.totalCards})
+                          Study cards ({stats.dueTodayCount || stats.totalCards})
                         </button>
 
                         {deck.pack.quiz.length > 0 && (
@@ -747,7 +750,7 @@ export const StudyPage: React.FC = () => {
                               setQuizDone(false);
                               setMode('quiz');
                             }}
-                            className="px-3.5 py-2 rounded-xl border border-rule bg-surface text-xs font-bold text-ink hover:border-accent"
+                            className="px-3.5 py-2 rounded-md border border-rule bg-surface text-sm font-semibold text-ink hover:border-ink"
                           >
                             Quiz ({deck.pack.quiz.length})
                           </button>
@@ -818,10 +821,10 @@ export const StudyPage: React.FC = () => {
 
       {/* "Save my streak" Magic Link Modal */}
       {syncModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="sync-title" className="w-full max-w-md rounded-2xl bg-surface border border-rule p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-black/50  flex items-center justify-center p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="sync-title" className="w-full max-w-md rounded-lg bg-surface border border-rule p-6 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 id="sync-title" className="text-lg font-black text-ink">Sign in & sync decks</h3>
+              <h3 id="sync-title" className="text-lg font-semibold text-ink">Sign in & sync decks</h3>
               <button
                 type="button"
                 onClick={() => {
@@ -848,13 +851,13 @@ export const StudyPage: React.FC = () => {
                 value={syncEmail}
                 onChange={(e) => setSyncEmail(e.target.value)}
                 placeholder="you@university.edu"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-rule text-sm text-ink focus:outline-none focus:border-accent"
+                className="w-full px-3.5 py-2.5 rounded-md border border-rule text-sm text-ink focus:outline-none focus:border-accent"
               />
               <div className="flex items-center gap-2">
                 <button
                   type="submit"
                   disabled={syncSubmitting}
-                  className="flex-1 py-2.5 px-4 rounded-xl font-bold text-xs sm:text-sm text-white bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0]"
+                  className="flex-1 py-2.5 px-4 rounded-md font-bold text-xs sm:text-sm text-white bg-accent"
                 >
                   {syncSubmitting ? 'Sending magic link…' : 'Send Email Magic Link'}
                 </button>
@@ -864,7 +867,7 @@ export const StudyPage: React.FC = () => {
                     setSyncModalOpen(false);
                     navigate('/pricing');
                   }}
-                  className="py-2.5 px-4 rounded-xl border border-rule font-bold text-xs sm:text-sm text-ink hover:bg-slate-50"
+                  className="py-2.5 px-4 rounded-md border border-rule font-bold text-xs sm:text-sm text-ink hover:bg-slate-50"
                 >
                   View Plans
                 </button>
@@ -878,7 +881,7 @@ export const StudyPage: React.FC = () => {
               </p>
             )}
             {syncStatus && (
-              <p className="mt-3 p-3 rounded-xl bg-accent-soft text-accent text-xs font-semibold">
+              <p className="mt-3 p-3 rounded-md bg-accent-soft text-accent text-xs font-semibold">
                 {syncStatus}
               </p>
             )}

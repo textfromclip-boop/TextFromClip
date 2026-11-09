@@ -350,29 +350,19 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
 
   return (
     <div className="relative overflow-hidden">
-      {/* Subtle Studio Radial Glow matching Logo Gradient */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -top-24 right-0 w-[44rem] h-[44rem] rounded-full bg-gradient-to-br from-[#0F8CFA]/10 via-[#2868F7]/8 to-[#5131ED]/10 blur-3xl"
-      />
-
       <div className="relative max-w-6xl mx-auto px-4 sm:px-5 pt-6 sm:pt-14 pb-6">
         {/* HERO SPLIT LAYOUT (Style 3 Strategic Architecture) */}
         <div className="grid lg:grid-cols-12 gap-8 lg:gap-8 items-center">
           {/* LEFT COLUMN: Action, Input & Platform Switcher */}
           <div className="lg:col-span-7 min-w-0">
-            {/* Strategic Eyebrow Pill */}
-            <div className="inline-flex items-center gap-2 px-3 py-1 sm:px-3.5 sm:py-1.5 rounded-full bg-surface border border-rule shadow-sm text-xs font-semibold text-ink">
-              <span className="w-2 h-2 rounded-full bg-gradient-to-r from-[#0F8CFA] to-[#5131ED]" />
-              <span>{config.eyebrow}</span>
-            </div>
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
+              {config.eyebrow}
+            </p>
 
             {/* Bold Two-Tone Headline Matched to Logo */}
-            <h1 className="mt-4 sm:mt-5 text-3xl sm:text-5xl lg:text-[3.35rem] font-black tracking-tight text-ink leading-[1.1]">
+            <h1 className="mt-4 sm:mt-5 text-3xl sm:text-5xl lg:text-[3.35rem] font-medium tracking-tight text-ink leading-[1.1]">
               {config.headingPrefix}{' '}
-              <span className="bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] bg-clip-text text-transparent">
-                {config.headingHighlight}
-              </span>
+              <span className="italic">{config.headingHighlight}</span>
             </h1>
 
             {/* Strategic Lead Copy */}
@@ -415,13 +405,13 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     fileInputRef.current?.click();
                   }
                 }}
-                className={`mt-7 max-w-xl rounded-2xl border-2 border-dashed p-6 sm:p-7 text-center transition-all shadow-[0_12px_36px_-8px_rgba(2,19,49,0.07)] ${
+                className={`mt-7 max-w-xl rounded-lg border-2 border-dashed p-6 sm:p-7 text-center transition-all ${
                   isDragging
                     ? 'border-accent bg-accent-soft/60 scale-[1.01]'
                     : 'border-accent/40 bg-surface hover:border-accent hover:bg-accent-soft/20'
                 } ${loading ? 'cursor-wait' : 'cursor-pointer'}`}
               >
-                <div className="mx-auto w-12 h-12 rounded-2xl bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white flex items-center justify-center shadow-md">
+                <div className="mx-auto w-12 h-12 rounded-lg bg-accent text-white flex items-center justify-center">
                   {isFileLoading ? (
                     <svg className="w-6 h-6 animate-spin" viewBox="0 0 24 24" fill="none">
                       <circle
@@ -459,7 +449,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                   <div className="mt-4 max-w-md mx-auto text-left">
                     <div className="flex items-center justify-between gap-2 text-xs font-semibold">
                       <span className="text-ink font-bold text-sm">{uploadProgress.stage}</span>
-                      <span className="font-mono text-accent bg-accent-soft px-2 py-0.5 rounded-full">
+                      <span className="font-mono text-xs text-muted">
                         Step {uploadProgress.step} of {uploadProgress.totalSteps} · {uploadProgress.percent}%
                       </span>
                     </div>
@@ -467,9 +457,9 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                       {uploadingFileName ? `${uploadingFileName} — ` : ''}
                       {uploadProgress.detail}
                     </p>
-                    <div className="mt-3 h-2.5 w-full rounded-full bg-slate-200/90 overflow-hidden">
+                    <div className="mt-3 h-1 w-full rounded-full bg-slate-200 overflow-hidden">
                       <div
-                        className="h-full rounded-full bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] transition-all duration-500 ease-out"
+                        className="h-full rounded-full bg-accent transition-all duration-500 ease-out"
                         style={{ width: `${uploadProgress.percent}%` }}
                       />
                     </div>
@@ -492,7 +482,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                         Up to 200 MB
                       </span>
                     </div>
-                    <span className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] shadow-md">
+                    <span className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-md font-bold text-xs text-white bg-accent">
                       <svg
                         className="w-4 h-4"
                         fill="none"
@@ -523,7 +513,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
               <label htmlFor="video-url" className="sr-only">
                 {config.name} video link
               </label>
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-2 rounded-2xl bg-surface border border-rule shadow-[0_12px_36px_-8px_rgba(2,19,49,0.09)] focus-within:border-accent focus-within:ring-4 focus-within:ring-accent/10 transition-all">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 p-2 rounded-lg bg-surface border border-rule focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/15 transition-all">
                 <div className="flex items-center flex-1 gap-3 pl-3 pr-2 py-2 sm:py-1">
                   <svg
                     className="w-5 h-5 text-slate-400 shrink-0"
@@ -557,7 +547,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                 <button
                   type="submit"
                   disabled={loading}
-                  className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl font-semibold text-sm text-white bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] shadow-md hover:opacity-95 disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0"
+                  className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-md font-semibold text-sm text-white bg-accent hover:bg-accent-dark disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0"
                 >
                   {isUrlLoading ? (
                     <>
@@ -595,18 +585,18 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                 <div
                   role="status"
                   aria-live="polite"
-                  className="mt-3 p-3.5 rounded-2xl bg-surface border border-accent/30 shadow-sm"
+                  className="mt-3 p-3.5 rounded-lg bg-surface border border-accent/30"
                 >
                   <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="font-bold text-ink text-sm">{urlProgress.stage}</span>
-                    <span className="font-mono font-semibold text-accent bg-accent-soft px-2 py-0.5 rounded-full">
+                    <span className="font-mono text-xs text-muted">
                       Step {urlProgress.step} of {urlProgress.totalSteps} · {urlProgress.percent}%
                     </span>
                   </div>
                   <p className="mt-0.5 text-xs text-muted">{urlProgress.detail}</p>
-                  <div className="mt-2.5 h-2 w-full rounded-full bg-slate-200/90 overflow-hidden">
+                  <div className="mt-2.5 h-1 w-full rounded-full bg-slate-200 overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] transition-all duration-500 ease-out"
+                      className="h-full rounded-full bg-accent transition-all duration-500 ease-out"
                       style={{ width: `${urlProgress.percent}%` }}
                     />
                   </div>
@@ -616,14 +606,6 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
               {config.id !== 'upload' && (
                 <div className="mt-3.5">
                   {/* Clear "OR" separator so users immediately see File Upload as a primary option */}
-                  <div className="flex items-center gap-3 mb-2.5">
-                    <div className="h-px flex-1 bg-rule" />
-                    <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-muted">
-                      or upload from your device
-                    </span>
-                    <div className="h-px flex-1 bg-rule" />
-                  </div>
-
                   {/* Tactile, Unmistakable File Upload Dropzone Card with Built-In Progress Bar */}
                   <div
                     onDragOver={(e) => {
@@ -649,16 +631,16 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                         fileInputRef.current?.click();
                       }
                     }}
-                    className={`group relative flex flex-col justify-between gap-3 p-3.5 sm:px-4 sm:py-3.5 rounded-2xl border-2 border-dashed transition-all ${
+                    className={`group relative flex flex-col justify-between gap-3 p-3.5 sm:px-4 sm:py-3.5 rounded-md border border-dashed transition-colors ${
                       isDragging
-                        ? 'border-accent bg-accent-soft/70 scale-[1.01] shadow-md'
-                        : 'border-[#0F8CFA]/45 bg-gradient-to-r from-[#0F8CFA]/[0.05] via-[#2868F7]/[0.04] to-[#5131ED]/[0.06] hover:border-accent hover:from-[#0F8CFA]/[0.09] hover:to-[#5131ED]/[0.10] shadow-sm hover:shadow-md'
+                        ? 'border-accent bg-accent-soft/70'
+                        : 'border-rule bg-surface hover:border-accent hover:bg-accent-soft/40'
                     } ${loading ? 'cursor-wait' : 'cursor-pointer'}`}
                   >
                     <div className="flex flex-col sm:flex-row items-center justify-between gap-3.5 w-full">
                       <div className="flex items-center gap-3.5 min-w-0 w-full sm:w-auto">
                         {/* Gradient Cloud/File Upload Icon */}
-                        <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white flex items-center justify-center shadow-md shrink-0 group-hover:scale-105 transition-transform">
+                        <div className="w-9 h-9 rounded-md border border-rule text-ink flex items-center justify-center shrink-0">
                           {isFileLoading ? (
                             <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
                               <circle
@@ -699,7 +681,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                                 <span className="text-sm font-bold text-ink">
                                   {uploadProgress.stage}
                                 </span>
-                                <span className="px-2 py-0.5 rounded-full font-mono text-[10px] font-bold bg-accent-soft text-accent border border-accent/20">
+                                <span className="font-mono text-xs text-muted">
                                   Step {uploadProgress.step} of {uploadProgress.totalSteps} ·{' '}
                                   {uploadProgress.percent}%
                                 </span>
@@ -711,33 +693,17 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                             </>
                           ) : (
                             <>
-                              <div className="flex flex-wrap items-center gap-2">
-                                <span className="text-sm font-bold text-ink group-hover:text-accent transition-colors">
-                                  Upload Video or Audio File
-                                </span>
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                  Up to 200 MB
-                                </span>
-                              </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted">
-                                <span>Drag & drop or browse</span>
-                                <span className="text-slate-300">·</span>
-                                {['MP4', 'MP3', 'WAV', 'MOV', 'M4A'].map((fmt) => (
-                                  <span
-                                    key={fmt}
-                                    className="px-1.5 py-0.5 rounded bg-white/90 border border-rule font-mono text-[10px] font-semibold text-ink"
-                                  >
-                                    {fmt}
-                                  </span>
-                                ))}
-                              </div>
+                              <p className="text-sm font-semibold text-ink">Or upload a recording</p>
+                              <p className="mt-0.5 text-xs text-muted">
+                                Drag and drop, or browse. MP4, MP3, WAV, MOV, M4A, up to 200 MB.
+                              </p>
                             </>
                           )}
                         </div>
                       </div>
 
                       {!isFileLoading && (
-                        <span className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs text-white bg-[#021331] group-hover:bg-gradient-to-r group-hover:from-[#0F8CFA] group-hover:via-[#2868F7] group-hover:to-[#5131ED] shadow-sm transition-all shrink-0">
+                        <span className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-3.5 py-2 rounded-md font-semibold text-sm text-ink border border-rule bg-surface group-hover:border-ink transition-colors">
                           <svg
                             className="w-4 h-4"
                             fill="none"
@@ -759,9 +725,9 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     {/* Visual Progress Bar inside the Upload Card */}
                     {isFileLoading && uploadProgress && (
                       <div className="w-full pt-1">
-                        <div className="h-2.5 w-full rounded-full bg-slate-200/90 overflow-hidden">
+                        <div className="h-1 w-full rounded-full bg-slate-200 overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] transition-all duration-500 ease-out"
+                            className="h-full rounded-full bg-accent transition-all duration-500 ease-out"
                             style={{ width: `${uploadProgress.percent}%` }}
                           />
                         </div>
@@ -776,7 +742,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                 <div
                   id="url-error"
                   role="alert"
-                  className="mt-3 flex items-start justify-between gap-3 p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-900 text-sm shadow-sm"
+                  className="mt-3 flex items-start justify-between gap-3 p-3.5 rounded-md bg-red-50 border border-red-200 text-red-900 text-sm"
                 >
                   <div className="flex items-start gap-2.5">
                     <svg
@@ -795,7 +761,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                       {/limit|used all|upgrade/i.test(error) && (
                         <Link
                           to="/pricing"
-                          className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-bold hover:opacity-95"
+                          className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-bold hover:bg-accent-dark"
                         >
                           See plans & upgrade →
                         </Link>
@@ -860,7 +826,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                         : 'bg-surface border-rule text-muted hover:text-ink'
                     }`}
                   >
-                    <span className="w-4 h-4 rounded bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 text-white inline-flex items-center justify-center">
+                    <span className="w-4 h-4 rounded bg-pink-600 text-white inline-flex items-center justify-center">
                       <svg
                         className="w-2.5 h-2.5"
                         viewBox="0 0 24 24"
@@ -921,151 +887,47 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
             </form>
           </div>
 
-          {/* RIGHT COLUMN: Visual Clip-to-Transcript Flow Showcase (from Style 3) */}
+          {/* RIGHT COLUMN: a real page from a revision pack (static specimen, not a mock-up of the app chrome) */}
           <div className="lg:col-span-5 min-w-0">
-            <div className="relative mx-auto max-w-md lg:max-w-none pt-2 sm:pt-4 pb-2">
-              {/* 1. Floating Source Link Pill + Curved Arrow */}
-              <div className="relative z-20 flex items-center gap-2 mb-3 pl-1 sm:pl-2">
-                <button
-                  type="button"
-                  disabled={loading}
-                  onClick={() => {
-                    if (config.id === 'upload' || !config.example.url) {
-                      fileInputRef.current?.click();
-                    } else {
-                      setUrl(config.example.url);
-                      run(config.example.url);
-                    }
-                  }}
-                  title={config.id === 'upload' ? 'Click to upload a file' : 'Click to test this live link'}
-                  className="group inline-flex items-center gap-2.5 px-3 py-2 sm:px-3.5 rounded-xl bg-surface border border-rule shadow-md hover:border-accent transition-all text-left min-w-0 max-w-full"
-                >
-                  <span className="w-6 h-6 rounded-lg bg-gradient-to-br from-[#0F8CFA] via-[#2868F7] to-[#5131ED] text-white inline-flex items-center justify-center shrink-0">
-                    <svg
-                      className="w-3.5 h-3.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth={2.3}
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                      />
-                    </svg>
-                  </span>
-                  <span className="font-mono text-xs font-medium text-ink truncate max-w-[180px] sm:max-w-[210px] group-hover:text-accent">
-                    {config.example.shortUrl}
-                  </span>
-                </button>
-
-                {/* Curved Blue Arrow pointing to Transcript Card */}
-                <svg
-                  className="w-9 h-7 sm:w-10 sm:h-8 text-accent shrink-0 translate-y-2"
-                  viewBox="0 0 48 36"
-                  fill="none"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M4 6 C 22 4, 34 12, 38 28"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M32 24 L 38 29 L 42 22"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </div>
-
-              {/* 2. Overlapping Video Clip Card + Transcript Card */}
-              <div className="relative grid grid-cols-12 items-center">
-                {/* Video Clip Preview Card (Full width on mobile, Left Back on sm+) */}
-                <div className="col-span-12 sm:col-span-5 z-10 rounded-2xl bg-[#021331] text-white p-3.5 shadow-xl border border-slate-800">
-                  <div className="relative rounded-xl bg-gradient-to-br from-[#0F2952] via-[#13386E] to-[#1E1B4B] aspect-[16/9] sm:aspect-[4/3] flex flex-col justify-between p-3 overflow-hidden">
-                    <div className="flex items-center justify-between text-[10px] font-mono">
-                      <span className="px-2 py-0.5 rounded bg-white/15 backdrop-blur-sm font-semibold">
-                        {config.example.badgeLabel}
-                      </span>
-                      <span className="text-sky-300">{config.example.sourceTag}</span>
-                    </div>
-
-                    {/* Center Play Shield + Audio Waveform Bars */}
-                    <div className="my-auto flex flex-col items-center gap-2 py-2">
-                      <button
-                        type="button"
-                        disabled={loading}
-                        onClick={() => {
-                          if (config.id === 'upload' || !config.example.url) {
-                            fileInputRef.current?.click();
-                          } else {
-                            setUrl(config.example.url);
-                            run(config.example.url);
-                          }
-                        }}
-                        title="Run sample transcript"
-                        className="w-10 h-10 rounded-full bg-gradient-to-r from-[#0F8CFA] to-[#5131ED] text-white flex items-center justify-center shadow-lg hover:scale-105 transition-transform"
-                      >
-                        <svg className="w-4 h-4 fill-current ml-0.5" viewBox="0 0 24 24">
-                          <path d="M8 5v14l11-7z" />
-                        </svg>
-                      </button>
-                      <div className="flex items-end gap-1 h-4" aria-hidden="true">
-                        {[40, 85, 55, 100, 70, 90, 45, 80, 60, 95, 50].map((h, idx) => (
-                          <span
-                            key={idx}
-                            style={{ height: `${h}%` }}
-                            className="w-1 rounded-full bg-sky-400/80"
-                          />
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Bottom Player Scrubber */}
-                    <div>
-                      <div className="h-1 rounded-full bg-white/20 overflow-hidden">
-                        <div className="w-2/5 h-full bg-gradient-to-r from-[#0F8CFA] to-[#2868F7]" />
-                      </div>
-                      <div className="mt-1.5 flex items-center justify-between text-[10px] font-mono text-slate-300">
-                        <span>{config.example.durationLabel}</span>
-                        <span className="truncate max-w-[90px]">{config.example.clipTitle}</span>
-                      </div>
-                    </div>
-                  </div>
+            <figure className="mx-auto max-w-md lg:max-w-none">
+              <div className="rounded-lg border border-rule bg-surface">
+                <div className="flex items-center justify-between px-5 py-3 border-b border-rule text-xs text-muted">
+                  <span className="font-medium text-ink">Biology 101 · Cellular respiration</span>
+                  <span className="font-mono">1 h 52 min</span>
                 </div>
 
-                {/* Live Transcript Card (Right Front) */}
-                <div className="col-span-12 sm:col-span-8 sm:-ml-6 mt-3 sm:mt-0 z-20 rounded-2xl bg-surface border border-rule shadow-[0_20px_50px_-12px_rgba(2,19,49,0.16)] p-4 sm:p-5">
-                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-sm text-ink">Transcript</span>
-                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-accent-soft text-accent">
-                        {config.example.sourceTag}
-                      </span>
-                    </div>
-                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-slate-100 text-muted">
-                      TXT · SRT · VTT
-                    </span>
-                  </div>
+                <div className="px-5 py-4 border-b border-rule">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Note</p>
+                  <p className="mt-1.5 text-[15px] leading-relaxed text-ink">
+                    Glycolysis happens in the cytoplasm and splits one glucose into two pyruvate, for a net gain of 2 ATP.
+                  </p>
+                  <p className="mt-2 text-sm leading-relaxed text-ink/80">
+                    <span className="quote-mark">“glycolysis, which happens in the cytoplasm of the cell”</span>
+                  </p>
+                  <p className="mt-2 font-mono text-xs text-accent">From lecture · 14:32</p>
+                </div>
 
-                  <div className="mt-3 space-y-2.5">
-                    {config.example.cues.map((cue, idx) => (
-                      <div key={idx} className="flex items-start gap-2.5 text-xs leading-relaxed">
-                        <span className="font-mono font-semibold text-[11px] text-accent bg-accent-soft px-1.5 py-0.5 rounded shrink-0">
-                          {cue.time}
-                        </span>
-                        <p className="text-ink/90">{cue.text}</p>
-                      </div>
-                    ))}
-                  </div>
+                <div className="px-5 py-4 border-b border-rule">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Flashcard</p>
+                  <p className="mt-1.5 text-[15px] font-medium text-ink">What is the final electron acceptor?</p>
+                  <p className="mt-1 text-[15px] text-ink/80">Oxygen. It combines with hydrogen to form water.</p>
+                  <p className="mt-2 font-mono text-xs text-accent">From lecture · 48:07</p>
+                </div>
+
+                <div className="px-5 py-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted">Quiz · 4 of 10</p>
+                  <p className="mt-1.5 text-[15px] font-medium text-ink">Where does the Krebs cycle take place?</p>
+                  <ul className="mt-2 space-y-1.5 text-sm">
+                    <li className="flex gap-2 text-muted"><span className="font-mono text-xs pt-0.5">A</span> Cytoplasm</li>
+                    <li className="flex gap-2 text-ink font-medium"><span className="font-mono text-xs pt-0.5 text-emerald-700">B</span> Mitochondrial matrix <span className="text-emerald-700 font-normal">· correct</span></li>
+                    <li className="flex gap-2 text-muted"><span className="font-mono text-xs pt-0.5">C</span> Inner membrane</li>
+                  </ul>
                 </div>
               </div>
-            </div>
+              <figcaption className="mt-2.5 text-xs text-muted">
+                Example pack. Every note, card and question quotes the lecture and links to the moment it was said.
+              </figcaption>
+            </figure>
           </div>
         </div>
 
@@ -1151,7 +1013,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                       setError(null);
                       setResult(item.data);
                     }}
-                    className="group flex items-center gap-3 p-3 rounded-xl bg-surface border border-rule hover:border-accent/50 hover:shadow-md transition-all text-left"
+                    className="group flex items-center gap-3 p-3 rounded-md bg-surface border border-rule hover:border-accent/50 hover: transition-all text-left"
                   >
                     {item.data.videoThumbnailUrl ? (
                       <img
@@ -1179,58 +1041,29 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
           </section>
         )}
 
-        {/* STRATEGIC SPECIFICATION STRIP */}
+        {/* What works / good to know / exports: plain reference text, not marketing cards */}
         {!result && (
           <section
             aria-label="Platform details and specifications"
-            className="mt-14 pt-10 border-t border-rule grid md:grid-cols-3 gap-5"
+            className="mt-14 pt-8 border-t border-rule grid md:grid-cols-3 gap-x-10 gap-y-8 text-[15px]"
           >
-            {/* Card 1: Current Platform Status */}
-            <div className="rounded-2xl bg-surface border border-rule p-5 shadow-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-semibold uppercase tracking-wider text-accent">
-                  01 / Platform Status
-                </span>
-                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                  Active
-                </span>
-              </div>
-              <h2 className="mt-2.5 text-base font-bold text-ink">{config.status.title}</h2>
-              <p className="mt-1.5 text-sm text-muted leading-relaxed">{config.status.text}</p>
+            <div>
+              <h2 className="font-sans text-sm font-semibold text-ink">{config.status.title}</h2>
+              <p className="mt-1.5 text-muted leading-relaxed">{config.status.text}</p>
             </div>
-
-            {/* Card 2: Supported Links & Guidelines */}
-            <div className="rounded-2xl bg-surface border border-rule p-5 shadow-sm">
-              <span className="text-xs font-mono font-semibold uppercase tracking-wider text-accent">
-                02 / Supported Links
-              </span>
-              <h2 className="mt-2.5 text-base font-bold text-ink">
-                {config.name} Links
-              </h2>
-              <ul className="mt-2 space-y-1.5 text-sm text-muted">
+            <div>
+              <h2 className="font-sans text-sm font-semibold text-ink">Good to know</h2>
+              <ul className="mt-1.5 space-y-1.5 text-muted leading-relaxed list-disc pl-4 marker:text-slate-400">
                 {config.notes.map((n, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="text-accent font-bold mt-0.5">·</span>
-                    <span>{n}</span>
-                  </li>
+                  <li key={i}>{n}</li>
                 ))}
               </ul>
             </div>
-
-            {/* Card 3: Export Formats */}
-            <div className="rounded-2xl bg-surface border border-rule p-5 shadow-sm">
-              <span className="text-xs font-mono font-semibold uppercase tracking-wider text-accent">
-                03 / Export Formats
-              </span>
-              <h2 className="mt-2.5 text-base font-bold text-ink">
-                Copy, Search & Subtitles
-              </h2>
-              <p className="mt-1.5 text-sm text-muted leading-relaxed">
-                Copy text with or without <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">[00:12]</code>{' '}
-                timestamps, search words instantly, or download <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.txt</code>,{' '}
-                <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.srt</code> and{' '}
-                <code className="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">.vtt</code> files for video editors and players.
+            <div>
+              <h2 className="font-sans text-sm font-semibold text-ink">Transcript tools</h2>
+              <p className="mt-1.5 text-muted leading-relaxed">
+                Search, edit and copy the transcript with or without timestamps, translate it, or download it as
+                .txt, .srt or .vtt.
               </p>
             </div>
           </section>

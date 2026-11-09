@@ -100,7 +100,7 @@ async function run(label, contextOpts, ip) {
   await shot(page, 'timestamp-seek');
 
   // 5. Study 5 cards
-  await page.getByRole('button', { name: /2\. Flashcards/ }).click();
+  await page.getByRole('button', { name: /Flashcards \(/ }).click();
   for (let i = 0; i < 5; i++) {
     await page.getByRole('button', { name: /Reveal Answer/ }).click();
     await page.getByRole('button', { name: /^Good/ }).first().click();
@@ -144,8 +144,8 @@ async function run(label, contextOpts, ip) {
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
   const studyText = await page.locator('main').innerText();
-  const reviews = Number((studyText.match(/(\d+) total card reviews/) || [])[1] || 0);
-  check(`[${label}] progress kept after reload`, reviews >= 5 && /1 day streak|1 days streak/.test(studyText), `${reviews} reviews`);
+  const reviews = Number((studyText.match(/(\d+)\s+total card reviews/) || [])[1] || 0);
+  check(`[${label}] progress kept after reload`, reviews >= 5 && /1\s+days? streak/.test(studyText), `${reviews} reviews`);
   const due = Number((studyText.match(/You have (\d+) flashcards? due/) || [])[1] || 0);
   check(`[${label}] reviewed cards no longer due`, due === 25, `${due} due (30 cards - 5 reviewed as Good)`);
   await shot(page, 'study-after-reload', true);

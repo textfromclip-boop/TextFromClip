@@ -91,7 +91,7 @@ let ctx = await newCtx();
   const resp = await respP;
   if (resp.status() !== 200) console.log('   pack status', resp.status(), await resp.text());
   await page.getByText('Quote-Verified Revision Pack').waitFor({ timeout: 30000 });
-  await page.getByRole('button', { name: /2\. Flashcards/ }).click();
+  await page.getByRole('button', { name: /Flashcards \(/ }).click();
   const ar = page.locator('[dir="rtl"]', { hasText: 'ترجمة' }).first();
   check('bilingual: Arabic translation rendered RTL under the original', await ar.isVisible());
   await page.getByRole('button', { name: /Reveal Answer/ }).click();

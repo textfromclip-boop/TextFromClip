@@ -10,6 +10,23 @@
 
   body {
     @apply bg-paper text-ink antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* Editorial headings: serif display, calm weight. UI text stays sans. */
+  h1,
+  h2 {
+    font-family: 'Newsreader', Georgia, Cambria, 'Times New Roman', serif;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+  }
+
+  /* Lecture quotes look highlighted, like a marked-up textbook. */
+  .quote-mark {
+    background: linear-gradient(transparent 12%, #fff1a8 12%, #fff1a8 88%, transparent 88%);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+    padding: 0 0.15em;
   }
 
   ::selection {
@@ -17,7 +34,7 @@
   }
 
   :focus-visible {
-    outline: 2px solid #2868F7;
+    outline: 2px solid #2E62F4;
     outline-offset: 2px;
   }
 }
