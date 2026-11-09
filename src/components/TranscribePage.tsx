@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { TranscriptResult, ApiResponse } from '../types';
 import { TranscriptResultView } from './TranscriptResultView';
+import { TurnstileWidget } from './TurnstileWidget';
 import { Link, navigate, RoutePath } from '../router';
 import { validateUrlForPlatform } from '../utils/validation';
 import {
@@ -82,6 +83,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TranscriptResult | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string>('');
   const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
   const resultSectionRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -202,8 +204,16 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
     try {
       const res = await fetch('/api/transcript', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ url: value, platform: config.id }),
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...(turnstileToken ? { 'x-turnstile-token': turnstileToken } : {}),
+        },
+        body: JSON.stringify({
+          url: value,
+          platform: config.id,
+          ...(turnstileToken ? { turnstileToken } : {}),
+        }),
       });
       if (res.status === 429) {
         trackEvent('limit_hit');
@@ -571,6 +581,9 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                   )}
                 </button>
               </div>
+
+              {/* Invisible / Compact Cloudflare Turnstile Verification */}
+              <TurnstileWidget onToken={setTurnstileToken} className="mt-2" />
 
               {/* Live Progress Bar when transcribing a video URL */}
               {isUrlLoading && urlProgress && (

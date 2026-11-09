@@ -179,21 +179,6 @@ async function resolveRequestActor(c: any) {
   };
 }
 
-// 301 Redirect old textfromclip.com domain paths to learnfromclip.com
-app.use('*', async (c, next) => {
-  try {
-    const reqUrl = new URL(c.req.url);
-    const host = (c.req.header('host') || reqUrl.hostname || '').toLowerCase();
-    if (host === 'textfromclip.com' || host === 'www.textfromclip.com') {
-      const target = `https://learnfromclip.com${reqUrl.pathname}${reqUrl.search}`;
-      return c.redirect(target, 301);
-    }
-  } catch {
-    // ignore malformed host headers
-  }
-  await next();
-});
-
 // Security Headers Middleware
 app.use('*', async (c, next) => {
   await next();

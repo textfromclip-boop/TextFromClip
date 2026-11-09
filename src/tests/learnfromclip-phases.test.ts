@@ -384,6 +384,34 @@ describe('Phase 4 — Payments, Webhooks, Magic Link Auth & Fraud-Resistant Refe
     expect(activeAfterRefund).toBeNull();
   });
 
+  it('deduplicates webhooks idempotently so duplicate events never grant double passes', async () => {
+    const payload = {
+      meta: { event_id: 'evt_dup_999', event_name: 'order_created', custom_data: { plan_type: 'exam_pass' } },
+      data: {
+        id: 'ord_dup_999',
+        attributes: {
+          user_email: 'idempotent@student.edu',
+          billing_country: 'US',
+        },
+      },
+    };
+
+    // First delivery -> handled successfully
+    const firstDelivery = await processPaymentWebhook(payload);
+    expect(firstDelivery.handled).toBe(true);
+    expect((firstDelivery as any).duplicate).toBeUndefined();
+    const expiresAtFirst = firstDelivery.entitlement?.expiresAt;
+
+    // Duplicate webhook delivery with same event_id / order_id -> detected as duplicate
+    const secondDelivery = await processPaymentWebhook(payload);
+    expect(secondDelivery.handled).toBe(true);
+    expect((secondDelivery as any).duplicate).toBe(true);
+
+    // Verify user still has exactly 1 valid entitlement with original expiration
+    const active = await getActiveEntitlementForUser('idempotent@student.edu');
+    expect(active?.expiresAt).toBe(expiresAtFirst);
+  });
+
   it('creates and verifies passwordless magic links for cloud sync', async () => {
     const email = 'scholar@university.edu';
     const link = await createMagicLinkToken(email);

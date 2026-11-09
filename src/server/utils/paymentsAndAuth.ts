@@ -65,6 +65,7 @@ const memReferrals = new Map<
   }
 >();
 const memSyncedDecks = new Map<string, Array<{ id: string; title: string; packJson: string; updatedAt: number }>>();
+const memProcessedWebhooks = new Set<string>();
 
 export function isEligibleForRegionalPricing(billingCountryCode?: string | null): boolean {
   if (!billingCountryCode) return false;
@@ -321,6 +322,93 @@ export async function processPaymentWebhook(
   const subId = attrs.subscription_id ? String(attrs.subscription_id) : undefined;
   const nowSec = Math.floor(Date.now() / 1000);
 
+  const eventId = String(
+    payload?.meta?.event_id ||
+    payload?.data?.id ||
+    attrs.order_number ||
+    payload?.meta?.custom_data?.webhook_id ||
+    ''
+  ).trim();
+
+  // 1. Idempotency check: Ignore duplicate webhook deliveries with the same eventId
+  if (eventId && memProcessedWebhooks.has(eventId)) {
+    return { handled: true, eventName, duplicate: true } as any;
+  }
+
+  if (db && eventId) {
+    try {
+      const existing = await db
+        .prepare(`SELECT event_id FROM processed_webhooks WHERE event_id = ?1`)
+        .bind(eventId)
+        .first();
+      if (existing) {
+        memProcessedWebhooks.add(eventId);
+        return { handled: true, eventName, duplicate: true } as any;
+      }
+    } catch {
+      // ignore table absence in unit tests
+    }
+  }
+
+  // 2. Order Deduplication: for order_created, prevent granting a second pass if already active
+  if (orderId && (eventName === 'order_created' || eventName === 'subscription_created')) {
+    let existingEnt: EntitlementRecord | null = null;
+    for (const ent of memEntitlements.values()) {
+      if (ent.providerOrderId === orderId && ent.status === 'active') {
+        existingEnt = ent;
+        break;
+      }
+    }
+    if (!existingEnt && db) {
+      try {
+        const row = await db
+          .prepare(`SELECT * FROM entitlements WHERE provider_order_id = ?1 AND status = 'active' LIMIT 1`)
+          .bind(orderId)
+          .first<any>();
+        if (row) {
+          existingEnt = {
+            id: row.id,
+            userId: row.user_id,
+            email: row.email,
+            planType: row.plan_type as PlanTier,
+            status: row.status,
+            providerOrderId: row.provider_order_id,
+            providerSubscriptionId: row.provider_subscription_id,
+            billingCountry: row.billing_country,
+            isRegionalPricing: Boolean(row.is_regional_pricing),
+            startsAt: Number(row.starts_at),
+            expiresAt: Number(row.expires_at),
+          };
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (existingEnt) {
+      if (eventId) memProcessedWebhooks.add(eventId);
+      return { handled: true, eventName, entitlement: existingEnt, duplicate: true } as any;
+    }
+  }
+
+  const markProcessed = async () => {
+    if (!eventId) return;
+    memProcessedWebhooks.add(eventId);
+    if (db) {
+      try {
+        await db
+          .prepare(
+            `INSERT OR IGNORE INTO processed_webhooks (event_id, event_name, provider_order_id, created_at)
+             VALUES (?1, ?2, ?3, ?4)`
+          )
+          .bind(eventId, eventName, orderId || null, nowSec)
+          .run();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
   if (eventName === 'order_created' || eventName === 'subscription_created') {
     const ent = await upsertEntitlement(
       {
@@ -334,6 +422,7 @@ export async function processPaymentWebhook(
       },
       db
     );
+    await markProcessed();
     return { handled: true, eventName, entitlement: ent };
   }
 
@@ -359,6 +448,7 @@ export async function processPaymentWebhook(
       },
       db
     );
+    await markProcessed();
     return { handled: true, eventName, entitlement: ent };
   }
 
@@ -382,6 +472,7 @@ export async function processPaymentWebhook(
       },
       db
     );
+    await markProcessed();
     return { handled: true, eventName, entitlement: ent };
   }
 
@@ -400,6 +491,7 @@ export async function processPaymentWebhook(
       },
       db
     );
+    await markProcessed();
     return { handled: true, eventName, entitlement: ent };
   }
 
@@ -657,4 +749,5 @@ export function resetMemoryAuthAndPaymentsForTests() {
   memMagicLinks.clear();
   memReferrals.clear();
   memSyncedDecks.clear();
+  memProcessedWebhooks.clear();
 }

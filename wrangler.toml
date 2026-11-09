@@ -1,13 +1,19 @@
 name = "textfromclip"
-pages_build_output_dir = "dist-pages"
+main = "src/server/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+
+# Cloudflare Static Assets (serves built React SPA from ./dist)
+[assets]
+directory = "./dist"
+binding = "ASSETS"
 
 # Cloudflare D1 Database Binding
 [[d1_databases]]
 binding = "DB"
 database_name = "textfromclip-db"
 database_id = "0dd853ee-3624-40d3-ba49-a3f41ede2684"
+migrations_dir = "migrations"
 
 # Cloudflare Workers AI Binding
 [ai]
@@ -22,5 +28,5 @@ bucket_name = "textfromclip-uploads"
 [vars]
 ENVIRONMENT = "production"
 MAX_REQUESTS_PER_MINUTE = "30"
-MAX_VIDEO_DURATION_SECONDS = "14400" # 4 hours max
-CACHE_TTL_SECONDS = "86400" # 24 hours
+MAX_VIDEO_DURATION_SECONDS = "14400"
+CACHE_TTL_SECONDS = "86400"
