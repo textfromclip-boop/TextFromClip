@@ -14,6 +14,7 @@ import {
   syncDecksWithCloud,
 } from '../utils/studyStore';
 import { isCardDueToday, Sm2Rating } from '../utils/sm2';
+import { visualColor } from '../utils/packVisuals';
 import {
   exportRevisionPackPdf,
   generateAnkiCsv,
@@ -359,12 +360,20 @@ export const StudyPage: React.FC = () => {
                       setFlipped((f) => !f);
                     }
                   }}
-                  className="cursor-pointer min-h-[200px] flex flex-col justify-between py-2"
+                  key={`${currentDueItem.card.id}-${flipped ? 'b' : 'f'}`}
+                  style={{ borderTopColor: visualColor(cardIdx), borderTopWidth: 4 }}
+                  className="card-flip cursor-pointer relative overflow-hidden rounded-lg border border-rule bg-surface p-6 sm:p-8 min-h-[260px] flex flex-col justify-between hover:border-ink transition-colors"
                 >
+                  <span
+                  aria-hidden="true"
+                  className="card-number"
+                  data-n={String(cardIdx + 1).padStart(2, '0')}
+                  style={{ color: visualColor(cardIdx) }}
+                />
                   {!flipped ? (
                     <div>
-                      <span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-[11px] font-mono uppercase text-muted mb-2">
-                        Question · Tap to flip
+                      <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted mb-3">
+                        Question
                       </span>
                       <p dir="auto" className="font-serif text-2xl sm:text-[1.7rem] text-ink leading-snug">
                         {currentDueItem.card.front}

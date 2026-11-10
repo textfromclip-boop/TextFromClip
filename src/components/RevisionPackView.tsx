@@ -12,6 +12,8 @@ import {
 } from '../utils/packExporters';
 import { trackEvent } from '../utils/analytics';
 import { scheduleFlashcardSm2, Sm2Rating } from '../utils/sm2';
+import { visualColor } from '../utils/packVisuals';
+import { CardSheetVisual, MindMapVisual, SketchnotesVisual } from './PackVisuals';
 
 /** Shows the interval SM-2 will actually schedule for this card and rating. */
 function intervalLabel(card: Flashcard, rating: Sm2Rating): string {
@@ -30,7 +32,8 @@ interface RevisionPackViewProps {
   onOpenFullStudyPage?: () => void;
 }
 
-type PackSectionTab = 'notes' | 'flashcards' | 'quiz';
+type PackSectionTab = 'notes' | 'flashcards' | 'quiz' | 'visuals';
+type VisualKind = 'mindmap' | 'sketch' | 'sheet';
 
 export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
   pack,
@@ -43,6 +46,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
   onOpenFullStudyPage,
 }) => {
   const [activeSection, setActiveSection] = useState<PackSectionTab>('notes');
+  const [visualKind, setVisualKind] = useState<VisualKind>('mindmap');
   const [seekSeconds, setSeekSeconds] = useState<number | null>(null);
   const [seekQuote, setSeekQuote] = useState<string>('');
   const [seekCounter, setSeekCounter] = useState(0);
@@ -120,6 +124,8 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
 
   const handleGradeCard = (rating: 'again' | 'hard' | 'good' | 'easy') => {
     if (!currentCard) return;
+    // Release focus from the clicked grade button so Space flips the next card instead of re-grading.
+    (document.activeElement as HTMLElement | null)?.blur?.();
     trackEvent('card_reviewed');
     setReviewedCardIds((prev) => ({ ...prev, [currentCard.id]: rating }));
     onCardReviewed?.(currentCard, rating);
@@ -194,6 +200,23 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
       </div>
     );
   };
+
+  // Study shortcuts: Space/Enter flips, 1-4 = Again/Hard/Good/Easy (after flipping)
+  useEffect(() => {
+    if (activeSection !== 'flashcards' || cardViewMode !== 'study') return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && /^(INPUT|SELECT|TEXTAREA|BUTTON|A)$/.test(t.tagName)) return;
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault();
+        setIsCardFlipped((f) => !f);
+      } else if (isCardFlipped && ['1', '2', '3', '4'].includes(e.key)) {
+        handleGradeCard((['again', 'hard', 'good', 'easy'] as const)[Number(e.key) - 1]);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const isArabic =
     pack.secondLanguage?.toLowerCase() === 'arabic' ||
@@ -345,7 +368,10 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setActiveSection('flashcards')}
+            onClick={(e) => {
+              (e.currentTarget as HTMLElement).blur();
+              setActiveSection('flashcards');
+            }}
             className={`py-3.5 border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeSection === 'flashcards'
                 ? 'border-ink text-ink'
@@ -369,6 +395,17 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
             }`}
           >
             Quiz ({pack.quiz.length} questions)
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSection('visuals')}
+            className={`py-3.5 border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeSection === 'visuals'
+                ? 'border-ink text-ink'
+                : 'border-transparent text-muted hover:text-ink'
+            }`}
+          >
+            Visuals
           </button>
         </div>
 
@@ -418,6 +455,35 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
               </ul>
             </section>
           ))}
+        </div>
+      )}
+
+      {/* VISUALS: mind map, sketchnotes and card sheet, all derived from the verified pack */}
+      {activeSection === 'visuals' && (
+        <div className="px-5 sm:px-6 py-6">
+          <div role="tablist" aria-label="Visual style" className="flex flex-wrap gap-2 mb-5">
+            {([
+              ['mindmap', 'Mind map'],
+              ['sketch', 'Sketchnotes'],
+              ['sheet', 'Card sheet'],
+            ] as [VisualKind, string][]).map(([kind, label]) => (
+              <button
+                key={kind}
+                type="button"
+                role="tab"
+                aria-selected={visualKind === kind}
+                onClick={() => setVisualKind(kind)}
+                className={`px-3.5 py-1.5 rounded-md text-sm font-semibold transition-colors ${
+                  visualKind === kind ? 'bg-ink text-white' : 'bg-slate-100 text-muted hover:text-ink'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {visualKind === 'mindmap' && <MindMapVisual pack={pack} onSeek={handleSeekToLecture} />}
+          {visualKind === 'sketch' && <SketchnotesVisual pack={pack} />}
+          {visualKind === 'sheet' && <CardSheetVisual pack={pack} />}
         </div>
       )}
 
@@ -496,8 +562,16 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                     setIsCardFlipped((f) => !f);
                   }
                 }}
-                className="cursor-pointer rounded-lg border border-rule bg-surface p-6 sm:p-9 hover:border-ink transition-colors min-h-[240px] flex flex-col justify-between"
+                key={`${currentCard.id}-${isCardFlipped ? 'b' : 'f'}`}
+                style={{ borderTopColor: visualColor(activeCardIdx), borderTopWidth: 4 }}
+                className="card-flip cursor-pointer relative overflow-hidden rounded-lg border border-rule bg-surface p-6 sm:p-9 hover:border-ink transition-colors min-h-[280px] flex flex-col justify-between"
               >
+                <span
+                  aria-hidden="true"
+                  className="card-number"
+                  data-n={String(activeCardIdx + 1).padStart(2, '0')}
+                  style={{ color: visualColor(activeCardIdx) }}
+                />
                 <div>
                   <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted mb-3">
                     {isCardFlipped ? 'Answer' : 'Question'}
@@ -537,7 +611,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                 </div>
 
                 <div className="mt-6 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-muted">
-                  <span>Click card or press Space to flip</span>
+                  <span>Click the card or press Space to flip. After flipping, press 1 to 4 to grade.</span>
                   <span className="font-semibold text-accent">
                     {isCardFlipped ? 'Show Question' : 'Reveal Answer'}
                   </span>
