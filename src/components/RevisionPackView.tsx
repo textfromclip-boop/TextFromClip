@@ -172,7 +172,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
         type="button"
         onClick={() => handleSeekToLecture(startSeconds, quote)}
         title={`Play lecture at ${formatTimestamp(startSeconds)} — "${quote}"`}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-accent-soft text-accent border border-accent/25 hover:bg-accent hover:text-white transition-colors shrink-0"
+        className="inline-flex items-center gap-1.5 font-mono text-xs text-accent hover:text-accent-dark hover:underline underline-offset-2 shrink-0"
         dir="ltr"
       >
         <svg className="w-3 h-3 fill-current shrink-0" viewBox="0 0 24 24">
@@ -186,14 +186,11 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
   const renderAiExplanationBox = (aiExplanation?: string) => {
     if (!aiExplanation) return null;
     return (
-      <div
-        dir="auto"
-        className="mt-2.5 p-3 rounded-xl bg-[#F5F3FF] border border-[#502EF0]/25 text-xs sm:text-[13px] text-[#1E1B4B] leading-relaxed"
-      >
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 mr-2 rounded bg-[#502EF0] text-white font-bold text-[10px] uppercase tracking-wider">
-          AI explanation
-        </span>
-        <bdi dir="auto">{aiExplanation}</bdi>
+      <div dir="auto" className="mt-3 border-l-2 border-[#502EF0] pl-3.5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#502EF0]">AI explanation</p>
+        <p className="mt-0.5 text-sm text-muted leading-relaxed">
+          <bdi dir="auto">{aiExplanation}</bdi>
+        </p>
       </div>
     );
   };
@@ -203,55 +200,41 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
     pack.flashcards.some((c) => c.bilingual_language?.toLowerCase() === 'arabic');
 
   return (
-    <div className="mt-6 rounded-2xl bg-surface border border-rule shadow-[0_18px_48px_-12px_rgba(2,20,51,0.10)] overflow-hidden">
-      {/* Top Banner: Pack Summary, Bilingual Picker & Exports */}
-      <div className="p-4 sm:p-6 bg-gradient-to-r from-[#021433] via-[#0B2559] to-[#1E1B4B] text-white">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold">
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                ✓ 100% Quote-Verified Revision Pack
-              </span>
-              <span className="text-slate-300">
-                {pack.notes.reduce((sum, s) => sum + s.bullets.length, 0)} note points ·{' '}
-                {pack.flashcards.length} flashcards · {pack.quiz.length} quiz questions
-              </span>
-              {pack.metadata.cached && (
-                <span className="px-2 py-0.5 rounded bg-sky-500/20 text-sky-200 text-[11px]">
-                  Instant Cache
-                </span>
-              )}
-            </div>
-            <h3 className="mt-2 text-lg sm:text-2xl font-black tracking-tight text-white" dir="auto">
+    <div className="mt-6 rounded-lg bg-surface border border-rule overflow-hidden">
+      {/* Pack header: title, counts, language and exports */}
+      <div className="p-5 sm:p-6 border-b border-rule">
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-5">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-700">
+              Quote-verified revision pack
+              {pack.metadata.cached && <span className="ml-2 font-normal normal-case tracking-normal text-muted">· loaded from cache</span>}
+            </p>
+            <h3 className="mt-1.5 font-serif text-2xl sm:text-3xl text-ink leading-tight" dir="auto">
               {pack.title}
             </h3>
-            <p className="mt-1 text-xs sm:text-sm text-slate-300">
-              Tap any <span className="text-sky-300 font-semibold">From lecture · MM:SS</span> badge to jump directly to that moment in the lecture.
+            <p className="mt-1.5 text-sm text-muted">
+              {pack.notes.reduce((sum, s) => sum + s.bullets.length, 0)} note points ·{' '}
+              {pack.flashcards.length} flashcards · {pack.quiz.length} quiz questions. Tap any{' '}
+              <span className="font-mono text-xs text-accent">From lecture · MM:SS</span> to jump to that moment.
             </p>
           </div>
 
-          {/* Bilingual Flashcard Selector & Export Buttons */}
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
             {onRegenerateWithLanguage && (
-              <div className="flex items-center gap-1.5 bg-white/10 border border-white/20 rounded-xl px-3 py-1.5 text-xs">
-                <span className="text-slate-200 font-medium">Bilingual cards:</span>
-                <select
-                  aria-label="Second language for flashcards"
-                  value={pack.secondLanguage || ''}
-                  disabled={isRegenerating}
-                  onChange={(e) => onRegenerateWithLanguage(e.target.value)}
-                  className="bg-transparent font-bold text-white focus:outline-none cursor-pointer"
-                >
-                  <option value="" className="text-ink">
-                    Original only
+              <select
+                aria-label="Second language for flashcards"
+                value={pack.secondLanguage || ''}
+                disabled={isRegenerating}
+                onChange={(e) => onRegenerateWithLanguage(e.target.value)}
+                className="rounded-md border border-rule bg-surface px-2.5 py-2 text-sm font-medium text-ink focus:outline-none focus:border-accent cursor-pointer"
+              >
+                <option value="">Original only</option>
+                {BILINGUAL_LANGUAGES.map((lang) => (
+                  <option key={lang} value={lang}>
+                    + {lang}
                   </option>
-                  {BILINGUAL_LANGUAGES.map((lang) => (
-                    <option key={lang} value={lang} className="text-ink">
-                      + {lang}
-                    </option>
-                  ))}
-                </select>
-              </div>
+                ))}
+              </select>
             )}
 
             <button
@@ -260,25 +243,23 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                 trackEvent('export_clicked');
                 exportRevisionPackPdf(pack);
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-white text-[#021433] hover:bg-slate-100 transition-colors shadow-sm"
+              className="px-3 py-2 rounded-md border border-rule bg-surface font-medium text-ink hover:border-ink transition-colors"
             >
-              <span>Export PDF</span>
+              Export PDF
             </button>
-
             <button
               type="button"
               onClick={() => downloadFile(generateAnkiCsv(pack), 'csv', 'text/csv', '-anki')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] text-white hover:opacity-95 transition-opacity shadow-sm"
+              className="px-3 py-2 rounded-md border border-rule bg-surface font-medium text-ink hover:border-ink transition-colors"
             >
-              <span>Anki CSV</span>
+              Anki CSV
             </button>
-
             <button
               type="button"
               onClick={() => downloadFile(generatePackMarkdown(pack), 'md', 'text/markdown', '-notes')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-white/10 text-white border border-white/20 hover:bg-white/20 transition-colors"
+              className="px-3 py-2 rounded-md border border-rule bg-surface font-medium text-ink hover:border-ink transition-colors"
             >
-              <span>Markdown (.MD)</span>
+              Markdown (.MD)
             </button>
           </div>
         </div>
@@ -292,7 +273,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
         >
           <div className="flex items-center justify-between gap-3 mb-3">
             <div className="flex items-center gap-2 text-xs sm:text-sm font-semibold">
-              <span className="px-2.5 py-0.5 rounded-full bg-[#2E62F4] text-white font-mono text-xs">
+              <span className="font-mono text-xs text-sky-300">
                 Playing at {formatTimestamp(seekSeconds)}
               </span>
               <span className="text-slate-300 truncate max-w-md" dir="auto">
@@ -309,7 +290,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
           </div>
 
           {pack.provider === 'youtube' && pack.videoId ? (
-            <div className="aspect-video w-full max-w-2xl mx-auto rounded-xl overflow-hidden bg-black border border-slate-700">
+            <div className="aspect-video w-full max-w-2xl mx-auto rounded-md overflow-hidden bg-black border border-slate-700">
               <iframe
                 key={`${pack.videoId}-${seekSeconds}-${seekCounter}`}
                 title="Lecture video player"
@@ -325,11 +306,11 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                 ref={mediaPlayerRef as React.RefObject<HTMLVideoElement>}
                 src={localMediaUrl || sourceUrl}
                 controls
-                className="w-full max-h-80 rounded-xl bg-black"
+                className="w-full max-h-80 rounded-md bg-black"
               />
             </div>
           ) : (
-            <div className="flex items-center justify-between p-3 rounded-xl bg-slate-800 text-xs text-slate-200">
+            <div className="flex items-center justify-between p-3 rounded-md bg-slate-800 text-xs text-slate-200">
               <span>
                 Timestamp {formatTimestamp(seekSeconds)} — verbatim quote verified from lecture audio.
               </span>
@@ -349,29 +330,29 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
       )}
 
       {/* Navigation Tabs: Structured Notes | Flashcards | 10-Question Quiz */}
-      <div className="px-4 sm:px-6 border-b border-rule bg-slate-50/70 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 sm:gap-6 text-xs sm:text-sm font-bold overflow-x-auto">
+      <div className="px-5 sm:px-6 border-b border-rule flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-5 sm:gap-7 text-sm font-semibold overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveSection('notes')}
-            className={`py-3.5 px-2 border-b-2 transition-colors whitespace-nowrap ${
+            className={`py-3.5 border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeSection === 'notes'
-                ? 'border-accent text-accent'
+                ? 'border-ink text-ink'
                 : 'border-transparent text-muted hover:text-ink'
             }`}
           >
-            1. Structured Notes ({pack.notes.length} sections)
+            Notes ({pack.notes.length} sections)
           </button>
           <button
             type="button"
             onClick={() => setActiveSection('flashcards')}
-            className={`py-3.5 px-2 border-b-2 transition-colors whitespace-nowrap ${
+            className={`py-3.5 border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeSection === 'flashcards'
-                ? 'border-accent text-accent'
+                ? 'border-ink text-ink'
                 : 'border-transparent text-muted hover:text-ink'
             }`}
           >
-            2. Flashcards ({activeDeck.length})
+            Flashcards ({activeDeck.length})
             {pack.secondLanguage && (
               <span className="ml-1.5 px-1.5 py-0.5 rounded bg-accent-soft text-accent text-[10px]">
                 + {pack.secondLanguage}
@@ -381,78 +362,61 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
           <button
             type="button"
             onClick={() => setActiveSection('quiz')}
-            className={`py-3.5 px-2 border-b-2 transition-colors whitespace-nowrap ${
+            className={`py-3.5 border-b-2 -mb-px transition-colors whitespace-nowrap ${
               activeSection === 'quiz'
-                ? 'border-accent text-accent'
+                ? 'border-ink text-ink'
                 : 'border-transparent text-muted hover:text-ink'
             }`}
           >
-            3. Mock Exam Quiz ({pack.quiz.length} Qs)
+            Quiz ({pack.quiz.length} questions)
           </button>
         </div>
 
         <div className="flex items-center gap-3 py-2 text-xs text-muted">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            Saved on this device
-          </span>
+          <span>Saved on this device</span>
           {onOpenFullStudyPage && (
             <button
               type="button"
               onClick={onOpenFullStudyPage}
               className="font-bold text-accent hover:underline"
             >
-              Open Today’s Review →
+              Open today’s review
             </button>
           )}
         </div>
       </div>
 
-      {/* SECTION 1: STRUCTURED NOTES */}
+      {/* SECTION 1: STRUCTURED NOTES — reads like a page of notes, not a stack of cards */}
       {activeSection === 'notes' && (
-        <div className="p-4 sm:p-6 space-y-6">
-          {pack.notes.map((section) => (
-            <div
-              key={section.id}
-              className="rounded-2xl border border-rule bg-surface p-4 sm:p-6 shadow-sm"
-            >
-              <h4
-                dir="auto"
-                className="text-base sm:text-lg font-extrabold text-ink pb-2.5 border-b border-slate-100"
-              >
+        <div className="px-5 sm:px-8 py-6 sm:py-8 max-w-3xl">
+          {pack.notes.map((section, sIdx) => (
+            <section key={section.id} className={sIdx > 0 ? 'mt-10' : ''}>
+              <h4 dir="auto" className="font-serif text-xl sm:text-2xl text-ink">
                 {section.heading}
               </h4>
 
-              <ul className="mt-4 space-y-4">
+              <ul className="mt-3 border-t border-rule">
                 {section.bullets.map((bullet) => (
-                  <li
-                    key={bullet.id}
-                    className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
-                      <p dir="auto" className="text-sm sm:text-[15px] text-ink leading-relaxed flex-1">
-                        {bullet.is_definition && bullet.term ? (
-                          <span className="inline-block font-bold text-[#021433] bg-amber-100/80 px-1.5 py-0.5 rounded mr-1.5">
-                            {bullet.term}:
-                          </span>
-                        ) : null}
-                        {bullet.text}
-                      </p>
-                      {renderSourceBadge(bullet.source.start_seconds, bullet.source.quote)}
-                    </div>
-
-                    <p
-                      dir="auto"
-                      className="mt-2 text-xs text-muted italic border-l-2 border-slate-300 pl-2.5"
-                    >
-                      Verbatim lecture quote: “{bullet.source.quote}”
+                  <li key={bullet.id} className="py-4 border-b border-rule">
+                    <p dir="auto" className="text-[15px] sm:text-base text-ink leading-relaxed">
+                      {bullet.is_definition && bullet.term ? (
+                        <strong className="font-semibold">{bullet.term}: </strong>
+                      ) : null}
+                      {bullet.text}
                     </p>
+
+                    <p dir="auto" className="mt-1.5 text-sm text-ink/75 leading-relaxed">
+                      <span className="sr-only">Verbatim lecture quote: </span>
+                      <span className="quote-mark">“{bullet.source.quote}”</span>
+                    </p>
+
+                    <div className="mt-2">{renderSourceBadge(bullet.source.start_seconds, bullet.source.quote)}</div>
 
                     {renderAiExplanationBox(bullet.ai_explanation)}
                   </li>
                 ))}
               </ul>
-            </div>
+            </section>
           ))}
         </div>
       )}
@@ -465,24 +429,24 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
               <button
                 type="button"
                 onClick={() => setCardViewMode('study')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-colors ${
                   cardViewMode === 'study'
-                    ? 'bg-accent text-white'
+                    ? 'bg-ink text-white'
                     : 'bg-slate-100 text-muted hover:text-ink'
                 }`}
               >
-                Interactive Flip Mode
+                Study
               </button>
               <button
                 type="button"
                 onClick={() => setCardViewMode('list')}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-colors ${
                   cardViewMode === 'list'
-                    ? 'bg-accent text-white'
+                    ? 'bg-ink text-white'
                     : 'bg-slate-100 text-muted hover:text-ink'
                 }`}
               >
-                All Cards ({activeDeck.length})
+                All cards ({activeDeck.length})
               </button>
               {customDeckCards && (
                 <button
@@ -512,9 +476,9 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                 </span>
                 {renderSourceBadge(currentCard.source.start_seconds, currentCard.source.quote)}
               </div>
-              <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden mb-5">
+              <div className="h-1 w-full rounded-full bg-slate-200 overflow-hidden mb-5">
                 <div
-                  className="h-full bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] transition-all"
+                  className="h-full bg-accent transition-all"
                   style={{
                     width: `${Math.round(((activeCardIdx + 1) / Math.max(1, activeDeck.length)) * 100)}%`,
                   }}
@@ -532,22 +496,22 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                     setIsCardFlipped((f) => !f);
                   }
                 }}
-                className="cursor-pointer rounded-2xl border-2 border-accent/25 bg-surface p-6 sm:p-8 shadow-md hover:border-accent transition-all min-h-[240px] flex flex-col justify-between"
+                className="cursor-pointer rounded-lg border border-rule bg-surface p-6 sm:p-9 hover:border-ink transition-colors min-h-[240px] flex flex-col justify-between"
               >
                 <div>
-                  <span className="inline-block px-2.5 py-0.5 rounded-md text-[11px] font-mono uppercase tracking-wider bg-slate-100 text-muted mb-3">
-                    {isCardFlipped ? 'Answer (Back)' : 'Question (Front) · Tap to flip'}
+                  <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted mb-3">
+                    {isCardFlipped ? 'Answer' : 'Question'}
                   </span>
 
                   {!isCardFlipped ? (
                     <>
-                      <p dir="auto" className="text-lg sm:text-xl font-bold text-ink leading-snug">
+                      <p dir="auto" className="font-serif text-2xl sm:text-[1.7rem] text-ink leading-snug">
                         {currentCard.front}
                       </p>
                       {currentCard.front_translation && (
                         <p
                           dir={isArabic ? 'rtl' : 'auto'}
-                          className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200 text-base text-slate-800 font-medium"
+                          className="mt-3 pt-3 border-t border-rule text-base text-ink/80"
                         >
                           {currentCard.front_translation}
                         </p>
@@ -555,20 +519,18 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                     </>
                   ) : (
                     <>
-                      <p dir="auto" className="text-base sm:text-lg font-semibold text-ink leading-relaxed">
+                      <p dir="auto" className="text-lg sm:text-xl text-ink leading-relaxed">
                         {currentCard.back}
                       </p>
                       {currentCard.back_translation && (
                         <p
                           dir={isArabic ? 'rtl' : 'auto'}
-                          className="mt-3 p-3 rounded-xl bg-slate-50 border border-slate-200 text-base text-slate-800 font-medium"
+                          className="mt-3 pt-3 border-t border-rule text-base text-ink/80"
                         >
                           {currentCard.back_translation}
                         </p>
                       )}
-                      <p dir="auto" className="mt-3 text-xs text-muted italic">
-                        Lecture quote: “{currentCard.source.quote}”
-                      </p>
+                      <p dir="auto" className="mt-4 text-sm text-ink/75"><span className="quote-mark">“{currentCard.source.quote}”</span></p>
                       {renderAiExplanationBox(currentCard.ai_explanation)}
                     </>
                   )}
@@ -577,7 +539,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                 <div className="mt-6 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-muted">
                   <span>Click card or press Space to flip</span>
                   <span className="font-semibold text-accent">
-                    {isCardFlipped ? 'Show Question' : 'Reveal Answer →'}
+                    {isCardFlipped ? 'Show Question' : 'Reveal Answer'}
                   </span>
                 </div>
               </div>
@@ -587,34 +549,34 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleGradeCard('again')}
-                  className="py-2.5 px-3 rounded-xl border border-red-200 bg-red-50 hover:bg-red-100 text-red-800 font-bold text-xs sm:text-sm transition-colors"
+                  className="py-2.5 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm transition-colors"
                 >
                   Again
-                  <span className="block text-[10px] font-normal text-red-700">{currentCard ? intervalLabel(currentCard, 'again') : ''}</span>
+                  <span className="block text-[11px] font-normal text-muted">{currentCard ? intervalLabel(currentCard, 'again') : ''}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleGradeCard('hard')}
-                  className="py-2.5 px-3 rounded-xl border border-amber-200 bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs sm:text-sm transition-colors"
+                  className="py-2.5 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm transition-colors"
                 >
                   Hard
-                  <span className="block text-[10px] font-normal text-amber-700">{currentCard ? intervalLabel(currentCard, 'hard') : ''}</span>
+                  <span className="block text-[11px] font-normal text-muted">{currentCard ? intervalLabel(currentCard, 'hard') : ''}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleGradeCard('good')}
-                  className="py-2.5 px-3 rounded-xl border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs sm:text-sm transition-colors"
+                  className="py-2.5 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm transition-colors"
                 >
                   Good
-                  <span className="block text-[10px] font-normal text-emerald-700">{currentCard ? intervalLabel(currentCard, 'good') : ''}</span>
+                  <span className="block text-[11px] font-normal text-muted">{currentCard ? intervalLabel(currentCard, 'good') : ''}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleGradeCard('easy')}
-                  className="py-2.5 px-3 rounded-xl border border-sky-200 bg-sky-50 hover:bg-sky-100 text-sky-900 font-bold text-xs sm:text-sm transition-colors"
+                  className="py-2.5 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm transition-colors"
                 >
                   Easy
-                  <span className="block text-[10px] font-normal text-sky-700">{currentCard ? intervalLabel(currentCard, 'easy') : ''}</span>
+                  <span className="block text-[11px] font-normal text-muted">{currentCard ? intervalLabel(currentCard, 'easy') : ''}</span>
                 </button>
               </div>
             </div>
@@ -623,7 +585,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
               {activeDeck.map((card, idx) => (
                 <div
                   key={card.id}
-                  className="rounded-2xl border border-rule bg-surface p-4 shadow-sm flex flex-col justify-between"
+                  className="rounded-lg border border-rule bg-surface p-4 flex flex-col justify-between"
                 >
                   <div>
                     <div className="flex items-center justify-between gap-2 mb-2.5">
@@ -656,9 +618,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                     )}
                     {renderAiExplanationBox(card.ai_explanation)}
                   </div>
-                  <p dir="auto" className="mt-3 pt-2 border-t border-slate-100 text-[11px] text-muted italic">
-                    “{card.source.quote}”
-                  </p>
+                  <p dir="auto" className="mt-3 text-sm text-ink/75"><span className="quote-mark">“{card.source.quote}”</span></p>
                 </div>
               ))}
             </div>
@@ -681,7 +641,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                 )}
               </div>
 
-              <div className="rounded-2xl border border-rule bg-surface p-5 sm:p-6 shadow-sm">
+              <div className="rounded-lg border border-rule bg-surface p-5 sm:p-6">
                 <h4 dir="auto" className="text-base sm:text-lg font-bold text-ink leading-snug">
                   {currentQuestion.question}
                 </h4>
@@ -718,7 +678,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                           }))
                         }
                         dir="auto"
-                        className={`w-full text-left p-3.5 rounded-xl border text-sm transition-all flex items-start gap-3 ${btnClass}`}
+                        className={`w-full text-left p-3.5 rounded-md border text-sm transition-all flex items-start gap-3 ${btnClass}`}
                       >
                         <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 text-ink shrink-0">
                           {String.fromCharCode(65 + oIdx)}
@@ -730,20 +690,18 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                 </div>
 
                 {selectedAnswers[currentQuestion.id] !== undefined && (
-                  <div className="mt-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs sm:text-sm">
+                  <div className="mt-4 p-4 rounded-md bg-slate-50 border border-slate-200 text-xs sm:text-sm">
                     <p dir="auto" className="font-bold text-ink">
                       {selectedAnswers[currentQuestion.id] === currentQuestion.correct_index
-                        ? '✓ Correct!'
-                        : `✕ Incorrect — Correct answer is ${String.fromCharCode(
+                        ? 'Correct'
+                        : `Incorrect. Correct answer is ${String.fromCharCode(
                             65 + currentQuestion.correct_index
                           )}`}
                     </p>
                     <p dir="auto" className="mt-1 text-slate-700 leading-relaxed">
                       {currentQuestion.explanation}
                     </p>
-                    <p dir="auto" className="mt-1.5 text-xs text-muted italic">
-                      Lecture quote: “{currentQuestion.source.quote}”
-                    </p>
+                    <p dir="auto" className="mt-2 text-sm text-ink/75"><span className="quote-mark">“{currentQuestion.source.quote}”</span></p>
                     {renderAiExplanationBox(currentQuestion.ai_explanation)}
                   </div>
                 )}
@@ -762,7 +720,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                     <button
                       type="button"
                       onClick={() => setQuizIdx((i) => i + 1)}
-                      className="px-4 py-2 rounded-xl bg-accent text-white text-xs font-bold hover:opacity-95"
+                      className="px-4 py-2 rounded-md bg-accent text-white text-xs font-bold hover:bg-accent-dark"
                     >
                       Next Question →
                     </button>
@@ -773,7 +731,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                         trackEvent('quiz_finished');
                         setQuizFinished(true);
                       }}
-                      className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] text-white text-xs font-bold shadow-sm"
+                      className="px-5 py-2 rounded-md bg-accent text-white text-xs font-bold"
                     >
                       Finish & See Score →
                     </button>
@@ -782,11 +740,11 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
               </div>
             </div>
           ) : (
-            <div className="max-w-2xl mx-auto text-center p-6 rounded-2xl border border-rule bg-slate-50/70">
-              <span className="inline-block px-3 py-1 rounded-full bg-accent-soft text-accent text-xs font-bold">
+            <div className="max-w-2xl mx-auto text-center p-6 rounded-lg border border-rule bg-slate-50/70">
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
                 Mock Exam Complete
               </span>
-              <h4 className="mt-3 text-2xl sm:text-3xl font-black text-ink">
+              <h4 className="mt-3 text-2xl sm:text-3xl font-semibold text-ink">
                 You scored {quizScore} / {pack.quiz.length}
               </h4>
               <p className="mt-1 text-sm text-muted">
@@ -798,7 +756,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                   <button
                     type="button"
                     onClick={handleReviewMissedFromQuiz}
-                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] text-white text-xs sm:text-sm font-bold shadow-md"
+                    className="px-5 py-2.5 rounded-md bg-accent text-white text-xs sm:text-sm font-bold"
                   >
                     Review what you missed ({wrongQuestions.length} cards) →
                   </button>
@@ -810,7 +768,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                     setQuizIdx(0);
                     setQuizFinished(false);
                   }}
-                  className="px-4 py-2.5 rounded-xl border border-rule bg-surface text-xs sm:text-sm font-bold text-ink hover:bg-slate-100"
+                  className="px-4 py-2.5 rounded-md border border-rule bg-surface text-xs sm:text-sm font-bold text-ink hover:bg-slate-100"
                 >
                   Retake Quiz
                 </button>

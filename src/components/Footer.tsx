@@ -2,43 +2,78 @@ import React from 'react';
 import { Link } from '../router';
 import { Logo } from './Logo';
 
-export const Footer: React.FC = () => (
-  <footer className="border-t border-rule bg-surface mt-20">
-    <div className="max-w-6xl mx-auto px-5 py-8 flex flex-col gap-6 text-sm text-muted">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5">
-          <Logo variant="full" size="sm" />
-          <span className="hidden sm:inline text-slate-300">|</span>
-          <p>© {new Date().getFullYear()} LearnFromClip. No account needed. On the free plan, your notes stay on your device.</p>
-        </div>
-        <nav aria-label="Footer" className="flex flex-wrap gap-x-5 sm:gap-x-6 gap-y-2 font-medium">
-          <Link to="/app" className="hover:text-accent transition-colors">App</Link>
-          <Link to="/study" className="hover:text-accent transition-colors">Study</Link>
-          <Link to="/pricing" className="hover:text-accent transition-colors">Pricing</Link>
-          <Link to="/upload" className="hover:text-accent transition-colors">Upload</Link>
-          <Link to="/guide" className="hover:text-accent transition-colors">Guide</Link>
-          <Link to="/privacy" className="hover:text-accent transition-colors">Privacy</Link>
-          <Link to="/terms" className="hover:text-accent transition-colors">Terms</Link>
-          <Link to="/refund" className="hover:text-accent transition-colors">Refund Policy</Link>
-        </nav>
-      </div>
+const COLUMNS: { heading: string; links: { to: string; label: string }[] }[] = [
+  {
+    heading: 'Product',
+    links: [
+      { to: '/app', label: 'Make a revision pack' },
+      { to: '/upload', label: 'Upload a recording' },
+      { to: '/study', label: 'Study' },
+      { to: '/pricing', label: 'Pricing' },
+      { to: '/guide', label: 'Guide' },
+    ],
+  },
+  {
+    heading: 'Tools',
+    links: [
+      { to: '/youtube-lecture-to-flashcards', label: 'YouTube to flashcards' },
+      { to: '/lecture-to-notes', label: 'Lecture to notes' },
+      { to: '/video-to-quiz', label: 'Video to quiz' },
+      { to: '/youtube-to-text', label: 'YouTube to text' },
+      { to: '/youtube-transcript-to-pdf', label: 'Transcript to PDF' },
+    ],
+  },
+  {
+    heading: 'Bilingual flashcards',
+    links: [
+      { to: '/flashcards-in-arabic', label: 'Arabic' },
+      { to: '/flashcards-in-spanish', label: 'Spanish' },
+      { to: '/flashcards-in-french', label: 'French' },
+      { to: '/flashcards-in-german', label: 'German' },
+      { to: '/flashcards-in-turkish', label: 'Turkish' },
+      { to: '/flashcards-in-portuguese', label: 'Portuguese' },
+      { to: '/flashcards-in-hindi', label: 'Hindi' },
+    ],
+  },
+  {
+    heading: 'Company',
+    links: [
+      { to: '/about', label: 'About' },
+      { to: '/privacy', label: 'Privacy' },
+      { to: '/terms', label: 'Terms' },
+      { to: '/refund', label: 'Refund policy' },
+    ],
+  },
+];
 
-      {/* SEO Tools & Bilingual Study Pack Links */}
-      <div className="pt-5 border-t border-slate-100 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted">
-        <span className="font-bold text-ink">Study Tools:</span>
-        <Link to="/youtube-lecture-to-flashcards" className="hover:text-accent">YouTube to Flashcards</Link>
-        <Link to="/lecture-to-notes" className="hover:text-accent">Lecture to Notes</Link>
-        <Link to="/video-to-quiz" className="hover:text-accent">Video to Quiz</Link>
-        <Link to="/youtube-to-text" className="hover:text-accent">YouTube to Text</Link>
-        <Link to="/youtube-transcript-to-pdf" className="hover:text-accent">Transcript to PDF</Link>
-        <Link to="/flashcards-in-arabic" className="hover:text-accent">Flashcards in Arabic</Link>
-        <Link to="/flashcards-in-spanish" className="hover:text-accent">Flashcards in Spanish</Link>
-        <Link to="/flashcards-in-french" className="hover:text-accent">Flashcards in French</Link>
-        <Link to="/flashcards-in-german" className="hover:text-accent">Flashcards in German</Link>
-        <Link to="/flashcards-in-turkish" className="hover:text-accent">Flashcards in Turkish</Link>
-        <Link to="/flashcards-in-portuguese" className="hover:text-accent">Flashcards in Portuguese</Link>
-        <Link to="/flashcards-in-hindi" className="hover:text-accent">Flashcards in Hindi</Link>
+export const Footer: React.FC = () => (
+  <footer className="border-t border-rule bg-surface mt-24">
+    <div className="max-w-6xl mx-auto px-4 sm:px-5 py-12">
+      <div className="grid grid-cols-2 md:grid-cols-12 gap-x-6 gap-y-10">
+        <div className="col-span-2 md:col-span-4">
+          <Logo variant="full" size="sm" />
+          <p className="mt-3 max-w-xs text-sm leading-relaxed text-muted">
+            No account needed. On the free plan, your notes stay on your device.
+          </p>
+        </div>
+        {COLUMNS.map((col) => (
+          <nav key={col.heading} aria-label={col.heading} className="md:col-span-2">
+            <p className="text-sm font-semibold text-ink">{col.heading}</p>
+            <ul className="mt-3 space-y-2 text-sm">
+              {col.links.map((l) => (
+                <li key={l.to}>
+                  <Link to={l.to} className="text-muted hover:text-ink transition-colors">
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ))}
       </div>
+      <p className="mt-12 pt-6 border-t border-rule text-xs text-muted">
+        © {new Date().getFullYear()} LearnFromClip
+      </p>
     </div>
   </footer>
 );

@@ -382,7 +382,7 @@ export const FormattedContent: React.FC<{ text: string }> = ({ text }) => {
             return (
               <pre
                 key={idx}
-                className="p-3.5 rounded-xl bg-slate-900 text-slate-100 text-[13px] font-mono overflow-x-auto leading-relaxed"
+                className="p-3.5 rounded-md bg-slate-900 text-slate-100 text-[13px] font-mono overflow-x-auto leading-relaxed"
               >
                 <code>{node.code}</code>
               </pre>

@@ -3,17 +3,17 @@ import { Link } from '../router';
 
 export const PrivacyPage: React.FC = () => (
   <div className="max-w-4xl mx-auto px-4 sm:px-5 pt-10 sm:pt-14 pb-16">
-    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent-soft text-accent text-xs font-bold">
+    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
       Privacy Policy
     </div>
-    <h1 className="mt-3 text-3xl sm:text-5xl font-black tracking-tight text-ink leading-[1.1]">
+    <h1 className="mt-3 text-3xl sm:text-5xl font-medium tracking-tight text-ink leading-[1.1]">
       Privacy & Data Storage
     </h1>
     <p className="mt-3 text-base sm:text-lg text-muted">
       No account needed for the free plan. Your study materials remain entirely yours.
     </p>
 
-    <article className="mt-8 bg-surface border border-rule rounded-2xl p-6 sm:p-8 shadow-sm space-y-6 text-sm sm:text-base text-ink/90 leading-relaxed">
+    <article className="mt-8 bg-surface border border-rule rounded-lg p-6 sm:p-8 space-y-6 text-sm sm:text-base text-ink/90 leading-relaxed">
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">1. Free Plan (Local Device Storage)</h2>
         <p>
@@ -57,17 +57,17 @@ export const PrivacyPage: React.FC = () => (
 
 export const TermsPage: React.FC = () => (
   <div className="max-w-4xl mx-auto px-4 sm:px-5 pt-10 sm:pt-14 pb-16">
-    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent-soft text-accent text-xs font-bold">
+    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
       Terms of Service
     </div>
-    <h1 className="mt-3 text-3xl sm:text-5xl font-black tracking-tight text-ink leading-[1.1]">
+    <h1 className="mt-3 text-3xl sm:text-5xl font-medium tracking-tight text-ink leading-[1.1]">
       Terms of Use
     </h1>
     <p className="mt-3 text-base sm:text-lg text-muted">
       Clear terms for students, educators, and lifelong learners using LearnFromClip.
     </p>
 
-    <article className="mt-8 bg-surface border border-rule rounded-2xl p-6 sm:p-8 shadow-sm space-y-6 text-sm sm:text-base text-ink/90 leading-relaxed">
+    <article className="mt-8 bg-surface border border-rule rounded-lg p-6 sm:p-8 space-y-6 text-sm sm:text-base text-ink/90 leading-relaxed">
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">1. Educational & Personal Use</h2>
         <p>
@@ -111,17 +111,17 @@ export const TermsPage: React.FC = () => (
 
 export const RefundPolicyPage: React.FC = () => (
   <div className="max-w-4xl mx-auto px-4 sm:px-5 pt-10 sm:pt-14 pb-16">
-    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold border border-emerald-200">
+    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
       14-Day Money-Back Guarantee
     </div>
-    <h1 className="mt-3 text-3xl sm:text-5xl font-black tracking-tight text-ink leading-[1.1]">
+    <h1 className="mt-3 text-3xl sm:text-5xl font-medium tracking-tight text-ink leading-[1.1]">
       Refund Policy
     </h1>
     <p className="mt-3 text-base sm:text-lg text-muted">
       We stand behind LearnFromClip with a hassle-free, 100% money-back guarantee.
     </p>
 
-    <article className="mt-8 bg-surface border border-rule rounded-2xl p-6 sm:p-8 shadow-sm space-y-6 text-sm sm:text-base text-ink/90 leading-relaxed">
+    <article className="mt-8 bg-surface border border-rule rounded-lg p-6 sm:p-8 space-y-6 text-sm sm:text-base text-ink/90 leading-relaxed">
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">1. 14-Day 100% Money-Back Guarantee</h2>
         <p>

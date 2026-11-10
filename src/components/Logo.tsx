@@ -92,11 +92,11 @@ export const Logo: React.FC<LogoProps> = ({
 
       {/* Wordmark: LearnFrom (#021433) + Clip (blue-violet gradient) */}
       {variant === 'full' && (
-        <span className={`font-black tracking-tight leading-none ${textSizes}`}>
+        <span className={`font-semibold tracking-tight leading-none ${textSizes}`}>
           <span className="text-[#021433]">
             LearnFrom
           </span>
-          <span className="bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] bg-clip-text text-transparent">
+          <span className="text-accent">
             Clip
           </span>
         </span>

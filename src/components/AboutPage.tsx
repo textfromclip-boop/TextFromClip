@@ -16,12 +16,12 @@ const H2: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children 
 
 export const AboutPage: React.FC = () => (
   <div className="max-w-6xl mx-auto px-5 pt-12 pb-6">
-    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent-soft text-accent text-xs font-semibold">
+    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
       About LearnFromClip
     </div>
-    <h1 className="mt-3 text-4xl sm:text-5xl font-black tracking-tight text-ink leading-[1.1]">
+    <h1 className="mt-3 text-4xl sm:text-5xl font-medium tracking-tight text-ink leading-[1.1]">
       2-hour lecture →{' '}
-      <span className="bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] bg-clip-text text-transparent">
+      <span>
         10-minute revision pack.
       </span>
     </h1>
@@ -46,7 +46,7 @@ export const AboutPage: React.FC = () => (
         </ul>
       </nav>
 
-      <article className="min-w-0 max-w-3xl bg-surface border border-rule rounded-2xl p-5 sm:p-8 shadow-sm leading-relaxed space-y-4 text-ink/90 [&_a]:text-accent [&_a]:font-semibold [&_a]:underline">
+      <article className="min-w-0 max-w-3xl bg-surface border border-rule rounded-lg p-5 sm:p-8 leading-relaxed space-y-4 text-ink/90 [&_a]:text-accent [&_a]:font-semibold [&_a]:underline">
         <H2 id="what">What this is</H2>
         <p>
           LearnFromClip turns public lectures and educational clips from YouTube, TikTok, Instagram, and local audio/video recordings into a complete revision pack: a searchable timestamped transcript, structured notes, active-recall flashcards, and a 10-question multiple-choice quiz.

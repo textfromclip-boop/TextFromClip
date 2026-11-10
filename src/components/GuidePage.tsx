@@ -17,12 +17,12 @@ const H2: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children 
 
 export const GuidePage: React.FC = () => (
   <div className="max-w-6xl mx-auto px-5 pt-12 pb-6">
-    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent-soft text-accent text-xs font-semibold">
+    <div className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
       Help & Documentation
     </div>
-    <h1 className="mt-3 text-4xl sm:text-5xl font-black tracking-tight text-ink leading-[1.1]">
+    <h1 className="mt-3 text-4xl sm:text-5xl font-medium tracking-tight text-ink leading-[1.1]">
       Platform & Export{' '}
-      <span className="bg-gradient-to-r from-[#0F8CFA] via-[#2868F7] to-[#5131ED] bg-clip-text text-transparent">
+      <span>
         Guide
       </span>
     </h1>
@@ -47,7 +47,7 @@ export const GuidePage: React.FC = () => (
         </ul>
       </nav>
 
-      <article className="min-w-0 max-w-3xl bg-surface border border-rule rounded-2xl p-5 sm:p-8 shadow-sm leading-relaxed space-y-4 text-ink/90 [&_a]:text-accent [&_a]:font-semibold [&_a]:underline">
+      <article className="min-w-0 max-w-3xl bg-surface border border-rule rounded-lg p-5 sm:p-8 leading-relaxed space-y-4 text-ink/90 [&_a]:text-accent [&_a]:font-semibold [&_a]:underline">
         <H2 id="quick-start">Quick start</H2>
         <ol className="list-decimal pl-5 space-y-2">
           <li>
@@ -67,7 +67,7 @@ export const GuidePage: React.FC = () => (
         </ol>
 
         <H2 id="links">Which links work</H2>
-        <div className="overflow-x-auto rounded-xl border border-rule">
+        <div className="overflow-x-auto rounded-md border border-rule">
           <table className="w-full text-sm border-collapse">
             <thead>
               <tr className="text-left bg-slate-50 border-b border-rule">

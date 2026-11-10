@@ -130,185 +130,140 @@ export const SEO_LANDING_PAGES: Record<string, SeoLandingSpec> = {
   },
 };
 
+const HOME_STEPS: { title: string; body: React.ReactNode }[] = [
+  {
+    title: 'Paste a link or upload a recording',
+    body: 'YouTube lectures, TikToks, Instagram Reels, or an MP4, MP3 or WAV from your device. Up to 2 hours free, 4 hours on a paid pass.',
+  },
+  {
+    title: 'Make your revision pack',
+    body: 'You get structured notes, up to 30 flashcards and a 10-question quiz. Anything whose quote is not in the transcript is thrown away.',
+  },
+  {
+    title: 'Study it, or take it with you',
+    body: (
+      <>
+        Review cards with spaced repetition, tap <span className="font-mono text-[13px] text-accent">From lecture · 12:04</span> to
+        replay the moment, or export to PDF, Anki and Markdown.
+      </>
+    ),
+  },
+];
+
+const HOME_FAQ: { q: string; a: string }[] = [
+  {
+    q: 'How do I know the AI didn’t make things up?',
+    a: 'Every note, flashcard and quiz question must carry a word-for-word quote from the lecture transcript. The server checks each quote against the transcript near the timestamp and drops anything it cannot find.',
+  },
+  {
+    q: 'Do I need an account?',
+    a: 'No. On the free plan your notes, decks and review schedule stay in your browser on your device.',
+  },
+  {
+    q: 'Do the Exam Pass or Semester Pass renew automatically?',
+    a: 'No. The 7-day Exam Pass ($2.99) and the 4-month Semester Pass ($14.99) are one-time payments. Only the Monthly plan renews, and you can cancel it anytime.',
+  },
+  {
+    q: 'Can I study in Arabic, Spanish or Turkish?',
+    a: 'Yes. Pick a second language (Arabic, Spanish, French, German, Turkish, Portuguese or Hindi) and each card keeps the original wording with a translation underneath. Arabic renders right-to-left, including in PDF and Anki exports.',
+  },
+];
+
 export const HomeSectionsBelowTool: React.FC = () => (
-  <div className="max-w-6xl mx-auto px-4 sm:px-5 pb-16 space-y-16">
-    {/* 1. The 2-Minute Demo Flow */}
-    <section aria-label="How LearnFromClip works in 2 minutes" className="pt-8 border-t border-rule">
-      <div className="text-center max-w-2xl mx-auto">
-        <span className="inline-block px-3 py-1 rounded-full bg-accent-soft text-accent text-xs font-bold">
-          The 2-Minute Study Workflow
-        </span>
-        <h2 className="mt-3 text-2xl sm:text-4xl font-black tracking-tight text-ink">
-          A lecture goes in. A trustworthy study pack comes out.
-        </h2>
-        <p className="mt-2 text-sm sm:text-base text-muted">
-          No generic AI fluff. Every single note, flashcard, and quiz question is anchored to a verified quote from your lecturer.
+  <div className="max-w-6xl mx-auto px-4 sm:px-5 pb-8">
+    {/* How it works */}
+    <section aria-label="How LearnFromClip works" className="pt-14 sm:pt-20 border-t border-rule">
+      <h2 className="max-w-2xl text-3xl sm:text-4xl text-ink leading-tight">
+        A lecture goes in. A study pack you can check comes out.
+      </h2>
+      <ol className="mt-10 grid md:grid-cols-3 gap-x-10 gap-y-8">
+        {HOME_STEPS.map((step, idx) => (
+          <li key={step.title} className="border-t border-ink pt-4">
+            <span className="font-serif text-2xl text-muted">{idx + 1}</span>
+            <h3 className="mt-2 text-base font-semibold text-ink">{step.title}</h3>
+            <p className="mt-1.5 text-[15px] leading-relaxed text-muted">{step.body}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    {/* Accuracy */}
+    <section aria-label="Source-linked revision pack preview" className="mt-20 sm:mt-28 grid lg:grid-cols-12 gap-10 items-start">
+      <div className="lg:col-span-5">
+        <h2 className="text-3xl sm:text-4xl text-ink leading-tight">Every point shows where it came from.</h2>
+        <p className="mt-4 text-[15px] sm:text-base leading-relaxed text-muted">
+          Each note, card and question carries the lecturer’s exact words and the timestamp they were said at. If we add
+          context of our own, it sits in a separate box labelled <strong className="text-ink font-semibold">AI explanation</strong>,
+          never mixed into what your lecturer said.
         </p>
-      </div>
-
-      <div className="mt-8 grid md:grid-cols-3 gap-6">
-        <div className="rounded-2xl border border-rule bg-surface p-6 shadow-sm">
-          <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-accent-soft text-accent font-mono font-bold text-sm">
-            1
-          </span>
-          <h3 className="mt-3 text-base font-extrabold text-ink">
-            Paste a link or upload audio/video
-          </h3>
-          <p className="mt-1.5 text-sm text-muted leading-relaxed">
-            Works with YouTube lectures, TikToks, Instagram Reels, or local MP4/MP3/WAV recordings up to 2 hours free (4 hours on paid passes).
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-rule bg-surface p-6 shadow-sm">
-          <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-accent-soft text-accent font-mono font-bold text-sm">
-            2
-          </span>
-          <h3 className="mt-3 text-base font-extrabold text-ink">
-            Click “Make my revision pack”
-          </h3>
-          <p className="mt-1.5 text-sm text-muted leading-relaxed">
-            Generates structured notes, 30 flashcards (with optional bilingual translation), and a 10-question quiz—dropping any item whose quote isn’t found in the transcript.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-rule bg-surface p-6 shadow-sm">
-          <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-accent-soft text-accent font-mono font-bold text-sm">
-            3
-          </span>
-          <h3 className="mt-3 text-base font-extrabold text-ink">
-            Review daily or export anywhere
-          </h3>
-          <p className="mt-1.5 text-sm text-muted leading-relaxed">
-            Flip cards with SM-2 spaced repetition, click <strong>From lecture · 12:04</strong> to replay the exact moment, or export to PDF, Anki CSV, and Markdown.
-          </p>
-        </div>
-      </div>
-    </section>
-
-    {/* 2. Product Preview Showcase (Accuracy & Source Verification) */}
-    <section
-      aria-label="Source-linked revision pack preview"
-      className="rounded-2xl bg-gradient-to-r from-[#021433] via-[#0B2559] to-[#1E1B4B] p-6 sm:p-10 text-white shadow-xl"
-    >
-      <div className="grid lg:grid-cols-12 gap-8 items-center">
-        <div className="lg:col-span-5">
-          <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 text-xs font-bold">
-            Zero Hallucinated Facts
-          </span>
-          <h2 className="mt-3 text-2xl sm:text-3xl font-black leading-tight text-white">
-            Every point proves where it came from.
-          </h2>
-          <p className="mt-3 text-sm text-slate-300 leading-relaxed">
-            Every note bullet, flashcard, and quiz question carries an exact word-for-word quote verified against your transcript. Anything the AI adds for extra clarity is placed in a separate <strong>AI explanation</strong> box—never mixed into what your professor said.
-          </p>
-          <div className="mt-5 flex flex-wrap gap-3">
-            <Link
-              to="/study"
-              className="px-4 py-2.5 rounded-xl bg-white text-[#021433] font-bold text-xs sm:text-sm"
-            >
-              Open Study Mode →
-            </Link>
-            <Link
-              to="/pricing"
-              className="px-4 py-2.5 rounded-xl bg-white/10 text-white border border-white/20 font-bold text-xs sm:text-sm"
-            >
-              See Exam & Semester Passes
-            </Link>
-          </div>
-        </div>
-
-        <div className="lg:col-span-7">
-          <div className="rounded-2xl bg-surface text-ink p-5 shadow-2xl border border-slate-200 space-y-3">
-            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted">
-                Sample Verified Note & Flashcard
-              </span>
-              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-accent-soft text-accent">
-                ▶ From lecture · 12:04
-              </span>
-            </div>
-            <p className="text-sm font-semibold text-ink">
-              <span className="font-bold bg-amber-100 px-1.5 py-0.5 rounded mr-1.5">
-                Oxidative Phosphorylation:
-              </span>
-              Occurs across the inner mitochondrial membrane via the electron transport chain to synthesize ATP.
-            </p>
-            <p className="text-xs text-muted italic border-l-2 border-slate-300 pl-2.5">
-              Verbatim lecture quote: “Oxidative phosphorylation occurs across the inner mitochondrial membrane via the electron transport chain.”
-            </p>
-            <div className="p-3 rounded-xl bg-[#F5F3FF] border border-[#502EF0]/25 text-xs text-[#1E1B4B]">
-              <span className="inline-block px-2 py-0.5 mr-2 rounded bg-[#502EF0] text-white font-bold text-[10px] uppercase">
-                AI explanation
-              </span>
-              Complexes I–IV establish the proton gradient that drives ATP synthase (Complex V).
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    {/* 3. Pricing Teaser */}
-    <section aria-label="Pricing teaser" className="rounded-2xl border border-rule bg-surface p-6 sm:p-8 shadow-sm">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
-        <div>
-          <span className="text-xs font-mono font-bold uppercase text-accent">
-            Built for Student Budgets
-          </span>
-          <h2 className="mt-1 text-2xl font-black text-ink">
-            Free forever to start. Exam Pass from $2.99.
-          </h2>
-          <p className="mt-1 text-sm text-muted">
-            Less than the price of one coffee a month. No account needed on the free plan—your notes stay on your device.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 shrink-0">
+        <div className="mt-6 flex flex-wrap gap-3">
+          <Link
+            to="/study"
+            className="px-4 py-2.5 rounded-md bg-ink text-white text-sm font-semibold hover:bg-ink/90 transition-colors"
+          >
+            Open study mode
+          </Link>
           <Link
             to="/pricing"
-            className="px-5 py-3 rounded-xl font-extrabold text-xs sm:text-sm text-white bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] shadow-md"
+            className="px-4 py-2.5 rounded-md border border-rule bg-surface text-ink text-sm font-semibold hover:border-ink transition-colors"
           >
-            Compare Free, Exam & Semester Passes →
+            See plans
           </Link>
         </div>
       </div>
+
+      <figure className="lg:col-span-7">
+        <div className="rounded-lg border border-rule bg-surface p-5 sm:p-7">
+          <div className="flex items-center justify-between text-xs text-muted">
+            <span className="font-semibold uppercase tracking-[0.12em]">From a pack</span>
+            <span className="font-mono text-accent">From lecture · 12:04</span>
+          </div>
+          <p className="mt-4 text-base sm:text-lg leading-relaxed text-ink">
+            <strong className="font-semibold">Oxidative phosphorylation</strong> occurs across the inner mitochondrial
+            membrane, using the electron transport chain to make ATP.
+          </p>
+          <p className="mt-3 text-[15px] leading-relaxed text-ink/80">
+            <span className="quote-mark">
+              “Oxidative phosphorylation occurs across the inner mitochondrial membrane via the electron transport chain.”
+            </span>
+          </p>
+          <div className="mt-5 border-l-2 border-[#502EF0] pl-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#502EF0]">AI explanation</p>
+            <p className="mt-1 text-sm leading-relaxed text-muted">
+              Complexes I–IV establish the proton gradient that drives ATP synthase (Complex V).
+            </p>
+          </div>
+        </div>
+      </figure>
     </section>
 
-    {/* 4. Student FAQ */}
-    <section aria-label="Frequently Asked Questions">
-      <h2 className="text-2xl font-black text-ink mb-5">Frequently Asked Questions</h2>
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="rounded-2xl border border-rule bg-surface p-5">
-          <h3 className="font-bold text-ink text-sm sm:text-base">
-            How do I know the AI didn’t make up facts?
-          </h3>
-          <p className="mt-1.5 text-xs sm:text-sm text-muted leading-relaxed">
-            Every note bullet, flashcard, and quiz question must carry a word-for-word quote from the lecture transcript. Our server checks every quote against the transcript and automatically drops any item that cannot be verified.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-rule bg-surface p-5">
-          <h3 className="font-bold text-ink text-sm sm:text-base">
-            Do I need an account to use LearnFromClip?
-          </h3>
-          <p className="mt-1.5 text-xs sm:text-sm text-muted leading-relaxed">
-            No account needed. On the free plan, your notes, decks, and spaced-repetition schedule stay on your device in your browser.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-rule bg-surface p-5">
-          <h3 className="font-bold text-ink text-sm sm:text-base">
-            Does the 7-day Exam Pass or Semester Pass auto-renew?
-          </h3>
-          <p className="mt-1.5 text-xs sm:text-sm text-muted leading-relaxed">
-            Never. Both the 7-day Exam Pass ($2.99) and the 4-month Semester Pass ($14.99) are one-time payments with zero auto-renewal.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-rule bg-surface p-5">
-          <h3 className="font-bold text-ink text-sm sm:text-base">
-            Can I study flashcards in Arabic, Spanish, or Turkish?
-          </h3>
-          <p className="mt-1.5 text-xs sm:text-sm text-muted leading-relaxed">
-            Yes! Choose a second language (Arabic, Spanish, French, German, Turkish, Portuguese, or Hindi) to keep the original lecture terminology on top and add a fluent translation underneath, including RTL Arabic PDF and Anki exports.
-          </p>
-        </div>
+    {/* Plans */}
+    <section aria-label="Student pricing" className="mt-20 sm:mt-28 border-y border-rule py-8 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+      <div>
+        <h2 className="text-2xl sm:text-3xl text-ink">Free to start. Exam Pass from $2.99.</h2>
+        <p className="mt-1.5 text-[15px] text-muted">
+          No account needed on the free plan. Passes are one-time payments and never renew on their own.
+        </p>
       </div>
+      <Link
+        to="/pricing"
+        className="shrink-0 self-start sm:self-auto px-4 py-2.5 rounded-md bg-accent text-white text-sm font-semibold hover:bg-accent-dark transition-colors"
+      >
+        Compare plans
+      </Link>
+    </section>
+
+    {/* FAQ */}
+    <section aria-label="Frequently Asked Questions" className="mt-20 sm:mt-28 grid lg:grid-cols-12 gap-x-10 gap-y-6">
+      <h2 className="lg:col-span-4 text-3xl sm:text-4xl text-ink leading-tight">Questions students ask</h2>
+      <dl className="lg:col-span-8 border-t border-rule">
+        {HOME_FAQ.map((item) => (
+          <div key={item.q} className="py-5 border-b border-rule">
+            <dt className="text-base font-semibold text-ink">{item.q}</dt>
+            <dd className="mt-1.5 text-[15px] leading-relaxed text-muted">{item.a}</dd>
+          </div>
+        ))}
+      </dl>
     </section>
   </div>
 );

@@ -589,40 +589,31 @@ export const TranscriptResultView: React.FC<Props> = ({
 
   return (
     <div className="mt-8 space-y-6">
-      {/* PRIMARY CTA BANNER: Make my revision pack */}
-      <div className="rounded-2xl bg-gradient-to-r from-[#021433] via-[#0B2559] to-[#1E1B4B] p-5 sm:p-6 text-white shadow-xl border border-slate-800">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      {/* Revision pack generator: a plain, light action bar */}
+      <div className="rounded-lg border border-rule bg-surface p-5 sm:p-6">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div>
-            <div className="inline-flex items-center gap-2 px-2.5 py-0.5 rounded-full bg-white/10 text-sky-300 text-xs font-semibold">
-              <span>⚡ Study Pack Generator</span>
-              <span>·</span>
-              <span>Notes + Flashcards + 10-Q Quiz</span>
-            </div>
-            <h3 className="mt-2 text-xl sm:text-2xl font-black tracking-tight text-white">
-              Turn this transcript into your revision pack
-            </h3>
-            <p className="mt-1 text-xs sm:text-sm text-slate-300 max-w-2xl">
-              Generates structured lecture notes, active-recall flashcards, and a 10-question mock exam — every single point linked to the exact lecture timestamp.
+            <h3 className="font-serif text-2xl text-ink">Turn this transcript into a revision pack</h3>
+            <p className="mt-1 text-sm sm:text-[15px] text-muted max-w-2xl">
+              Structured notes, flashcards and a 10-question quiz. Every point links to the moment it was said.
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 shrink-0">
-            <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/10 border border-white/20 text-xs">
-              <label htmlFor="bilingual-select" className="text-slate-200 font-medium whitespace-nowrap">
-                Bilingual cards:
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2 text-sm">
+              <label htmlFor="bilingual-select" className="text-muted whitespace-nowrap">
+                Bilingual cards
               </label>
               <select
                 id="bilingual-select"
                 value={packSecondLang}
                 disabled={packLoading}
                 onChange={(e) => setPackSecondLang(e.target.value)}
-                className="bg-transparent font-bold text-white focus:outline-none cursor-pointer"
+                className="rounded-md border border-rule bg-surface px-2.5 py-2 text-sm font-medium text-ink focus:outline-none focus:border-accent cursor-pointer"
               >
-                <option value="" className="text-ink">
-                  None (Original only)
-                </option>
+                <option value="">None (Original only)</option>
                 {BILINGUAL_LANGUAGES.map((lang) => (
-                  <option key={lang} value={lang} className="text-ink">
+                  <option key={lang} value={lang}>
                     + {lang}
                   </option>
                 ))}
@@ -633,7 +624,7 @@ export const TranscriptResultView: React.FC<Props> = ({
               type="button"
               disabled={packLoading}
               onClick={() => makeRevisionPack()}
-              className="inline-flex items-center justify-center gap-2.5 px-6 py-3.5 rounded-xl font-extrabold text-sm sm:text-base text-white bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] shadow-lg hover:opacity-95 disabled:opacity-60 transition-all"
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-md font-semibold text-[15px] text-white bg-accent hover:bg-accent-dark disabled:opacity-60 transition-colors"
             >
               {packLoading ? (
                 <>
@@ -644,28 +635,24 @@ export const TranscriptResultView: React.FC<Props> = ({
                   <span>Building revision pack…</span>
                 </>
               ) : (
-                <>
-                  <span>Make my revision pack</span>
-                  <span aria-hidden="true">→</span>
-                </>
+                <span>Make my revision pack</span>
               )}
             </button>
           </div>
         </div>
 
-        {/* Multi-step progress bar while Revision Pack is generating */}
         {packLoading && packProgress && (
-          <div className="mt-4 p-4 rounded-xl bg-white/10 border border-white/15">
-            <div className="flex items-center justify-between gap-2 text-xs">
-              <span className="font-bold text-white text-sm">{packProgress.stage}</span>
-              <span className="font-mono font-semibold text-sky-200 bg-white/10 px-2.5 py-0.5 rounded-full">
+          <div className="mt-5 pt-4 border-t border-rule">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="font-semibold text-ink">{packProgress.stage}</span>
+              <span className="font-mono text-xs text-muted">
                 Step {packProgress.step} of {packProgress.totalSteps} · {packProgress.percent}%
               </span>
             </div>
-            <p className="mt-1 text-xs text-slate-300">{packProgress.detail}</p>
-            <div className="mt-2.5 h-2 w-full rounded-full bg-white/15 overflow-hidden">
+            <p className="mt-0.5 text-xs text-muted">{packProgress.detail}</p>
+            <div className="mt-2.5 h-1 w-full rounded-full bg-slate-200 overflow-hidden">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] transition-all duration-500 ease-out"
+                className="h-full rounded-full bg-accent transition-all duration-500 ease-out"
                 style={{ width: `${packProgress.percent}%` }}
               />
             </div>
@@ -673,7 +660,7 @@ export const TranscriptResultView: React.FC<Props> = ({
         )}
 
         {packError && (
-          <div role="alert" className="mt-4 p-3.5 rounded-xl bg-red-500/20 border border-red-400/40 text-red-100 text-xs sm:text-sm">
+          <div role="alert" className="mt-4 p-3.5 rounded-md bg-red-50 border border-red-200 text-red-900 text-sm">
             {packError}
             {/limit|used all|upgrade|quiz per day/i.test(packError) && (
               <a
@@ -682,7 +669,7 @@ export const TranscriptResultView: React.FC<Props> = ({
                   e.preventDefault();
                   navigate('/pricing');
                 }}
-                className="ml-2 inline-flex items-center px-3 py-1 rounded-lg bg-white text-[#021433] text-xs font-bold"
+                className="ml-2 inline-flex items-center px-3 py-1 rounded-md bg-ink text-white text-xs font-semibold"
               >
                 See plans & upgrade →
               </a>
@@ -714,13 +701,13 @@ export const TranscriptResultView: React.FC<Props> = ({
       {/* EXISTING TIMESTAMPED TRANSCRIPT TOOL */}
       <section
         id="transcript-result"
-        className="rounded-2xl bg-surface border border-rule shadow-[0_16px_44px_-12px_rgba(2,20,51,0.08)]"
+        className="rounded-lg bg-surface border border-rule"
       >
         {/* 1. Video Metadata Card Header */}
         <div className="p-4 sm:p-6 border-b border-rule bg-slate-50/70 rounded-t-2xl">
           <div className="flex flex-col sm:flex-row items-start gap-4 sm:gap-5">
             {result.videoThumbnailUrl ? (
-              <div className="relative shrink-0 w-full sm:w-36 aspect-video rounded-xl overflow-hidden bg-slate-900 border border-slate-200/90 shadow-sm">
+              <div className="relative shrink-0 w-full sm:w-36 aspect-video rounded-md overflow-hidden bg-slate-900 border border-slate-200/90">
                 <img
                   src={result.videoThumbnailUrl}
                   alt={result.videoTitle || 'Video thumbnail'}
@@ -807,7 +794,7 @@ export const TranscriptResultView: React.FC<Props> = ({
                   : 'border-transparent text-muted hover:text-ink'
               }`}
             >
-              <span>✨ {transformLabel}</span>
+              <span>{transformLabel}</span>
             </button>
           )}
 
@@ -822,7 +809,7 @@ export const TranscriptResultView: React.FC<Props> = ({
               }`}
             >
               <span>
-                🌐{' '}
+                
                 {translatedSourceKind === 'transform'
                   ? `${translatedSourceLabel} (${translatedLang || 'Translated'})`
                   : translatedLang || 'Translated'}
@@ -842,7 +829,7 @@ export const TranscriptResultView: React.FC<Props> = ({
                 setLastContentTab('original');
                 setShowTimes((prev) => !prev);
               }}
-              className="inline-flex items-center justify-center sm:justify-start gap-2 px-3 py-2 sm:px-3.5 rounded-xl border border-rule bg-surface hover:border-slate-300 text-xs sm:text-sm font-semibold text-ink transition-colors"
+              className="inline-flex items-center justify-center sm:justify-start gap-2 px-3 py-2 sm:px-3.5 rounded-md border border-rule bg-surface hover:border-slate-300 text-xs sm:text-sm font-semibold text-ink transition-colors"
               title={showTimes ? 'Switch to clean paragraph mode' : 'Show segment timestamps'}
             >
               <span
@@ -867,7 +854,7 @@ export const TranscriptResultView: React.FC<Props> = ({
                 setLastContentTab('original');
                 setIsEditing((prev) => !prev);
               }}
-              className={`inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 sm:px-3.5 rounded-xl border text-xs sm:text-sm font-semibold transition-colors ${
+              className={`inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 sm:px-3.5 rounded-md border text-xs sm:text-sm font-semibold transition-colors ${
                 isEditing
                   ? 'border-accent bg-accent-soft text-accent'
                   : 'border-rule bg-surface text-ink hover:border-slate-300'
@@ -887,7 +874,7 @@ export const TranscriptResultView: React.FC<Props> = ({
             <button
               type="button"
               onClick={copy}
-              className="inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 sm:px-3.5 rounded-xl border border-rule bg-surface hover:border-accent hover:text-accent text-xs sm:text-sm font-semibold text-ink transition-colors"
+              className="inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 sm:px-3.5 rounded-md border border-rule bg-surface hover:border-accent hover:text-accent text-xs sm:text-sm font-semibold text-ink transition-colors"
             >
               <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
@@ -905,7 +892,7 @@ export const TranscriptResultView: React.FC<Props> = ({
                   setTranslateMenuOpen(false);
                   setDownloadMenuOpen(false);
                 }}
-                className="w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 sm:px-3.5 rounded-xl border border-rule bg-surface hover:border-accent hover:text-accent text-xs sm:text-sm font-semibold text-ink transition-colors"
+                className="w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 sm:px-3.5 rounded-md border border-rule bg-surface hover:border-accent hover:text-accent text-xs sm:text-sm font-semibold text-ink transition-colors"
               >
                 <svg className="w-4 h-4 text-accent shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path
@@ -921,7 +908,7 @@ export const TranscriptResultView: React.FC<Props> = ({
               </button>
 
               {transformMenuOpen && (
-                <div className="absolute right-0 sm:left-0 sm:right-auto mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-2xl bg-surface border border-rule shadow-xl py-2 z-30">
+                <div className="absolute right-0 sm:left-0 sm:right-auto mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-lg bg-surface border border-rule py-2 z-30">
                   <div className="px-3.5 py-1.5 text-[11px] font-mono uppercase tracking-wider text-muted border-b border-slate-100">
                     Quick AI Formats
                   </div>
@@ -949,7 +936,7 @@ export const TranscriptResultView: React.FC<Props> = ({
                   setTransformMenuOpen(false);
                   setDownloadMenuOpen(false);
                 }}
-                className="w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 sm:px-3.5 rounded-xl border border-rule bg-surface hover:border-accent hover:text-accent text-xs sm:text-sm font-semibold text-ink transition-colors"
+                className="w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-1.5 px-3 py-2 sm:px-3.5 rounded-md border border-rule bg-surface hover:border-accent hover:text-accent text-xs sm:text-sm font-semibold text-ink transition-colors"
               >
                 <svg className="w-4 h-4 text-accent shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path
@@ -965,7 +952,7 @@ export const TranscriptResultView: React.FC<Props> = ({
               </button>
 
               {translateMenuOpen && (
-                <div className="absolute left-0 mt-2 w-52 max-w-[calc(100vw-2rem)] max-h-72 overflow-y-auto rounded-2xl bg-surface border border-rule shadow-xl py-1.5 z-30">
+                <div className="absolute left-0 mt-2 w-52 max-w-[calc(100vw-2rem)] max-h-72 overflow-y-auto rounded-lg bg-surface border border-rule py-1.5 z-30">
                   <div className="px-3.5 py-1.5 text-[11px] font-mono uppercase tracking-wider text-muted border-b border-slate-100">
                     Select Language
                   </div>
@@ -992,7 +979,7 @@ export const TranscriptResultView: React.FC<Props> = ({
                   setTransformMenuOpen(false);
                   setTranslateMenuOpen(false);
                 }}
-                className="w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] text-white shadow-sm hover:opacity-95 transition-opacity"
+                className="w-full sm:w-auto inline-flex items-center justify-center sm:justify-start gap-1.5 px-4 py-2 rounded-md text-xs sm:text-sm font-semibold bg-accent text-white hover:bg-accent-dark transition-opacity"
               >
                 <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1004,7 +991,7 @@ export const TranscriptResultView: React.FC<Props> = ({
               </button>
 
               {downloadMenuOpen && (
-                <div className="absolute right-0 sm:left-0 sm:right-auto mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-2xl bg-surface border border-rule shadow-xl py-2 z-30">
+                <div className="absolute right-0 sm:left-0 sm:right-auto mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-lg bg-surface border border-rule py-2 z-30">
                   <button
                     type="button"
                     onClick={() => download(activeCopyText, 'txt', 'text/plain')}
@@ -1064,7 +1051,7 @@ export const TranscriptResultView: React.FC<Props> = ({
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search words in transcript…"
-                  className="w-full pl-9 pr-3 py-1.5 text-base sm:text-sm rounded-xl border border-rule bg-slate-50/60 text-ink placeholder:text-slate-400 focus:bg-surface focus:outline-none focus:border-accent"
+                  className="w-full pl-9 pr-3 py-1.5 text-base sm:text-sm rounded-md border border-rule bg-slate-50/60 text-ink placeholder:text-slate-400 focus:bg-surface focus:outline-none focus:border-accent"
                 />
               </div>
               {q && (
@@ -1084,14 +1071,14 @@ export const TranscriptResultView: React.FC<Props> = ({
         {/* 4. Main Content Area */}
         <div className="bg-surface">
           {aiError && activeTab !== 'original' && (
-            <div className="m-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-sm">
+            <div className="m-6 p-4 rounded-md bg-red-50 border border-red-200 text-red-800 text-sm">
               {aiError}
             </div>
           )}
 
           {aiLoading && activeTab !== 'original' ? (
             <div className="p-10 sm:p-14 flex flex-col items-center justify-center text-center">
-              <div className="w-full max-w-md rounded-2xl bg-slate-50/90 border border-rule p-5 shadow-sm">
+              <div className="w-full max-w-md rounded-lg bg-slate-50/90 border border-rule p-5">
                 <div className="flex items-center justify-between gap-2 text-xs">
                   <span className="inline-flex items-center gap-2 font-bold text-ink text-sm">
                     <svg className="w-4 h-4 text-accent animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
@@ -1106,7 +1093,7 @@ export const TranscriptResultView: React.FC<Props> = ({
                     </span>
                   </span>
                   {aiProgress && (
-                    <span className="font-mono font-semibold text-accent bg-accent-soft px-2 py-0.5 rounded-full shrink-0">
+                    <span className="font-mono text-xs text-muted shrink-0">
                       Step {aiProgress.step} of {aiProgress.totalSteps} · {aiProgress.percent}%
                     </span>
                   )}
@@ -1114,9 +1101,9 @@ export const TranscriptResultView: React.FC<Props> = ({
                 {aiProgress?.detail && (
                   <p className="mt-1.5 text-xs text-muted text-left pl-6">{aiProgress.detail}</p>
                 )}
-                <div className="mt-3.5 h-2.5 w-full rounded-full bg-slate-200/90 overflow-hidden">
+                <div className="mt-3.5 h-1 w-full rounded-full bg-slate-200 overflow-hidden">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-[#1287FA] via-[#2E62F4] to-[#4835F0] transition-all duration-500 ease-out"
+                    className="h-full rounded-full bg-accent transition-all duration-500 ease-out"
                     style={{ width: `${aiProgress?.percent ?? 45}%` }}
                   />
                 </div>
@@ -1126,7 +1113,7 @@ export const TranscriptResultView: React.FC<Props> = ({
             <div className="p-6 sm:p-8 max-h-[68vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
                 <span className="text-xs font-mono uppercase tracking-wider font-semibold text-accent">
-                  ✨ {transformLabel}
+                  {transformLabel}
                 </span>
                 <button
                   type="button"
@@ -1142,7 +1129,7 @@ export const TranscriptResultView: React.FC<Props> = ({
             <div className="max-h-[68vh] overflow-y-auto">
               <div className="flex items-center justify-between px-6 sm:px-8 pt-6 pb-3 border-b border-slate-100">
                 <span className="text-xs font-mono uppercase tracking-wider font-semibold text-accent">
-                  🌐{' '}
+                  
                   {translatedSourceKind === 'transform'
                     ? `${translatedSourceLabel} · ${translatedLang}`
                     : `Translated to ${translatedLang}`}
