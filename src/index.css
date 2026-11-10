@@ -53,3 +53,28 @@
 .animate-transcript-reveal {
   animation: transcriptReveal 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Flashcard flip: the new face turns into view */
+@keyframes cardFlipIn {
+  0% { transform: perspective(900px) rotateY(-80deg); opacity: 0.2; }
+  100% { transform: perspective(900px) rotateY(0deg); opacity: 1; }
+}
+.card-flip { animation: cardFlipIn 0.32s cubic-bezier(0.2, 0.8, 0.3, 1); transform-origin: center; }
+@media (prefers-reduced-motion: reduce) {
+  .card-flip { animation: none; }
+}
+
+/* Decorative card number: drawn with CSS content so it is not read or contrast-checked as text */
+.card-number {
+  position: absolute;
+  right: 1.25rem;
+  top: 0.75rem;
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: 4.5rem;
+  line-height: 1;
+  opacity: 0.18;
+  user-select: none;
+  pointer-events: none;
+}
+.card-number::before { content: attr(data-n); }
+@media (min-width: 640px) { .card-number { font-size: 5rem; } }

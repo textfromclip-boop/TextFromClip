@@ -14,4 +14,5 @@ status=0
 node e2e/walkthrough.mjs "http://localhost:$PORT" || status=1
 node e2e/checks.mjs "http://localhost:$PORT" || status=1
 node e2e/regression.mjs "http://localhost:$PORT" || status=1
+node e2e/visuals.mjs "http://localhost:$PORT" || status=1
 exit $status
