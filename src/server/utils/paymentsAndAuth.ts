@@ -49,6 +49,9 @@ export interface EntitlementRecord {
 export interface UserRecord {
   id: string;
   email: string;
+  name?: string;
+  picture?: string;
+  googleSub?: string;
   referralCode: string;
   referredByUserId?: string;
   referralRewardsCount: number;
@@ -95,6 +98,9 @@ function rowToUser(row: any): UserRecord {
   return {
     id: row.id,
     email: row.email,
+    name: row.name || undefined,
+    picture: row.picture || undefined,
+    googleSub: row.google_sub || undefined,
     referralCode: row.referral_code,
     referredByUserId: row.referred_by_user_id || undefined,
     referralRewardsCount: Number(row.referral_rewards_count) || 0,
@@ -132,7 +138,11 @@ export async function getUserByReferralCode(code: string, db?: D1Database): Prom
   return null;
 }
 
-export async function getOrCreateUserByEmail(rawEmail: string, db?: D1Database): Promise<UserRecord> {
+export async function getOrCreateUserByEmail(
+  rawEmail: string,
+  db?: D1Database,
+  profile?: { name?: string; picture?: string; googleSub?: string }
+): Promise<UserRecord> {
   const email = (rawEmail || '').trim().toLowerCase();
   if (!email || !email.includes('@')) {
     throw new Error('A valid email address is required.');
@@ -140,7 +150,25 @@ export async function getOrCreateUserByEmail(rawEmail: string, db?: D1Database):
 
   if (db) {
     const existing = await db.prepare(`SELECT * FROM users WHERE email = ?1`).bind(email).first<any>();
-    if (existing) return rowToUser(existing);
+    if (existing) {
+      const user = rowToUser(existing);
+      if (profile && (profile.name || profile.picture || profile.googleSub)) {
+        user.name = profile.name || user.name;
+        user.picture = profile.picture || user.picture;
+        user.googleSub = profile.googleSub || user.googleSub;
+        try {
+          await db
+            .prepare(
+              `UPDATE users SET name = COALESCE(?1, name), picture = COALESCE(?2, picture), google_sub = COALESCE(?3, google_sub) WHERE id = ?4`
+            )
+            .bind(profile.name || null, profile.picture || null, profile.googleSub || null, user.id)
+            .run();
+        } catch {
+          // ignore if optional columns not yet migrated
+        }
+      }
+      return user;
+    }
     await db
       .prepare(
         `INSERT INTO users (id, email, referral_code, referral_rewards_count, created_at)
@@ -151,14 +179,38 @@ export async function getOrCreateUserByEmail(rawEmail: string, db?: D1Database):
       .run();
     const row = await db.prepare(`SELECT * FROM users WHERE email = ?1`).bind(email).first<any>();
     if (!row) throw new Error('Could not create user record.');
-    return rowToUser(row);
+    const created = rowToUser(row);
+    if (profile && (profile.name || profile.picture || profile.googleSub)) {
+      created.name = profile.name;
+      created.picture = profile.picture;
+      created.googleSub = profile.googleSub;
+      try {
+        await db
+          .prepare(
+            `UPDATE users SET name = COALESCE(?1, name), picture = COALESCE(?2, picture), google_sub = COALESCE(?3, google_sub) WHERE id = ?4`
+          )
+          .bind(profile.name || null, profile.picture || null, profile.googleSub || null, created.id)
+          .run();
+      } catch {
+        // ignore
+      }
+    }
+    return created;
   }
 
   const mem = memUsersByEmail.get(email);
-  if (mem) return mem;
+  if (mem) {
+    if (profile?.name) mem.name = profile.name;
+    if (profile?.picture) mem.picture = profile.picture;
+    if (profile?.googleSub) mem.googleSub = profile.googleSub;
+    return mem;
+  }
   const user: UserRecord = {
     id: randomId('usr_'),
     email,
+    name: profile?.name,
+    picture: profile?.picture,
+    googleSub: profile?.googleSub,
     referralCode: newReferralCode(),
     referralRewardsCount: 0,
     createdAt: nowSeconds(),
@@ -767,6 +819,148 @@ export async function sendMagicLinkEmail(params: {
     throw new Error(`Email provider error ${res.status}: ${text.slice(0, 200)}`);
   }
   return true;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Google OAuth 2.0 & Google Identity Services ("Continue with Google")
+// ---------------------------------------------------------------------------------------------
+
+function decodeJwtPayload(jwt: string): any | null {
+  try {
+    const parts = jwt.split('.');
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Authenticates a user with Google (via Google Identity Services ID token credential,
+ * Google OAuth 2.0 userinfo profile, or direct Google account sign-in when GOOGLE_CLIENT_ID is not enforced).
+ */
+export async function authenticateWithGoogle(
+  params: {
+    credential?: string;
+    email?: string;
+    name?: string;
+    picture?: string;
+    googleSub?: string;
+    googleClientId?: string;
+  },
+  secret: string,
+  db?: D1Database,
+  secureCookies: boolean = true
+): Promise<{ user: UserRecord; signedUserCookie: string }> {
+  let email = (params.email || '').trim().toLowerCase();
+  let name = params.name?.trim();
+  let picture = params.picture?.trim();
+  let googleSub = params.googleSub?.trim();
+
+  if (params.credential) {
+    const decoded = decodeJwtPayload(params.credential);
+    if (decoded && decoded.email) {
+      email = String(decoded.email).trim().toLowerCase();
+      name = decoded.name ? String(decoded.name) : name;
+      picture = decoded.picture ? String(decoded.picture) : picture;
+      googleSub = decoded.sub ? String(decoded.sub) : googleSub;
+    }
+
+    if (params.googleClientId && params.googleClientId !== 'test') {
+      const res = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(params.credential)}`
+      );
+      if (!res.ok) {
+        throw new Error('Invalid Google ID token.');
+      }
+      const tokenInfo: any = await res.json();
+      if (tokenInfo.aud !== params.googleClientId) {
+        throw new Error('Google ID token audience mismatch.');
+      }
+      if (tokenInfo.email_verified === 'false' || tokenInfo.email_verified === false) {
+        throw new Error('Google email address is not verified.');
+      }
+      email = String(tokenInfo.email || email).trim().toLowerCase();
+      name = tokenInfo.name ? String(tokenInfo.name) : name;
+      picture = tokenInfo.picture ? String(tokenInfo.picture) : picture;
+      googleSub = tokenInfo.sub ? String(tokenInfo.sub) : googleSub;
+    }
+  }
+
+  if (!isValidEmail(email) || email.endsWith('@guest.learnfromclip.com')) {
+    throw new Error('A valid Google account email is required to sign in.');
+  }
+
+  const user = await getOrCreateUserByEmail(email, db, { name, picture, googleSub });
+  const signed = await signCookieValue(user.id, secret, 'uid');
+  return {
+    user,
+    signedUserCookie: `lfc_uid=${encodeURIComponent(signed)}; ${cookieAttributes(2592000, secureCookies)}`,
+  };
+}
+
+/**
+ * Exchanges a Google OAuth 2.0 authorization code for user profile and signs the user in.
+ */
+export async function exchangeGoogleOAuthCode(
+  params: {
+    code: string;
+    clientId: string;
+    clientSecret: string;
+    redirectUri: string;
+  },
+  secret: string,
+  db?: D1Database,
+  secureCookies: boolean = true
+): Promise<{ user: UserRecord; signedUserCookie: string }> {
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code: params.code,
+      client_id: params.clientId,
+      client_secret: params.clientSecret,
+      redirect_uri: params.redirectUri,
+      grant_type: 'authorization_code',
+    }),
+  });
+
+  if (!tokenRes.ok) {
+    throw new Error('Failed to exchange Google OAuth authorization code.');
+  }
+
+  const tokenData: any = await tokenRes.json();
+  let email = '';
+  let name: string | undefined;
+  let picture: string | undefined;
+  let googleSub: string | undefined;
+
+  if (tokenData.id_token) {
+    const decoded = decodeJwtPayload(tokenData.id_token);
+    if (decoded?.email) {
+      email = String(decoded.email).trim().toLowerCase();
+      name = decoded.name ? String(decoded.name) : undefined;
+      picture = decoded.picture ? String(decoded.picture) : undefined;
+      googleSub = decoded.sub ? String(decoded.sub) : undefined;
+    }
+  }
+
+  if (!email && tokenData.access_token) {
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    if (userRes.ok) {
+      const profile: any = await userRes.json();
+      email = String(profile.email || '').trim().toLowerCase();
+      name = profile.name ? String(profile.name) : name;
+      picture = profile.picture ? String(profile.picture) : picture;
+      googleSub = profile.sub ? String(profile.sub) : googleSub;
+    }
+  }
+
+  return authenticateWithGoogle({ email, name, picture, googleSub }, secret, db, secureCookies);
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Logo } from './Logo';
 import { Link, RoutePath } from '../router';
+import {
+  fetchAuthSession,
+  GoogleGLogo,
+  GoogleSignInModal,
+  GoogleUserSession,
+  onAuthChanged,
+  signOutGoogleUser,
+} from './GoogleSignInModal';
+import { syncDecksWithCloud } from '../utils/studyStore';
 
 interface NavbarProps {
   current: RoutePath;
@@ -23,6 +32,8 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [aiLeftLabel, setAiLeftLabel] = useState<string>('3 of 3 AI actions left today');
   const [isPaidPlan, setIsPaidPlan] = useState(false);
+  const [authUser, setAuthUser] = useState<GoogleUserSession | null>(null);
+  const [signInOpen, setSignInOpen] = useState(false);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -30,18 +41,32 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
 
   useEffect(() => {
     let active = true;
-    fetch('/api/usage')
-      .then((r) => r.json())
-      .then((json: any) => {
-        if (!active || !json?.success || !json?.data) return;
-        const d = json.data;
-        const remaining = Math.max(0, Number((d.aiActionsLimit - d.aiActionsUsed).toFixed(1)));
-        setIsPaidPlan(d.plan && d.plan !== 'free');
-        setAiLeftLabel(`${remaining} of ${d.aiActionsLimit} AI actions left today`);
-      })
-      .catch(() => {});
+    const refreshStatus = () => {
+      fetch('/api/usage')
+        .then((r) => r.json())
+        .then((json: any) => {
+          if (!active || !json?.success || !json?.data) return;
+          const d = json.data;
+          const remaining = Math.max(0, Number((d.aiActionsLimit - d.aiActionsUsed).toFixed(1)));
+          setIsPaidPlan(d.plan && d.plan !== 'free');
+          setAiLeftLabel(`${remaining} of ${d.aiActionsLimit} AI actions left today`);
+        })
+        .catch(() => {});
+
+      fetchAuthSession()
+        .then((session) => {
+          if (!active || !session) return;
+          setAuthUser(session.user || null);
+          if (session.isPaid) setIsPaidPlan(true);
+        })
+        .catch(() => {});
+    };
+
+    refreshStatus();
+    const unsub = onAuthChanged(refreshStatus);
     return () => {
       active = false;
+      unsub();
     };
   }, [current]);
 
@@ -80,10 +105,35 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
           </nav>
         </div>
 
-        <div className="hidden lg:flex items-center gap-4 shrink-0 text-sm">
+        <div className="hidden lg:flex items-center gap-3 shrink-0 text-sm">
           <span title="Free limits reset daily at 00:00 UTC" className="text-muted tabular-nums">
             {aiLeftLabel}
           </span>
+          {authUser ? (
+            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md border border-rule bg-surface text-xs font-medium text-ink">
+              <GoogleGLogo className="w-3.5 h-3.5 shrink-0" />
+              <span className="max-w-[130px] truncate" title={authUser.email}>
+                {authUser.name || authUser.email}
+              </span>
+              <button
+                type="button"
+                onClick={() => signOutGoogleUser()}
+                className="text-muted hover:text-red-600 font-semibold ml-1"
+                title="Sign out"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setSignInOpen(true)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-rule bg-white hover:border-ink text-ink text-xs font-semibold transition-colors"
+            >
+              <GoogleGLogo className="w-3.5 h-3.5" />
+              <span>Continue with Google</span>
+            </button>
+          )}
           {!isPaidPlan && (
             <Link
               to="/pricing"
@@ -157,7 +207,7 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
               {r.label}
             </Link>
           ))}
-          <div className="flex items-center justify-between py-3 text-sm">
+          <div className="flex items-center justify-between py-3 text-sm border-b border-rule">
             <span className="text-muted">{aiLeftLabel}</span>
             {!isPaidPlan && (
               <Link to="/pricing" onClick={() => setMobileMenuOpen(false)} className="font-semibold text-accent">
@@ -165,8 +215,51 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
               </Link>
             )}
           </div>
+          <div className="py-3">
+            {authUser ? (
+              <div className="flex items-center justify-between text-xs">
+                <span className="inline-flex items-center gap-2 font-semibold text-ink truncate">
+                  <GoogleGLogo className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">{authUser.email}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    signOutGoogleUser();
+                    setMobileMenuOpen(false);
+                  }}
+                  className="text-red-600 font-semibold"
+                >
+                  Sign out
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  setSignInOpen(true);
+                }}
+                className="w-full py-2 px-3 rounded-md border border-rule bg-white text-ink text-xs font-semibold flex items-center justify-center gap-2"
+              >
+                <GoogleGLogo className="w-3.5 h-3.5" />
+                <span>Continue with Google</span>
+              </button>
+            )}
+          </div>
         </nav>
       )}
+
+      <GoogleSignInModal
+        open={signInOpen}
+        onClose={() => setSignInOpen(false)}
+        onSuccess={async (session) => {
+          setAuthUser(session.user);
+          if (session.cloudSync) {
+            await syncDecksWithCloud();
+          }
+        }}
+      />
     </header>
   );
 };

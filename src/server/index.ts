@@ -57,10 +57,12 @@ import {
   withJobConcurrencyLimit,
 } from './utils/quotasAndCache';
 import {
+  authenticateWithGoogle,
   completeReferralOnFirstDeck,
   countSyncedDecks,
   createLemonSqueezyCheckout,
   createMagicLinkToken,
+  exchangeGoogleOAuthCode,
   getActiveEntitlementForUser,
   getReferralCodeForIdentity,
   getUserById,
@@ -351,6 +353,9 @@ const RATE_LIMIT_BUCKETS: Array<{ prefix: string; bucket: string; perMinute: (en
   { prefix: '/api/upload/transcribe', bucket: 'heavy', perMinute: (e) => parseInt(e.MAX_REQUESTS_PER_MINUTE || '30', 10) },
   // Uploads arrive as many chunks
   { prefix: '/api/upload/chunk', bucket: 'upload', perMinute: () => 120 },
+  // Session status & sign-out are light reads/clears
+  { prefix: '/api/auth/me', bucket: 'light', perMinute: () => 120 },
+  { prefix: '/api/auth/logout', bucket: 'light', perMinute: () => 120 },
   // Auth & payments: low ceilings (email bombing / enumeration)
   { prefix: '/api/auth/', bucket: 'auth', perMinute: () => 5 },
   { prefix: '/api/checkout', bucket: 'auth', perMinute: () => 10 },
@@ -1673,29 +1678,170 @@ app.post('/api/auth/logout', (c) => {
   return c.json({ success: true });
 });
 
-// Who am I (used by Study page to decide whether cloud sync is available)
-app.get('/api/me', async (c) => {
+// Auth: Initiate Google OAuth 2.0 Redirect Flow ("Continue with Google")
+app.get('/api/auth/google', (c) => {
+  const returnTo = c.req.query('returnTo') || '/study?synced=1';
+  const safeReturnTo = returnTo.startsWith('/') ? returnTo : '/study?synced=1';
+  const clientId = c.env?.GOOGLE_CLIENT_ID;
+  if (clientId) {
+    const redirectUri = `${appBaseUrl(c)}/api/auth/google/callback`;
+    const state = encodeURIComponent(JSON.stringify({ returnTo: safeReturnTo, ts: Date.now() }));
+    const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+    authUrl.searchParams.set('client_id', clientId);
+    authUrl.searchParams.set('redirect_uri', redirectUri);
+    authUrl.searchParams.set('response_type', 'code');
+    authUrl.searchParams.set('scope', 'openid email profile');
+    authUrl.searchParams.set('access_type', 'online');
+    authUrl.searchParams.set('prompt', 'select_account');
+    authUrl.searchParams.set('state', state);
+    return c.redirect(authUrl.toString(), 302);
+  }
+  return c.redirect(safeReturnTo, 302);
+});
+
+// Auth: Google OAuth 2.0 Callback
+app.get('/api/auth/google/callback', async (c) => {
+  const code = c.req.query('code') || '';
+  const rawState = c.req.query('state') || '';
+  let returnTo = '/study?synced=1';
+  try {
+    const parsed = JSON.parse(decodeURIComponent(rawState));
+    if (typeof parsed?.returnTo === 'string' && parsed.returnTo.startsWith('/')) {
+      returnTo = parsed.returnTo;
+    }
+  } catch {
+    // ignore
+  }
+
+  if (!code || !c.env?.GOOGLE_CLIENT_ID || !c.env?.GOOGLE_CLIENT_SECRET) {
+    return c.redirect(`${returnTo}${returnTo.includes('?') ? '&' : '?'}auth_error=missing_code`, 302);
+  }
+
+  try {
+    const redirectUri = `${appBaseUrl(c)}/api/auth/google/callback`;
+    const authResult = await exchangeGoogleOAuthCode(
+      {
+        code,
+        clientId: c.env.GOOGLE_CLIENT_ID,
+        clientSecret: c.env.GOOGLE_CLIENT_SECRET,
+        redirectUri,
+      },
+      getCookieSecret(c),
+      c.env?.DB,
+      isSecureRequest(c)
+    );
+    appendSetCookie(c, authResult.signedUserCookie);
+    return c.redirect(returnTo, 302);
+  } catch {
+    return c.redirect(`${returnTo}${returnTo.includes('?') ? '&' : '?'}auth_error=oauth_failed`, 302);
+  }
+});
+
+// Auth: Continue with Google (Google Identity Services credential or Google account sign-in)
+app.post('/api/auth/google', async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const credential = typeof body?.credential === 'string' ? body.credential.trim() : undefined;
+    const email = typeof body?.email === 'string' ? body.email.trim() : undefined;
+    const name = typeof body?.name === 'string' ? body.name.trim() : undefined;
+    const picture = typeof body?.picture === 'string' ? body.picture.trim() : undefined;
+    const googleSub = typeof body?.googleSub === 'string' ? body.googleSub.trim() : undefined;
+
+    const authResult = await authenticateWithGoogle(
+      {
+        credential,
+        email,
+        name,
+        picture,
+        googleSub,
+        googleClientId: c.env?.GOOGLE_CLIENT_ID,
+      },
+      getCookieSecret(c),
+      c.env?.DB,
+      isSecureRequest(c)
+    );
+
+    appendSetCookie(c, authResult.signedUserCookie);
+
+    const entitlement =
+      (await getActiveEntitlementForUser(authResult.user.id, c.env?.DB)) ||
+      (await getActiveEntitlementForUser(authResult.user.email, c.env?.DB));
+    const plan: PlanTier = entitlement ? entitlement.planType : 'free';
+    const isPaid = plan !== 'free';
+
+    return c.json({
+      success: true,
+      data: {
+        authenticated: true,
+        signedIn: true,
+        email: authResult.user.email,
+        user: {
+          id: authResult.user.id,
+          email: authResult.user.email,
+          name: authResult.user.name || authResult.user.email.split('@')[0],
+          picture: authResult.user.picture || null,
+          referralCode: authResult.user.referralCode,
+        },
+        plan,
+        isPaid,
+        cloudSync: isPaid,
+      },
+    });
+  } catch (err: any) {
+    if (err instanceof ServerMisconfiguredError) throw err;
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: 'GOOGLE_AUTH_FAILED',
+          message: err?.message || 'Could not sign in with Google. Please try again.',
+        },
+      },
+      400
+    );
+  }
+});
+
+// Who am I (used by Navbar, Study page & Pricing page)
+const handleMeRequest = async (c: any) => {
   const actor = await resolveRequestActor(c);
-  const user = actor.userId ? await getUserById(actor.userId, c.env.DB) : null;
+  const user = actor.userId ? await getUserById(actor.userId, c.env?.DB) : null;
   return c.json({
     success: true,
     data: {
+      authenticated: Boolean(user),
       signedIn: Boolean(user),
       email: user?.email || null,
+      name: user ? user.name || user.email.split('@')[0] : null,
+      picture: user?.picture || null,
+      user: user
+        ? {
+            id: user.id,
+            email: user.email,
+            name: user.name || user.email.split('@')[0],
+            picture: user.picture || null,
+            referralCode: user.referralCode,
+          }
+        : null,
       plan: actor.plan,
       isPaid: actor.isPaid,
       planExpiresAt: actor.entitlementExpiresAt || null,
       cloudSync: Boolean(user && actor.isPaid),
+      googleClientId: c.env?.GOOGLE_CLIENT_ID || null,
+      googleOAuthConfigured: Boolean(c.env?.GOOGLE_CLIENT_ID && c.env?.GOOGLE_CLIENT_SECRET),
     },
   });
-});
+};
+
+app.get('/api/me', handleMeRequest);
+app.get('/api/auth/me', handleMeRequest);
 
 // Cloud Deck Sync: signed-in PAID users only; every query is scoped to the caller's own user id.
 async function requireSyncUser(c: any): Promise<{ userId: string } | Response> {
   const actor = await resolveRequestActor(c);
   if (!actor.userId) {
     return c.json(
-      { success: false, error: { code: 'UNAUTHORIZED', message: 'Sign in with a magic link to sync decks.' } },
+      { success: false, error: { code: 'UNAUTHORIZED', message: 'Continue with Google to sync decks.' } },
       401
     );
   }

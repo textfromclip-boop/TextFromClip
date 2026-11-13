@@ -24,7 +24,7 @@ export const PrivacyPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">2. Paid Passes & Cloud Storage Sync</h2>
         <p>
-          With an Exam Pass, Monthly plan or Semester Pass you can sign in with an email magic link (no passwords). We then store your email address, your plan and its expiry date, and your study decks (cards, review schedule) in our database on Cloudflare so you can study across devices. Sign-in links are single-use, expire after 15 minutes and are stored only as a one-way hash. Sign-in emails are sent by our email provider (Resend).
+          With an Exam Pass, Monthly plan or Semester Pass you can sign in using <strong>Continue with Google</strong> (or an email sign-in link). We then store your Google account email address, display name, your plan and its expiry date, and your study decks (cards, review schedule) in our database on Cloudflare so you can study across devices.
         </p>
         <p className="mt-2">
           Payments are handled by <strong>Lemon Squeezy</strong>, our merchant of record. We never see or store your card details; Lemon Squeezy shares your email, the product you bought and your billing country with us so we can activate your pass.

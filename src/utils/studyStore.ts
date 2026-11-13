@@ -326,6 +326,12 @@ export async function saveStudyMeta(meta: StudyMetaState): Promise<StudyMetaStat
   return meta;
 }
 
+/** Remembers (or clears) which Google account is signed in, for UI labels on this device. */
+export async function setSyncedUserEmail(email: string | null): Promise<void> {
+  const current = await loadStudyMeta();
+  await saveStudyMeta({ ...current, syncedUserEmail: email });
+}
+
 /**
  * Records a flashcard review using SM-2, updates the deck in IndexedDB,
  * and increments the student's daily streak.

@@ -543,6 +543,129 @@ const FIELD_MEM: Record<QuotaField, keyof QuotaBucket> = {
  * D1: a single conditional UPDATE (race-free across isolates). Memory: synchronous check-and-set.
  * `windowFromDate` makes the limit apply to the SUM over [windowFromDate, utcDate] (rolling windows).
  */
+let d1TablesBootstrapped = false;
+
+export async function ensureLearnFromClipTables(db: D1Database): Promise<void> {
+  if (d1TablesBootstrapped) return;
+  try {
+    const stmts = [
+      `CREATE TABLE IF NOT EXISTS cached_transcripts (
+        cache_key TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        video_id TEXT NOT NULL,
+        language TEXT NOT NULL DEFAULT 'en',
+        duration_seconds REAL NOT NULL DEFAULT 0,
+        transcript_hash TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS cached_packs (
+        pack_cache_key TEXT PRIMARY KEY,
+        transcript_hash TEXT NOT NULL,
+        second_language TEXT NOT NULL DEFAULT '',
+        max_cards INTEGER NOT NULL DEFAULT 30,
+        pack_json TEXT NOT NULL,
+        dropped_quotes_count INTEGER NOT NULL DEFAULT 0,
+        hit_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS daily_quotas (
+        actor_key TEXT NOT NULL,
+        utc_date TEXT NOT NULL,
+        links_used INTEGER NOT NULL DEFAULT 0,
+        upload_seconds_used REAL NOT NULL DEFAULT 0,
+        ai_actions_half_units INTEGER NOT NULL DEFAULT 0,
+        mock_exams_used INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (actor_key, utc_date)
+      )`,
+      `CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        name TEXT,
+        picture TEXT,
+        google_sub TEXT,
+        referral_code TEXT UNIQUE NOT NULL,
+        referred_by_user_id TEXT,
+        referral_rewards_count INTEGER NOT NULL DEFAULT 0,
+        referral_device_hash TEXT,
+        streak_days INTEGER NOT NULL DEFAULT 0,
+        last_study_utc_date TEXT,
+        created_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS magic_links (
+        token_hash TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        used_at INTEGER
+      )`,
+      `CREATE TABLE IF NOT EXISTS entitlements (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        plan_type TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        provider_order_id TEXT,
+        provider_subscription_id TEXT,
+        billing_country TEXT,
+        is_regional_pricing INTEGER NOT NULL DEFAULT 0,
+        starts_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS synced_decks (
+        id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        pack_json TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, id)
+      )`,
+      `CREATE TABLE IF NOT EXISTS referrals (
+        id TEXT PRIMARY KEY,
+        referrer_user_id TEXT NOT NULL,
+        invitee_actor_key TEXT NOT NULL,
+        invitee_cookie_id TEXT,
+        invitee_ip_hash TEXT NOT NULL,
+        reward_granted INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS webhook_events (
+        event_hash TEXT PRIMARY KEY,
+        event_name TEXT NOT NULL,
+        received_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS cost_telemetry (
+        utc_date TEXT PRIMARY KEY,
+        whisper_audio_seconds REAL NOT NULL DEFAULT 0,
+        llm_input_tokens INTEGER NOT NULL DEFAULT 0,
+        llm_output_tokens INTEGER NOT NULL DEFAULT 0,
+        transcript_cache_hits INTEGER NOT NULL DEFAULT 0,
+        transcript_cache_misses INTEGER NOT NULL DEFAULT 0,
+        pack_cache_hits INTEGER NOT NULL DEFAULT 0,
+        pack_cache_misses INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS analytics_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_name TEXT NOT NULL,
+        route_path TEXT,
+        plan_type TEXT DEFAULT 'free',
+        created_at INTEGER NOT NULL
+      )`,
+    ];
+    for (const sql of stmts) {
+      await db.prepare(sql).run();
+    }
+    d1TablesBootstrapped = true;
+  } catch (e) {
+    console.warn('[LearnFromClip] Auto-bootstrap D1 tables warning:', e);
+  }
+}
+
 async function tryIncrement(
   bucketKey: string,
   utcDate: string,
@@ -555,7 +678,7 @@ async function tryIncrement(
   if (amount <= 0) return true;
   const col = FIELD_COLUMN[field];
   if (db) {
-    try {
+    const runD1Increment = async () => {
       const nowSec = Math.floor(Date.now() / 1000);
       await db
         .prepare(
@@ -580,7 +703,20 @@ async function tryIncrement(
         memQuotas.set(memKey, prev);
       }
       return ok;
-    } catch (err) {
+    };
+
+    try {
+      return await runD1Increment();
+    } catch (err: any) {
+      if (/no such table/i.test(String(err?.message || err))) {
+        await ensureLearnFromClipTables(db);
+        try {
+          return await runD1Increment();
+        } catch (retryErr) {
+          console.error('[LearnFromClip] quota reservation retry failed:', retryErr);
+          return false;
+        }
+      }
       console.error('[LearnFromClip] quota reservation failed (is migration 0002 applied?):', err);
       // Fail closed for anonymous cost-bearing work if D1 is broken.
       return false;

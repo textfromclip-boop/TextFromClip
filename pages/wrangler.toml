@@ -18,6 +18,7 @@ binding = "AI"
 
 [vars]
 ENVIRONMENT = "production"
+COOKIE_SECRET = "lfc-prod-edge-hmac-secret-9f8e7d6c5b4a3210-secure-key"
 MAX_REQUESTS_PER_MINUTE = "30"
 MAX_VIDEO_DURATION_SECONDS = "14400"
 CACHE_TTL_SECONDS = "86400"

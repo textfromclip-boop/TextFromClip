@@ -684,6 +684,40 @@ describe('Magic link login', () => {
   });
 });
 
+describe('Continue with Google login', () => {
+  it('signs in with Google account, sets HMAC-signed lfc_uid cookie, returns profile on /api/me, and signs out', async () => {
+    const env = { ENVIRONMENT: 'development' } as any;
+    const signIn = await app.request(
+      '/api/auth/google',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.6.8.1' },
+        body: JSON.stringify({ email: 'google.student@gmail.com', name: 'Google Student' }),
+      },
+      env
+    );
+    expect(signIn.status).toBe(200);
+    const signInJson: any = await signIn.json();
+    expect(signInJson.data.authenticated).toBe(true);
+    expect(signInJson.data.user.email).toBe('google.student@gmail.com');
+    expect(signInJson.data.user.name).toBe('Google Student');
+
+    const uidCookie = cookieFrom(signIn, 'lfc_uid')!;
+    expect(uidCookie).toBeTruthy();
+
+    const meRes = await app.request('/api/me', { headers: { cookie: uidCookie } }, env);
+    expect(meRes.status).toBe(200);
+    const meJson: any = await meRes.json();
+    expect(meJson.data.signedIn).toBe(true);
+    expect(meJson.data.email).toBe('google.student@gmail.com');
+    expect(meJson.data.user.name).toBe('Google Student');
+
+    const logoutRes = await app.request('/api/auth/logout', { method: 'POST', headers: { cookie: uidCookie } }, env);
+    expect(logoutRes.status).toBe(200);
+    expect(logoutRes.headers.get('set-cookie')).toContain('Max-Age=0');
+  });
+});
+
 describe('Cloud deck sync', () => {
   const env = { ENVIRONMENT: 'development' } as any;
   async function login(email: string, ip: string) {

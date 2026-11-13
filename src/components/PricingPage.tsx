@@ -1,15 +1,36 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from '../router';
 import { trackEvent } from '../utils/analytics';
+import {
+  fetchAuthSession,
+  GoogleGLogo,
+  GoogleSignInModal,
+  GoogleUserSession,
+  onAuthChanged,
+} from './GoogleSignInModal';
 
 export const PricingPage: React.FC = () => {
   const [showRegional, setShowRegional] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<string | null>(null);
   const [checkoutEmail, setCheckoutEmail] = useState('');
   const [checkoutNotice, setCheckoutNotice] = useState<string | null>(null);
+  const [googleUser, setGoogleUser] = useState<GoogleUserSession | null>(null);
+  const [googleSignInOpen, setGoogleSignInOpen] = useState(false);
 
   useEffect(() => {
     trackEvent('pricing_viewed', '/pricing');
+    const syncAuth = () => {
+      fetchAuthSession().then((session) => {
+        if (session?.user) {
+          setGoogleUser(session.user);
+          setCheckoutEmail(session.user.email);
+        } else {
+          setGoogleUser(null);
+        }
+      });
+    };
+    syncAuth();
+    return onAuthChanged(syncAuth);
   }, []);
 
   // Referral state
@@ -286,8 +307,23 @@ export const PricingPage: React.FC = () => {
               </button>
             </div>
             <p className="mt-2 text-xs text-muted">
-              Enter your email so your pass and magic-link deck sync are linked to your account immediately after payment.
+              Sign in with Google or enter your email so your pass and cloud deck sync are linked to your account immediately after payment.
             </p>
+            {!googleUser ? (
+              <button
+                type="button"
+                onClick={() => setGoogleSignInOpen(true)}
+                className="mt-3 w-full py-2.5 px-4 rounded-md border border-rule bg-white hover:bg-slate-50 text-ink font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors"
+              >
+                <GoogleGLogo className="w-4 h-4" />
+                <span>Continue with Google</span>
+              </button>
+            ) : (
+              <div className="mt-3 px-3 py-2 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                <GoogleGLogo className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">Signed in as {googleUser.email}</span>
+              </div>
+            )}
             <form onSubmit={handleConfirmCheckout} className="mt-4 space-y-3">
               <label htmlFor="checkout-email" className="sr-only">Email address</label>
               <input
@@ -315,6 +351,17 @@ export const PricingPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      <GoogleSignInModal
+        open={googleSignInOpen}
+        onClose={() => setGoogleSignInOpen(false)}
+        onSuccess={(session) => {
+          if (session.user) {
+            setGoogleUser(session.user);
+            setCheckoutEmail(session.user.email);
+          }
+        }}
+      />
     </div>
   );
 };

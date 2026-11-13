@@ -58,7 +58,7 @@ export const AboutPage: React.FC = () => (
         <H2 id="privacy">Privacy</H2>
         <ul className="list-disc pl-5 space-y-2">
           <li><strong>No account needed.</strong> On the free plan, your notes, decks, and review history stay on your device (stored locally in your browser).</li>
-          <li><strong>Cloud sync for paid plans.</strong> If you choose a paid pass and sign in via email magic link, your study decks sync to our database so you can review across devices.</li>
+          <li><strong>Cloud sync for paid plans.</strong> If you choose a paid pass and sign in with Google (Continue with Google), your study decks sync to our database so you can review across devices.</li>
           <li><strong>Caching & ephemeral uploads.</strong> Uploaded audio chunks are deleted from temporary storage right after transcription. Public lecture transcripts and revision packs may be cached so repeat lookups return faster.</li>
           <li><strong>Fair usage & security.</strong> Requests are protected with cookies, IP checks, and Turnstile to keep the service fast and reliable for students.</li>
         </ul>

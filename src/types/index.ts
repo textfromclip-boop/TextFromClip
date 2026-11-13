@@ -102,6 +102,9 @@ export interface CloudflareBindings {
   LEMONSQUEEZY_VARIANT_SEMESTER_PASS_REGIONAL?: string;
   /** Bearer token for /api/admin/costs (min 24 chars). Unset = admin endpoint disabled. */
   ADMIN_TOKEN?: string;
+  /** Google OAuth 2.0 Client ID & Secret for "Continue with Google" sign-in. */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
   /** Resend API key for magic-link emails. */
   RESEND_API_KEY?: string;
   /** Verified sender, e.g. "LearnFromClip <login@learnfromclip.com>". */

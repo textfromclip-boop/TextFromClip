@@ -21,6 +21,12 @@ import {
   generatePackMarkdown,
 } from '../utils/packExporters';
 import { trackEvent } from '../utils/analytics';
+import {
+  fetchAuthSession,
+  GoogleGLogo,
+  GoogleSignInModal,
+  onAuthChanged,
+} from './GoogleSignInModal';
 
 export const StudyPage: React.FC = () => {
   const [decks, setDecks] = useState<StoredStudyDeck[]>([]);
@@ -52,11 +58,8 @@ export const StudyPage: React.FC = () => {
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
   const [quizDone, setQuizDone] = useState(false);
 
-  // "Save my streak" magic link modal state
+  // "Continue with Google" modal state
   const [syncModalOpen, setSyncModalOpen] = useState(false);
-  const [syncEmail, setSyncEmail] = useState('');
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
-  const [syncSubmitting, setSyncSubmitting] = useState(false);
 
   const refreshStore = async () => {
     setLoading(true);
@@ -71,33 +74,25 @@ export const StudyPage: React.FC = () => {
 
   // Cloud sync (paid + signed in): who am I, then pull/push decks
   const [account, setAccount] = useState<{ signedIn: boolean; email: string | null; cloudSync: boolean } | null>(null);
-  const [devLoginUrl, setDevLoginUrl] = useState<string | null>(null);
 
   useEffect(() => {
     refreshStore();
-    (async () => {
-      try {
-        const res = await fetch('/api/me');
-        const json: any = await res.json();
-        if (json?.success) {
-          setAccount(json.data);
-          if (json.data.cloudSync && (await syncDecksWithCloud())) {
-            await refreshStore();
-          }
+    const checkAccountAndSync = async () => {
+      const session = await fetchAuthSession();
+      if (session) {
+        setAccount({
+          signedIn: session.signedIn,
+          email: session.email,
+          cloudSync: session.cloudSync,
+        });
+        if (session.cloudSync && (await syncDecksWithCloud())) {
+          await refreshStore();
         }
-      } catch {
-        // offline: local decks still work
       }
-    })();
-    try {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('login') === 'expired') {
-        setSyncStatus('That sign-in link has expired or was already used. Request a new one below.');
-        setSyncModalOpen(true);
-      }
-    } catch {
-      // ignore
-    }
+    };
+    checkAccountAndSync();
+    const unsub = onAuthChanged(checkAccountAndSync);
+    return () => unsub();
   }, []);
 
   const totalDueToday = decks.reduce(
@@ -146,33 +141,6 @@ export const StudyPage: React.FC = () => {
       setCardIdx(cardIdx);
     } else {
       setCardIdx(0);
-    }
-  };
-
-  const handleRequestMagicLink = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!syncEmail.trim()) return;
-    setSyncSubmitting(true);
-    setSyncStatus(null);
-    try {
-      const res = await fetch('/api/auth/magic-link', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: syncEmail.trim() }),
-      });
-      const json: any = await res.json().catch(() => null);
-      if (res.ok && json?.success) {
-        setDevLoginUrl(json.data?.devVerifyUrl || null);
-        setSyncStatus(
-          `Sign-in link sent to ${syncEmail.trim()}. It works once and expires in 15 minutes.`
-        );
-      } else {
-        setSyncStatus(json?.error?.message || 'Could not send the sign-in link. Please try again.');
-      }
-    } catch {
-      setSyncStatus('Could not send magic link right now. Please try again.');
-    } finally {
-      setSyncSubmitting(false);
     }
   };
 
@@ -233,13 +201,31 @@ export const StudyPage: React.FC = () => {
                 Review {totalDueToday} due today
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setSyncModalOpen(true)}
-              className="px-4 py-2.5 rounded-md font-semibold text-sm text-ink border border-rule bg-surface hover:border-ink transition-colors"
-            >
-              Sign in to sync
-            </button>
+            {!account?.signedIn ? (
+              <button
+                type="button"
+                onClick={() => setSyncModalOpen(true)}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md font-semibold text-sm text-ink border border-rule bg-surface hover:border-ink transition-colors"
+              >
+                <GoogleGLogo className="w-4 h-4" />
+                <span>Continue with Google · Sync decks</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (account?.cloudSync && (await syncDecksWithCloud())) {
+                    await refreshStore();
+                  } else if (!account?.cloudSync) {
+                    navigate('/pricing');
+                  }
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md font-semibold text-sm text-ink border border-rule bg-surface hover:border-ink transition-colors"
+              >
+                <GoogleGLogo className="w-4 h-4" />
+                <span>{account.cloudSync ? 'Sync decks now' : 'Upgrade for cloud sync'}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -828,75 +814,23 @@ export const StudyPage: React.FC = () => {
         </div>
       )}
 
-      {/* "Save my streak" Magic Link Modal */}
-      {syncModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50  flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="sync-title" className="w-full max-w-md rounded-lg bg-surface border border-rule p-6 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 id="sync-title" className="text-lg font-semibold text-ink">Sign in & sync decks</h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setSyncModalOpen(false);
-                  setSyncStatus(null);
-                }}
-                aria-label="Close"
-                className="text-muted hover:text-ink text-sm"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="mt-2 text-xs sm:text-sm text-muted leading-relaxed">
-              On the free plan, your decks stay on this browser. With an Exam Pass, Monthly, or Semester Pass, sign in with an email magic link (no password needed) to sync your decks and streak across all your devices.
-            </p>
-
-            <form onSubmit={handleRequestMagicLink} className="mt-4 space-y-3">
-              <label htmlFor="sync-email" className="sr-only">Email address</label>
-              <input
-                id="sync-email"
-                type="email"
-                required
-                autoFocus
-                value={syncEmail}
-                onChange={(e) => setSyncEmail(e.target.value)}
-                placeholder="you@university.edu"
-                className="w-full px-3.5 py-2.5 rounded-md border border-rule text-sm text-ink focus:outline-none focus:border-accent"
-              />
-              <div className="flex items-center gap-2">
-                <button
-                  type="submit"
-                  disabled={syncSubmitting}
-                  className="flex-1 py-2.5 px-4 rounded-md font-bold text-xs sm:text-sm text-white bg-accent"
-                >
-                  {syncSubmitting ? 'Sending magic link…' : 'Send Email Magic Link'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSyncModalOpen(false);
-                    navigate('/pricing');
-                  }}
-                  className="py-2.5 px-4 rounded-md border border-rule font-bold text-xs sm:text-sm text-ink hover:bg-slate-50"
-                >
-                  View Plans
-                </button>
-              </div>
-            </form>
-
-            {devLoginUrl && (
-              <p className="mt-2 text-xs text-muted">
-                Development mode (no email provider configured):{' '}
-                <a href={devLoginUrl} className="text-accent underline font-semibold">open sign-in link</a>
-              </p>
-            )}
-            {syncStatus && (
-              <p className="mt-3 p-3 rounded-md bg-accent-soft text-accent text-xs font-semibold">
-                {syncStatus}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
+      {/* "Continue with Google" Sign-In & Cloud Sync Modal */}
+      <GoogleSignInModal
+        open={syncModalOpen}
+        onClose={() => setSyncModalOpen(false)}
+        title="Continue with Google"
+        subtitle="On the free plan, your decks stay on this browser. With an Exam Pass, Monthly, or Semester Pass, sign in with Google to sync your decks across all your devices."
+        onSuccess={async (session) => {
+          setAccount({
+            signedIn: session.signedIn,
+            email: session.email,
+            cloudSync: session.cloudSync,
+          });
+          if (session.cloudSync && (await syncDecksWithCloud())) {
+            await refreshStore();
+          }
+        }}
+      />
     </div>
   );
 };
