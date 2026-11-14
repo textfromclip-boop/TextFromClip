@@ -78,7 +78,7 @@ import {
   syncUserDecksToCloud,
   verifyMagicLinkToken,
 } from './utils/paymentsAndAuth';
-import { sha256Hex, timingSafeEqual, verifyHmacSha256Hex } from './utils/crypto';
+import { hmacSha256Hex, randomToken, sha256Hex, timingSafeEqual, verifyHmacSha256Hex } from './utils/crypto';
 import { isValidAnalyticsEvent } from '../utils/analytics';
 
 const PLAN_CATALOG: Record<
@@ -1678,89 +1678,126 @@ app.post('/api/auth/logout', (c) => {
   return c.json({ success: true });
 });
 
-// Auth: Initiate Google OAuth 2.0 Redirect Flow ("Continue with Google")
-const handleGoogleOAuthStart = (c: any) => {
-  const returnTo = c.req.query('returnTo') || '/study?synced=1';
-  const safeReturnTo =
-    returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/study?synced=1';
+// ---- Google sign-in ----------------------------------------------------------------------
+// Only same-site paths are allowed as post-login destinations (no open redirect).
+function safeReturnPath(raw: unknown, fallback = '/study?synced=1'): string {
+  if (typeof raw !== 'string' || raw.length > 300) return fallback;
+  if (!raw.startsWith('/') || raw.startsWith('//') || raw.includes('\\') || /[\r\n]/.test(raw)) return fallback;
+  return raw;
+}
+
+const withParam = (path: string, param: string) => `${path}${path.includes('?') ? '&' : '?'}${param}`;
+const OAUTH_STATE_TTL_SECONDS = 600;
+const b64url = (s: string) => btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const fromB64url = (s: string) => atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+
+// Auth: start the Google OAuth redirect flow. The `state` is HMAC-signed and tied to a one-time
+// nonce cookie, so a login can only be completed by the browser that started it (no login CSRF,
+// no forged state).
+const handleGoogleOAuthStart = async (c: any) => {
+  const returnTo = safeReturnPath(c.req.query('returnTo'));
   const clientId = c.env?.GOOGLE_CLIENT_ID;
-  if (clientId) {
-    const redirectUri = `${appBaseUrl(c)}/api/auth/google/callback`;
-    const state = encodeURIComponent(JSON.stringify({ returnTo: safeReturnTo, ts: Date.now() }));
-    const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-    authUrl.searchParams.set('client_id', clientId);
-    authUrl.searchParams.set('redirect_uri', redirectUri);
-    authUrl.searchParams.set('response_type', 'code');
-    authUrl.searchParams.set('scope', 'openid email profile');
-    authUrl.searchParams.set('access_type', 'online');
-    authUrl.searchParams.set('prompt', 'select_account');
-    authUrl.searchParams.set('state', state);
-    return c.redirect(authUrl.toString(), 302);
+  if (!clientId || !c.env?.GOOGLE_CLIENT_SECRET) {
+    return c.redirect(withParam(returnTo, 'auth_error=google_not_configured'), 302);
   }
-  const sep = safeReturnTo.includes('?') ? '&' : '?';
-  return c.redirect(`${safeReturnTo}${sep}auth_error=google_not_configured`, 302);
+  const secret = getCookieSecret(c);
+  const nonce = randomToken(18);
+  const payload = b64url(JSON.stringify({ r: returnTo, n: nonce, t: Math.floor(Date.now() / 1000) }));
+  const sig = await hmacSha256Hex(secret, `oauth-state:${payload}`);
+  appendSetCookie(
+    c,
+    `lfc_oauth=${nonce}; ${cookieAttributes(OAUTH_STATE_TTL_SECONDS, isSecureRequest(c))}`
+  );
+  const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  authUrl.searchParams.set('client_id', clientId);
+  authUrl.searchParams.set('redirect_uri', `${appBaseUrl(c)}/api/auth/google/callback`);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('scope', 'openid email profile');
+  authUrl.searchParams.set('access_type', 'online');
+  authUrl.searchParams.set('prompt', 'select_account');
+  authUrl.searchParams.set('state', `${payload}.${sig}`);
+  return c.redirect(authUrl.toString(), 302);
 };
 
 app.get('/api/auth/google', handleGoogleOAuthStart);
 app.get('/auth/google', handleGoogleOAuthStart);
 
-// Auth: Google OAuth 2.0 Callback
+// Auth: Google OAuth callback
 app.get('/api/auth/google/callback', async (c) => {
-  const code = c.req.query('code') || '';
+  const fail = (path: string, reason: string) => {
+    appendSetCookie(c, `lfc_oauth=; ${cookieAttributes(0, isSecureRequest(c))}`);
+    return c.redirect(withParam(path, `auth_error=${reason}`), 302);
+  };
+  const fallback = '/study';
+  if (!c.env?.GOOGLE_CLIENT_ID || !c.env?.GOOGLE_CLIENT_SECRET) return fail(fallback, 'google_not_configured');
+
+  // 1. Verify the signed state and that this browser started the flow
   const rawState = c.req.query('state') || '';
-  let returnTo = '/study?synced=1';
-  try {
-    const parsed = JSON.parse(decodeURIComponent(rawState));
-    if (typeof parsed?.returnTo === 'string' && parsed.returnTo.startsWith('/')) {
-      returnTo = parsed.returnTo;
+  const dot = rawState.lastIndexOf('.');
+  const payload = dot > 0 ? rawState.slice(0, dot) : '';
+  const sig = dot > 0 ? rawState.slice(dot + 1) : '';
+  const secret = getCookieSecret(c);
+  let state: { r?: string; n?: string; t?: number } | null = null;
+  if (payload && (await verifyHmacSha256Hex(secret, `oauth-state:${payload}`, sig))) {
+    try {
+      state = JSON.parse(fromB64url(payload));
+    } catch {
+      state = null;
     }
-  } catch {
-    // ignore
   }
-
-  if (!code || !c.env?.GOOGLE_CLIENT_ID || !c.env?.GOOGLE_CLIENT_SECRET) {
-    return c.redirect(`${returnTo}${returnTo.includes('?') ? '&' : '?'}auth_error=missing_code`, 302);
+  const cookieNonce = parseCookies(c.req.header('cookie'))['lfc_oauth'] || '';
+  const fresh = state && typeof state.t === 'number' && Date.now() / 1000 - state.t <= OAUTH_STATE_TTL_SECONDS;
+  if (!state || !fresh || !state.n || !cookieNonce || !timingSafeEqual(String(state.n), cookieNonce)) {
+    return fail(fallback, 'invalid_state');
   }
+  const returnTo = safeReturnPath(state.r);
 
+  const code = c.req.query('code') || '';
+  if (!code) return fail(returnTo, 'missing_code');
+
+  // 2. Exchange the code and verify the ID token with Google
   try {
-    const redirectUri = `${appBaseUrl(c)}/api/auth/google/callback`;
     const authResult = await exchangeGoogleOAuthCode(
       {
         code,
         clientId: c.env.GOOGLE_CLIENT_ID,
         clientSecret: c.env.GOOGLE_CLIENT_SECRET,
-        redirectUri,
+        redirectUri: `${appBaseUrl(c)}/api/auth/google/callback`,
       },
-      getCookieSecret(c),
+      secret,
       c.env?.DB,
       isSecureRequest(c)
     );
+    appendSetCookie(c, `lfc_oauth=; ${cookieAttributes(0, isSecureRequest(c))}`);
     appendSetCookie(c, authResult.signedUserCookie);
     return c.redirect(returnTo, 302);
-  } catch {
-    return c.redirect(`${returnTo}${returnTo.includes('?') ? '&' : '?'}auth_error=oauth_failed`, 302);
+  } catch (err) {
+    if (err instanceof ServerMisconfiguredError) throw err;
+    console.warn('[LearnFromClip] Google OAuth sign-in failed:', (err as any)?.message);
+    return fail(returnTo, 'oauth_failed');
   }
 });
 
-// Auth: Continue with Google (Google Identity Services credential or Google account sign-in)
+// Auth: Google Identity Services credential (ID token). Only a Google-verified ID token signs a
+// user in; an email or name in the request body is ignored.
 app.post('/api/auth/google', async (c) => {
+  if (!c.env?.GOOGLE_CLIENT_ID) {
+    return c.json(
+      { success: false, error: { code: 'GOOGLE_NOT_CONFIGURED', message: 'Google sign-in is not available yet.' } },
+      503
+    );
+  }
+  const body = await c.req.json().catch(() => ({}));
+  const credential = typeof body?.credential === 'string' ? body.credential.trim() : '';
+  if (!credential) {
+    return c.json(
+      { success: false, error: { code: 'GOOGLE_AUTH_FAILED', message: 'A Google sign-in credential is required.' } },
+      400
+    );
+  }
   try {
-    const body = await c.req.json().catch(() => ({}));
-    const credential = typeof body?.credential === 'string' ? body.credential.trim() : undefined;
-    const email = typeof body?.email === 'string' ? body.email.trim() : undefined;
-    const name = typeof body?.name === 'string' ? body.name.trim() : undefined;
-    const picture = typeof body?.picture === 'string' ? body.picture.trim() : undefined;
-    const googleSub = typeof body?.googleSub === 'string' ? body.googleSub.trim() : undefined;
-
     const authResult = await authenticateWithGoogle(
-      {
-        credential,
-        email,
-        name,
-        picture,
-        googleSub,
-        googleClientId: c.env?.GOOGLE_CLIENT_ID,
-      },
+      { credential, googleClientId: c.env.GOOGLE_CLIENT_ID },
       getCookieSecret(c),
       c.env?.DB,
       isSecureRequest(c)
@@ -1797,12 +1834,9 @@ app.post('/api/auth/google', async (c) => {
     return c.json(
       {
         success: false,
-        error: {
-          code: 'GOOGLE_AUTH_FAILED',
-          message: err?.message || 'Could not sign in with Google. Please try again.',
-        },
+        error: { code: 'GOOGLE_AUTH_FAILED', message: 'Could not sign in with Google. Please try again.' },
       },
-      400
+      401
     );
   }
 });

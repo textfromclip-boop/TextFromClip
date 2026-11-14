@@ -822,78 +822,72 @@ export async function sendMagicLinkEmail(params: {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Google OAuth 2.0 & Google Identity Services ("Continue with Google")
+// Google sign-in ("Continue with Google")
+//
+// The server NEVER trusts an email, name or id sent by the browser. A user is signed in only
+// after Google itself confirms an ID token: issued by Google, for OUR client id, not expired,
+// with a verified email address.
 // ---------------------------------------------------------------------------------------------
 
-function decodeJwtPayload(jwt: string): any | null {
-  try {
-    const parts = jwt.split('.');
-    if (parts.length !== 3) return null;
-    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
-    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
-    return JSON.parse(atob(padded));
-  } catch {
-    return null;
-  }
+export interface VerifiedGoogleProfile {
+  email: string;
+  name?: string;
+  picture?: string;
+  googleSub: string;
 }
 
+const GOOGLE_ISSUERS = new Set(['accounts.google.com', 'https://accounts.google.com']);
+
 /**
- * Authenticates a user with Google (via Google Identity Services ID token credential,
- * Google OAuth 2.0 userinfo profile, or direct Google account sign-in when GOOGLE_CLIENT_ID is not enforced).
+ * Verifies a Google ID token with Google's tokeninfo endpoint (which checks the signature) and
+ * then checks audience, issuer, expiry and that the email is verified. Throws on any failure.
  */
-export async function authenticateWithGoogle(
-  params: {
-    credential?: string;
-    email?: string;
-    name?: string;
-    picture?: string;
-    googleSub?: string;
-    googleClientId?: string;
-  },
+export async function verifyGoogleIdToken(
+  idToken: string,
+  clientId: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<VerifiedGoogleProfile> {
+  if (!clientId) throw new Error('Google sign-in is not configured.');
+  if (!idToken || typeof idToken !== 'string' || idToken.split('.').length !== 3 || idToken.length > 4096) {
+    throw new Error('Invalid Google ID token.');
+  }
+  const res = await fetchImpl(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
+  );
+  if (!res.ok) throw new Error('Invalid Google ID token.');
+  const info: any = await res.json().catch(() => null);
+  if (!info || typeof info !== 'object') throw new Error('Invalid Google ID token.');
+  if (info.aud !== clientId) throw new Error('Google ID token audience mismatch.');
+  if (!GOOGLE_ISSUERS.has(String(info.iss))) throw new Error('Google ID token issuer mismatch.');
+  if (!(Number(info.exp) > nowSeconds())) throw new Error('Google ID token has expired.');
+  if (!(info.email_verified === true || info.email_verified === 'true')) {
+    throw new Error('Google email address is not verified.');
+  }
+  const email = String(info.email || '').trim().toLowerCase();
+  const googleSub = String(info.sub || '').trim();
+  if (!isValidEmail(email) || email.endsWith('@guest.learnfromclip.com') || !googleSub) {
+    throw new Error('A valid Google account email is required to sign in.');
+  }
+  return {
+    email,
+    googleSub,
+    name: info.name ? String(info.name).slice(0, 120) : undefined,
+    picture:
+      typeof info.picture === 'string' && /^https:\/\//.test(info.picture) ? info.picture.slice(0, 500) : undefined,
+  };
+}
+
+async function signInVerifiedGoogleProfile(
+  profile: VerifiedGoogleProfile,
   secret: string,
   db?: D1Database,
   secureCookies: boolean = true
 ): Promise<{ user: UserRecord; signedUserCookie: string }> {
-  let email = (params.email || '').trim().toLowerCase();
-  let name = params.name?.trim();
-  let picture = params.picture?.trim();
-  let googleSub = params.googleSub?.trim();
-
-  if (params.credential) {
-    const decoded = decodeJwtPayload(params.credential);
-    if (decoded && decoded.email) {
-      email = String(decoded.email).trim().toLowerCase();
-      name = decoded.name ? String(decoded.name) : name;
-      picture = decoded.picture ? String(decoded.picture) : picture;
-      googleSub = decoded.sub ? String(decoded.sub) : googleSub;
-    }
-
-    if (params.googleClientId && params.googleClientId !== 'test') {
-      const res = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(params.credential)}`
-      );
-      if (!res.ok) {
-        throw new Error('Invalid Google ID token.');
-      }
-      const tokenInfo: any = await res.json();
-      if (tokenInfo.aud !== params.googleClientId) {
-        throw new Error('Google ID token audience mismatch.');
-      }
-      if (tokenInfo.email_verified === 'false' || tokenInfo.email_verified === false) {
-        throw new Error('Google email address is not verified.');
-      }
-      email = String(tokenInfo.email || email).trim().toLowerCase();
-      name = tokenInfo.name ? String(tokenInfo.name) : name;
-      picture = tokenInfo.picture ? String(tokenInfo.picture) : picture;
-      googleSub = tokenInfo.sub ? String(tokenInfo.sub) : googleSub;
-    }
-  }
-
-  if (!isValidEmail(email) || email.endsWith('@guest.learnfromclip.com')) {
-    throw new Error('A valid Google account email is required to sign in.');
-  }
-
-  const user = await getOrCreateUserByEmail(email, db, { name, picture, googleSub });
+  const user = await getOrCreateUserByEmail(profile.email, db, {
+    name: profile.name,
+    picture: profile.picture,
+    googleSub: profile.googleSub,
+  });
   const signed = await signCookieValue(user.id, secret, 'uid');
   return {
     user,
@@ -901,8 +895,22 @@ export async function authenticateWithGoogle(
   };
 }
 
+/** Signs a user in from a Google Identity Services ID token ("credential"). */
+export async function authenticateWithGoogle(
+  params: { credential?: string; googleClientId?: string; fetchImpl?: typeof fetch },
+  secret: string,
+  db?: D1Database,
+  secureCookies: boolean = true
+): Promise<{ user: UserRecord; signedUserCookie: string }> {
+  if (!params.googleClientId) throw new Error('Google sign-in is not configured.');
+  if (!params.credential) throw new Error('A Google sign-in credential is required.');
+  const profile = await verifyGoogleIdToken(params.credential, params.googleClientId, params.fetchImpl);
+  return signInVerifiedGoogleProfile(profile, secret, db, secureCookies);
+}
+
 /**
- * Exchanges a Google OAuth 2.0 authorization code for user profile and signs the user in.
+ * Exchanges a Google OAuth 2.0 authorization code for an ID token, verifies it, and signs the
+ * user in.
  */
 export async function exchangeGoogleOAuthCode(
   params: {
@@ -910,12 +918,14 @@ export async function exchangeGoogleOAuthCode(
     clientId: string;
     clientSecret: string;
     redirectUri: string;
+    fetchImpl?: typeof fetch;
   },
   secret: string,
   db?: D1Database,
   secureCookies: boolean = true
 ): Promise<{ user: UserRecord; signedUserCookie: string }> {
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+  const doFetch = params.fetchImpl || fetch;
+  const tokenRes = await doFetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -931,36 +941,12 @@ export async function exchangeGoogleOAuthCode(
     throw new Error('Failed to exchange Google OAuth authorization code.');
   }
 
-  const tokenData: any = await tokenRes.json();
-  let email = '';
-  let name: string | undefined;
-  let picture: string | undefined;
-  let googleSub: string | undefined;
-
-  if (tokenData.id_token) {
-    const decoded = decodeJwtPayload(tokenData.id_token);
-    if (decoded?.email) {
-      email = String(decoded.email).trim().toLowerCase();
-      name = decoded.name ? String(decoded.name) : undefined;
-      picture = decoded.picture ? String(decoded.picture) : undefined;
-      googleSub = decoded.sub ? String(decoded.sub) : undefined;
-    }
+  const tokenData: any = await tokenRes.json().catch(() => null);
+  if (!tokenData?.id_token) {
+    throw new Error('Google did not return an ID token.');
   }
-
-  if (!email && tokenData.access_token) {
-    const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-    if (userRes.ok) {
-      const profile: any = await userRes.json();
-      email = String(profile.email || '').trim().toLowerCase();
-      name = profile.name ? String(profile.name) : name;
-      picture = profile.picture ? String(profile.picture) : picture;
-      googleSub = profile.sub ? String(profile.sub) : googleSub;
-    }
-  }
-
-  return authenticateWithGoogle({ email, name, picture, googleSub }, secret, db, secureCookies);
+  const profile = await verifyGoogleIdToken(String(tokenData.id_token), params.clientId, doFetch);
+  return signInVerifiedGoogleProfile(profile, secret, db, secureCookies);
 }
 
 // ---------------------------------------------------------------------------------------------
