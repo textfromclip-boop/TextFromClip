@@ -35,8 +35,3 @@ CREATE INDEX IF NOT EXISTS idx_referrals_invitee_ip ON referrals (invitee_ip_has
 -- 4. Entitlement lookups by provider ids (refunds, subscription updates).
 CREATE INDEX IF NOT EXISTS idx_entitlements_order ON entitlements (provider_order_id);
 CREATE INDEX IF NOT EXISTS idx_entitlements_sub ON entitlements (provider_subscription_id);
-
--- 5. Google Sign-In profile columns on users.
-ALTER TABLE users ADD COLUMN name TEXT;
-ALTER TABLE users ADD COLUMN picture TEXT;
-ALTER TABLE users ADD COLUMN google_sub TEXT;
