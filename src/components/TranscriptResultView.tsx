@@ -18,6 +18,13 @@ import {
 } from './FormattedContent';
 import { RevisionPackView } from './RevisionPackView';
 import { trackEvent } from '../utils/analytics';
+import {
+  exportRevisionPackPdf,
+  exportTranscriptPdf,
+  generateAnkiCsv,
+  generatePackMarkdown,
+  generateTranscriptMarkdown,
+} from '../utils/packExporters';
 
 interface Props {
   result: TranscriptResult;
@@ -366,7 +373,7 @@ export const TranscriptResultView: React.FC<Props> = ({
     setDownloadMenuOpen(false);
   };
 
-  const makeRevisionPack = async (overrideSecondLang?: string) => {
+  const makeRevisionPack = async (overrideSecondLang?: string): Promise<RevisionPack | null> => {
     const chosenLang =
       overrideSecondLang !== undefined ? overrideSecondLang : packSecondLang;
     if (overrideSecondLang !== undefined) {
@@ -409,7 +416,7 @@ export const TranscriptResultView: React.FC<Props> = ({
         );
       }
 
-      if (latestScopeRef.current !== reqScope) return;
+      if (latestScopeRef.current !== reqScope) return null;
 
       if (pendingReferral && json.referral) clearPendingReferral();
       const generatedPack: RevisionPack = json.data;
@@ -420,17 +427,65 @@ export const TranscriptResultView: React.FC<Props> = ({
       window.setTimeout(() => {
         packSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 80);
+      return generatedPack;
     } catch (err: any) {
       if (latestScopeRef.current === reqScope) {
         setPackError(
           err?.message || 'Could not generate your revision pack right now.'
         );
       }
+      return null;
     } finally {
       if (latestScopeRef.current === reqScope) {
         setPackLoading(false);
       }
     }
+  };
+
+  const handleDownloadPdf = () => {
+    setDownloadMenuOpen(false);
+    trackEvent('export_clicked');
+    if (revisionPack) {
+      exportRevisionPackPdf(revisionPack);
+      return;
+    }
+    exportTranscriptPdf({
+      title: result.videoTitle || 'Transcript',
+      providerLabel,
+      segments,
+      showTimes,
+      customBodyText: activeTab !== 'original' ? activeCopyText : undefined,
+    });
+  };
+
+  const handleDownloadAnkiCsv = async () => {
+    setDownloadMenuOpen(false);
+    if (revisionPack) {
+      download(generateAnkiCsv(revisionPack), 'csv', 'text/csv', '-anki');
+      return;
+    }
+    const pack = await makeRevisionPack();
+    if (pack) {
+      download(generateAnkiCsv(pack), 'csv', 'text/csv', '-anki');
+    }
+  };
+
+  const handleDownloadMarkdown = () => {
+    if (revisionPack) {
+      download(generatePackMarkdown(revisionPack), 'md', 'text/markdown', '-revision-pack');
+      return;
+    }
+    download(
+      generateTranscriptMarkdown({
+        title: result.videoTitle || 'Transcript',
+        providerLabel,
+        segments,
+        showTimes,
+        customBodyText: activeTab !== 'original' ? activeCopyText : undefined,
+      }),
+      'md',
+      'text/markdown'
+    );
   };
 
   const runTransform = async (opt: TransformOption) => {
@@ -991,7 +1046,7 @@ export const TranscriptResultView: React.FC<Props> = ({
               </button>
 
               {downloadMenuOpen && (
-                <div className="absolute right-0 sm:left-0 sm:right-auto mt-2 w-56 max-w-[calc(100vw-2rem)] rounded-lg bg-surface border border-rule py-2 z-30">
+                <div className="absolute right-0 sm:left-0 sm:right-auto mt-2 w-60 max-w-[calc(100vw-2rem)] rounded-lg bg-surface border border-rule py-2 z-30 shadow-lg">
                   <button
                     type="button"
                     onClick={() => download(activeCopyText, 'txt', 'text/plain')}
@@ -1015,6 +1070,31 @@ export const TranscriptResultView: React.FC<Props> = ({
                   >
                     <span className="text-sm font-semibold text-ink">WebVTT Subtitles (.VTT)</span>
                     <span className="text-[11px] font-mono text-muted">VTT</span>
+                  </button>
+                  <div className="my-1 border-t border-slate-100" />
+                  <button
+                    type="button"
+                    onClick={handleDownloadPdf}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 flex items-center justify-between"
+                  >
+                    <span className="text-sm font-semibold text-ink">PDF Document (.PDF)</span>
+                    <span className="text-[11px] font-mono text-muted">PDF</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadAnkiCsv}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 flex items-center justify-between"
+                  >
+                    <span className="text-sm font-semibold text-ink">Anki Flashcards (.CSV)</span>
+                    <span className="text-[11px] font-mono text-muted">CSV</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadMarkdown}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 flex items-center justify-between"
+                  >
+                    <span className="text-sm font-semibold text-ink">Markdown (.MD)</span>
+                    <span className="text-[11px] font-mono text-muted">MD</span>
                   </button>
                 </div>
               )}

@@ -382,11 +382,15 @@ export function buildPrintablePackHtml(pack: RevisionPack): string {
 </html>`;
 }
 
-/**
- * Triggers a print-to-PDF window (with RTL Arabic font support) or downloads printable HTML fallback.
- */
-export function exportRevisionPackPdf(pack: RevisionPack): void {
-  const html = buildPrintablePackHtml(pack);
+export interface TranscriptExportOptions {
+  title: string;
+  providerLabel?: string;
+  segments: { start: number; text: string }[];
+  showTimes: boolean;
+  customBodyText?: string;
+}
+
+function openPrintWindowOrDownloadHtml(html: string, titleForFilename: string): void {
   const printWin = window.open('', '_blank', 'width=920,height=780');
   if (printWin && printWin.document) {
     printWin.document.open();
@@ -413,10 +417,186 @@ export function exportRevisionPackPdf(pack: RevisionPack): void {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${(pack.title || 'revision-pack').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.html`;
+    a.download = `${(titleForFilename || 'transcript').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'transcript'}.html`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
   }
+}
+
+/**
+ * Triggers a print-to-PDF window (with RTL Arabic font support) or downloads printable HTML fallback.
+ */
+export function exportRevisionPackPdf(pack: RevisionPack): void {
+  openPrintWindowOrDownloadHtml(buildPrintablePackHtml(pack), pack.title || 'revision-pack');
+}
+
+/**
+ * Builds RTL-safe, print-ready HTML for PDF export of a transcript or AI view.
+ */
+export function buildPrintableTranscriptHtml(opts: TranscriptExportOptions): string {
+  const title = opts.title || 'Transcript';
+  const metaText = opts.providerLabel
+    ? `${opts.providerLabel} · ${opts.segments.length} segments`
+    : `${opts.segments.length} segments`;
+
+  let bodyHtml = '';
+  if (opts.customBodyText !== undefined) {
+    const blocks = opts.customBodyText
+      .split(/\n{2,}/)
+      .map((b) => b.trim())
+      .filter(Boolean);
+    bodyHtml = blocks
+      .map((block) => `<div class="section-card" dir="auto"><p style="margin:0;white-space:pre-wrap;">${escapeHtml(block)}</p></div>`)
+      .join('');
+  } else if (opts.showTimes) {
+    bodyHtml = opts.segments
+      .filter((s) => s.text.trim())
+      .map((s) => {
+        const ts = formatTimestamp(s.start);
+        return `
+        <div class="segment-row" dir="auto">
+          <span class="source-pill" dir="ltr">${ts}</span>
+          <span class="seg-text">${escapeHtml(s.text.trim())}</span>
+        </div>`;
+      })
+      .join('');
+  } else {
+    const cleanSegments = opts.segments.filter((s) => s.text.trim());
+    const paragraphs: string[] = [];
+    for (let i = 0; i < cleanSegments.length; i += 5) {
+      paragraphs.push(cleanSegments.slice(i, i + 5).map((s) => s.text.trim()).join(' '));
+    }
+    bodyHtml = paragraphs
+      .map((p) => `<div class="section-card" dir="auto"><p style="margin:0;">${escapeHtml(p)}</p></div>`)
+      .join('');
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(title)} — LearnFromClip Transcript</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Arabic:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', 'Noto Sans Arabic', -apple-system, BlinkMacSystemFont, 'Segoe UI', Tahoma, sans-serif;
+      color: #021433;
+      background: #FEFEFE;
+      margin: 0;
+      padding: 32px;
+      line-height: 1.6;
+    }
+    .header {
+      border-bottom: 2px solid #E2E8F0;
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 16px;
+    }
+    .brand {
+      font-weight: 900;
+      font-size: 20px;
+      color: #021433;
+    }
+    .brand span { color: #2E62F4; }
+    h1 { font-size: 22px; margin: 6px 0 0 0; }
+    .section-card {
+      border: 1px solid #E2E8F0;
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 12px;
+      page-break-inside: avoid;
+      background: #FEFEFE;
+      font-size: 14px;
+    }
+    .segment-row {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px solid #F1F5F9;
+      page-break-inside: avoid;
+      font-size: 14px;
+    }
+    .source-pill {
+      display: inline-block;
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 600;
+      color: #2E62F4;
+      background: #EEF4FF;
+      border: 1px solid #BFDBFE;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-variant-numeric: tabular-nums;
+    }
+    .seg-text { flex: 1; }
+    @media print {
+      body { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <div class="brand">LearnFrom<span>Clip</span></div>
+      <h1 dir="auto">${escapeHtml(title)}</h1>
+    </div>
+    <div style="font-size: 12px; color: #475569; white-space: nowrap;">
+      ${escapeHtml(metaText)}
+    </div>
+  </div>
+  ${bodyHtml}
+</body>
+</html>`;
+}
+
+/**
+ * Triggers a print-to-PDF window for a transcript or falls back to printable HTML download.
+ */
+export function exportTranscriptPdf(opts: TranscriptExportOptions): void {
+  openPrintWindowOrDownloadHtml(buildPrintableTranscriptHtml(opts), opts.title || 'transcript');
+}
+
+/**
+ * Generates a clean Markdown (.md) export of the transcript or active AI view.
+ */
+export function generateTranscriptMarkdown(opts: TranscriptExportOptions): string {
+  const lines: string[] = [];
+  lines.push(`# ${opts.title || 'Transcript'}`);
+  const metaParts = ['Generated by LearnFromClip (learnfromclip.com)'];
+  if (opts.providerLabel) metaParts.push(opts.providerLabel);
+  lines.push(`*${metaParts.join(' · ')}*`);
+  lines.push('');
+
+  if (opts.customBodyText !== undefined) {
+    lines.push(opts.customBodyText.trim());
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  if (opts.showTimes) {
+    for (const seg of opts.segments) {
+      const text = seg.text.trim();
+      if (!text) continue;
+      lines.push(`- **[${formatTimestamp(seg.start)}]** ${text}`);
+    }
+  } else {
+    const cleanSegments = opts.segments.filter((s) => s.text.trim());
+    for (let i = 0; i < cleanSegments.length; i += 5) {
+      lines.push(cleanSegments.slice(i, i + 5).map((s) => s.text.trim()).join(' '));
+      lines.push('');
+    }
+  }
+
+  lines.push('');
+  return lines.join('\n');
 }
