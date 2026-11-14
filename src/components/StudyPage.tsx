@@ -818,8 +818,8 @@ export const StudyPage: React.FC = () => {
       <GoogleSignInModal
         open={syncModalOpen}
         onClose={() => setSyncModalOpen(false)}
-        title="Continue with Google"
-        subtitle="On the free plan, your decks stay on this browser. With an Exam Pass, Monthly, or Semester Pass, sign in with Google to sync your decks across all your devices."
+        title="Welcome to LearnFromClip"
+        subtitle="Sign in with Google to sync your study decks and streaks across your devices."
         onSuccess={async (session) => {
           setAccount({
             signedIn: session.signedIn,

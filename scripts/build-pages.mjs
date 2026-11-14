@@ -81,7 +81,7 @@ writeFileSync(
   JSON.stringify(
     {
       version: 1,
-      include: ['/api/*', '/robots.txt', '/sitemap.xml'],
+      include: ['/api/*', '/auth/*', '/robots.txt', '/sitemap.xml'],
       exclude: [],
     },
     null,

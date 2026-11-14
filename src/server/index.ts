@@ -1679,9 +1679,10 @@ app.post('/api/auth/logout', (c) => {
 });
 
 // Auth: Initiate Google OAuth 2.0 Redirect Flow ("Continue with Google")
-app.get('/api/auth/google', (c) => {
+const handleGoogleOAuthStart = (c: any) => {
   const returnTo = c.req.query('returnTo') || '/study?synced=1';
-  const safeReturnTo = returnTo.startsWith('/') ? returnTo : '/study?synced=1';
+  const safeReturnTo =
+    returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/study?synced=1';
   const clientId = c.env?.GOOGLE_CLIENT_ID;
   if (clientId) {
     const redirectUri = `${appBaseUrl(c)}/api/auth/google/callback`;
@@ -1696,8 +1697,12 @@ app.get('/api/auth/google', (c) => {
     authUrl.searchParams.set('state', state);
     return c.redirect(authUrl.toString(), 302);
   }
-  return c.redirect(safeReturnTo, 302);
-});
+  const sep = safeReturnTo.includes('?') ? '&' : '?';
+  return c.redirect(`${safeReturnTo}${sep}auth_error=google_not_configured`, 302);
+};
+
+app.get('/api/auth/google', handleGoogleOAuthStart);
+app.get('/auth/google', handleGoogleOAuthStart);
 
 // Auth: Google OAuth 2.0 Callback
 app.get('/api/auth/google/callback', async (c) => {

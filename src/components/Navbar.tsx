@@ -34,9 +34,35 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
   const [isPaidPlan, setIsPaidPlan] = useState(false);
   const [authUser, setAuthUser] = useState<GoogleUserSession | null>(null);
   const [signInOpen, setSignInOpen] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
 
   useEffect(() => {
     setMobileMenuOpen(false);
+  }, [current]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const url = new URL(window.location.href);
+      const authError = url.searchParams.get('auth_error');
+      const openSignIn = url.searchParams.get('signin');
+      if (authError) {
+        setSignInError(
+          authError === 'google_not_configured'
+            ? 'Google OAuth Client ID is not configured on the server yet. Once GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are added, this link redirects directly to Google.'
+            : 'Could not complete Google sign-in. Please try again.'
+        );
+        setSignInOpen(true);
+        url.searchParams.delete('auth_error');
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+      } else if (openSignIn === '1') {
+        setSignInOpen(true);
+        url.searchParams.delete('signin');
+        window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+      }
+    } catch {
+      // ignore
+    }
   }, [current]);
 
   useEffect(() => {
@@ -80,7 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
         key={item.path}
         to={item.path}
         aria-current={active ? 'page' : undefined}
-        className={`relative py-1.5 text-sm transition-colors ${
+        className={`relative py-1.5 text-sm whitespace-nowrap shrink-0 transition-colors ${
           active ? 'text-ink font-semibold' : 'text-muted hover:text-ink font-medium'
         }`}
       >
@@ -92,21 +118,21 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
 
   return (
     <header className="sticky top-0 z-30 bg-surface border-b border-rule">
-      <div className="max-w-6xl mx-auto px-4 sm:px-5 h-14 flex items-center justify-between gap-6">
-        <div className="flex items-center gap-8 min-w-0">
+      <div className="max-w-6xl mx-auto px-4 sm:px-5 h-14 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-5 lg:gap-7 shrink-0">
           <Link to="/" className="shrink-0" aria-label="LearnFromClip home">
             <Logo variant="full" size="sm" />
           </Link>
 
-          <nav aria-label="Main" className="hidden md:flex items-center gap-5">
+          <nav aria-label="Main" className="hidden md:flex items-center gap-4 lg:gap-5 shrink-0">
             {SOURCE_LINKS.map(desktopLink)}
-            <span aria-hidden="true" className="h-4 w-px bg-rule" />
+            <span aria-hidden="true" className="h-4 w-px bg-rule shrink-0" />
             {PAGE_LINKS.map(desktopLink)}
           </nav>
         </div>
 
-        <div className="hidden lg:flex items-center gap-3 shrink-0 text-sm">
-          <span title="Free limits reset daily at 00:00 UTC" className="text-muted tabular-nums">
+        <div className="hidden lg:flex items-center gap-4 shrink-0 text-sm whitespace-nowrap">
+          <span title="Free limits reset daily at 00:00 UTC" className="hidden xl:inline text-muted tabular-nums whitespace-nowrap">
             {aiLeftLabel}
           </span>
           {authUser ? (
@@ -127,17 +153,19 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
           ) : (
             <button
               type="button"
-              onClick={() => setSignInOpen(true)}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-rule bg-white hover:border-ink text-ink text-xs font-semibold transition-colors"
+              onClick={() => {
+                setSignInError(null);
+                setSignInOpen(true);
+              }}
+              className="px-2.5 py-1.5 rounded-md text-sm font-semibold text-ink/90 hover:text-ink hover:bg-slate-100 transition-colors whitespace-nowrap"
             >
-              <GoogleGLogo className="w-3.5 h-3.5" />
-              <span>Continue with Google</span>
+              Sign in
             </button>
           )}
           {!isPaidPlan && (
             <Link
               to="/pricing"
-              className="px-3 py-1.5 rounded-md text-sm font-semibold text-ink border border-ink hover:bg-ink hover:text-white transition-colors"
+              className="px-3 py-1.5 rounded-md text-sm font-semibold text-ink border border-ink hover:bg-ink hover:text-white transition-colors whitespace-nowrap"
             >
               Upgrade
             </Link>
@@ -238,12 +266,12 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
                 type="button"
                 onClick={() => {
                   setMobileMenuOpen(false);
+                  setSignInError(null);
                   setSignInOpen(true);
                 }}
-                className="w-full py-2 px-3 rounded-md border border-rule bg-white text-ink text-xs font-semibold flex items-center justify-center gap-2"
+                className="w-full py-2.5 px-3 rounded-md border border-rule bg-white text-ink text-sm font-semibold flex items-center justify-center gap-2"
               >
-                <GoogleGLogo className="w-3.5 h-3.5" />
-                <span>Continue with Google</span>
+                <span>Sign in</span>
               </button>
             )}
           </div>
@@ -252,7 +280,11 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
 
       <GoogleSignInModal
         open={signInOpen}
-        onClose={() => setSignInOpen(false)}
+        onClose={() => {
+          setSignInOpen(false);
+          setSignInError(null);
+        }}
+        initialError={signInError}
         onSuccess={async (session) => {
           setAuthUser(session.user);
           if (session.cloudSync) {

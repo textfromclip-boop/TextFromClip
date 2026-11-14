@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Logo } from './Logo';
 import { setSyncedUserEmail } from '../utils/studyStore';
 
 export interface GoogleUserSession {
@@ -40,6 +41,9 @@ export async function fetchAuthSession(): Promise<AuthSessionState | null> {
     const res = await fetch('/api/me');
     const json: any = await res.json().catch(() => null);
     if (res.ok && json?.success && json?.data) {
+      if (json.data.signedIn && json.data.email) {
+        await setSyncedUserEmail(json.data.email);
+      }
       return json.data as AuthSessionState;
     }
   } catch {
@@ -85,235 +89,96 @@ interface GoogleSignInModalProps {
   onSuccess?: (session: AuthSessionState) => void;
   title?: string;
   subtitle?: string;
+  initialError?: string | null;
 }
 
 export const GoogleSignInModal: React.FC<GoogleSignInModalProps> = ({
   open,
   onClose,
-  onSuccess,
-  title = 'Continue with Google',
-  subtitle = 'Sign in with your Google account to save your streak and sync your study decks across devices.',
+  title = 'Welcome to LearnFromClip',
+  subtitle = 'Instant revision packs, synced across your devices',
+  initialError = null,
 }) => {
-  const [googleEmail, setGoogleEmail] = useState('');
-  const [googleName, setGoogleName] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [clientId, setClientId] = useState<string | null>(
-    ((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string | undefined)?.trim() || null
-  );
-  const [oauthConfigured, setOauthConfigured] = useState(false);
-  const gisContainerRef = useRef<HTMLDivElement | null>(null);
+  const [redirecting, setRedirecting] = useState(false);
+  const [error, setError] = useState<string | null>(initialError);
+
+  useEffect(() => {
+    if (!open) {
+      setRedirecting(false);
+      return;
+    }
+    setError(initialError || null);
+  }, [open, initialError]);
 
   useEffect(() => {
     if (!open) return;
-    setError(null);
-    fetchAuthSession().then((session) => {
-      if (!session) return;
-      if (session.googleClientId && !clientId) {
-        setClientId(session.googleClientId);
-      }
-      if (session.googleOAuthConfigured) {
-        setOauthConfigured(true);
-      }
-    });
-  }, [open, clientId]);
-
-  useEffect(() => {
-    if (!open || !clientId || !gisContainerRef.current) return;
-
-    let cancelled = false;
-    const renderGoogleButton = () => {
-      if (cancelled || !gisContainerRef.current) return;
-      const g = (window as any).google?.accounts?.id;
-      if (!g) return;
-      try {
-        g.initialize({
-          client_id: clientId,
-          callback: async (response: { credential?: string }) => {
-            if (!response?.credential) return;
-            await completeGoogleAuth({ credential: response.credential });
-          },
-        });
-        gisContainerRef.current.innerHTML = '';
-        g.renderButton(gisContainerRef.current, {
-          theme: 'outline',
-          size: 'large',
-          text: 'continue_with',
-          shape: 'rectangular',
-          width: 340,
-        });
-      } catch {
-        // fallback to custom button
-      }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
     };
-
-    if ((window as any).google?.accounts?.id) {
-      renderGoogleButton();
-    } else {
-      const existing = document.querySelector<HTMLScriptElement>(
-        'script[src="https://accounts.google.com/gsi/client"]'
-      );
-      if (existing) {
-        existing.addEventListener('load', renderGoogleButton, { once: true });
-      } else {
-        const script = document.createElement('script');
-        script.src = 'https://accounts.google.com/gsi/client';
-        script.async = true;
-        script.defer = true;
-        script.onload = renderGoogleButton;
-        document.head.appendChild(script);
-      }
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open, clientId]);
-
-  const completeGoogleAuth = async (payload: {
-    credential?: string;
-    email?: string;
-    name?: string;
-  }) => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const json: any = await res.json().catch(() => null);
-      if (res.ok && json?.success && json?.data?.user) {
-        await setSyncedUserEmail(json.data.user.email);
-        notifyAuthChanged();
-        onSuccess?.(json.data as AuthSessionState);
-        onClose();
-        return;
-      }
-      setError(json?.error?.message || 'Could not sign in with Google. Please try again.');
-    } catch {
-      setError('Could not connect to Google sign-in right now. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDirectGoogleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!googleEmail.trim()) return;
-    await completeGoogleAuth({
-      email: googleEmail.trim(),
-      name: googleName.trim() || undefined,
-    });
-  };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 
+  const returnToPath =
+    typeof window !== 'undefined'
+      ? window.location.pathname + window.location.search
+      : '/study';
+  const oauthHref = `/api/auth/google?returnTo=${encodeURIComponent(returnToPath)}`;
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="google-signin-title"
-        className="w-full max-w-md rounded-lg bg-surface border border-rule p-6 shadow-2xl"
+        className="relative w-full max-w-[380px] rounded-2xl bg-surface border border-rule px-7 py-8 shadow-2xl text-center"
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-white border border-rule">
-              <GoogleGLogo className="w-4 h-4" />
-            </span>
-            <h3 id="google-signin-title" className="text-lg font-semibold text-ink">
-              {title}
-            </h3>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted hover:text-ink text-sm p-1"
-            aria-label="Close sign-in dialog"
-          >
-            ✕
-          </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute top-4 right-4 w-8 h-8 rounded-lg inline-flex items-center justify-center text-muted hover:text-ink hover:bg-slate-100 transition-colors"
+          aria-label="Close sign-in dialog"
+        >
+          ✕
+        </button>
+
+        <div className="mx-auto mb-5 w-16 h-16 rounded-full bg-white border border-rule shadow-sm flex items-center justify-center">
+          <Logo variant="icon" size="md" />
         </div>
 
-        <p className="mt-2.5 text-xs sm:text-sm text-muted leading-relaxed">{subtitle}</p>
+        <h3 id="google-signin-title" className="font-sans text-xl sm:text-2xl font-bold tracking-tight text-ink">
+          {title}
+        </h3>
 
-        {/* Official Google Identity Services Button Container (when clientId is configured) */}
-        {clientId && <div ref={gisContainerRef} className="mt-4 flex justify-center" />}
+        <p className="mt-2 text-sm text-muted leading-relaxed">
+          {subtitle}
+        </p>
 
-        {/* OAuth Redirect Button when server has GOOGLE_CLIENT_ID & GOOGLE_CLIENT_SECRET */}
-        {oauthConfigured && (
-          <a
-            href={`/api/auth/google?returnTo=${encodeURIComponent(
-              typeof window !== 'undefined'
-                ? window.location.pathname + window.location.search
-                : '/study'
-            )}`}
-            className="mt-4 w-full py-2.5 px-4 rounded-md border border-rule bg-white hover:bg-slate-50 text-ink font-semibold text-sm flex items-center justify-center gap-2.5 transition-colors"
-          >
-            <GoogleGLogo className="w-4 h-4" />
-            <span>Continue with Google</span>
-          </a>
-        )}
+        <div className="w-24 mx-auto border-t border-rule my-6" />
 
-        {/* Instant Google Account Sign-In Form */}
-        <form onSubmit={handleDirectGoogleSubmit} className="mt-4 space-y-3">
-          <div>
-            <label
-              htmlFor="google-account-email"
-              className="block text-xs font-semibold text-muted mb-1"
-            >
-              Google Account Email
-            </label>
-            <input
-              id="google-account-email"
-              type="email"
-              required
-              autoFocus
-              value={googleEmail}
-              onChange={(e) => setGoogleEmail(e.target.value)}
-              placeholder="you@gmail.com or university@edu"
-              className="w-full px-3.5 py-2.5 rounded-md border border-rule text-sm text-ink focus:outline-none focus:border-ink"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="google-account-name"
-              className="block text-xs font-semibold text-muted mb-1"
-            >
-              Display Name <span className="text-muted/70 font-normal">(optional)</span>
-            </label>
-            <input
-              id="google-account-name"
-              type="text"
-              value={googleName}
-              onChange={(e) => setGoogleName(e.target.value)}
-              placeholder="Your name"
-              className="w-full px-3.5 py-2 rounded-md border border-rule text-sm text-ink focus:outline-none focus:border-ink"
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full py-2.5 px-4 rounded-md border border-ink bg-white hover:bg-slate-50 text-ink font-semibold text-sm flex items-center justify-center gap-2.5 transition-colors disabled:opacity-60"
-          >
-            <GoogleGLogo className="w-4 h-4" />
-            <span>{submitting ? 'Signing in with Google…' : 'Continue with Google'}</span>
-          </button>
-        </form>
+        <a
+          href={oauthHref}
+          onClick={() => setRedirecting(true)}
+          className="w-full py-3 px-4 rounded-lg border border-rule bg-white hover:bg-slate-50 hover:border-ink/40 text-ink font-semibold text-sm flex items-center justify-center gap-3 shadow-sm transition-all"
+        >
+          <GoogleGLogo className="w-4 h-4 shrink-0" />
+          <span>{redirecting ? 'Redirecting to Google…' : 'Continue with Google'}</span>
+        </a>
 
         {error && (
-          <p className="mt-3 p-3 rounded-md bg-red-50 border border-red-200 text-red-700 text-xs font-semibold">
+          <p className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium text-left leading-relaxed">
             {error}
           </p>
         )}
-
-        <p className="mt-4 text-[11px] text-muted text-center">
-          No password required. Free users never need an account—decks save on your device automatically.
-        </p>
       </div>
     </div>
   );
 };
+
