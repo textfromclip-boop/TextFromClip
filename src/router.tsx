@@ -77,6 +77,9 @@ export function navigate(to: string) {
   if (to !== current) {
     window.history.pushState({}, '', to);
   }
+  if (!window.location.hash) {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+  }
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
@@ -92,12 +95,19 @@ export function useRoute(): RoutePath {
 
     applyRouteMeta(next);
 
-    requestAnimationFrame(() => {
-      const id = window.location.hash.slice(1);
-      const el = id ? document.getElementById(id) : null;
-      if (el) el.scrollIntoView();
-      else window.scrollTo(0, 0);
-    });
+    const id = window.location.hash.slice(1);
+    if (id) {
+      requestAnimationFrame(() => {
+        const el = document.getElementById(id);
+        if (el) {
+          el.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+        } else {
+          window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+        }
+      });
+    } else {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+    }
   }, []);
 
   useEffect(() => {
