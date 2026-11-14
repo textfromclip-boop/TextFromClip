@@ -6,6 +6,7 @@ import {
   Sm2Rating,
   updateDailyStreak,
 } from './sm2';
+import { emitRealtimeEvent, listenRealtimeEvent } from './apiClient';
 
 export interface StoredStudyDeck {
   id: string;
@@ -32,6 +33,18 @@ const STORE_DECKS = 'decks';
 const STORE_META = 'study_meta';
 const FALLBACK_DECKS_KEY = 'learnfromclip_decks_fallback_v1';
 const FALLBACK_META_KEY = 'learnfromclip_meta_fallback_v1';
+const STUDY_CHANGED_EVENT = 'lfc:study-changed';
+
+export function notifyStudyStoreChanged(): void {
+  emitRealtimeEvent(STUDY_CHANGED_EVENT);
+}
+
+export function onStudyStoreChanged(listener: () => void): () => void {
+  return listenRealtimeEvent(STUDY_CHANGED_EVENT, listener, [
+    FALLBACK_DECKS_KEY,
+    FALLBACK_META_KEY,
+  ]);
+}
 
 // In-memory store fallback when running in Node/Vitest without browser IndexedDB
 const memoryDecks = new Map<string, StoredStudyDeck>();
@@ -140,6 +153,7 @@ export async function saveStudyDeck(
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
+      notifyStudyStoreChanged();
       return deck;
     } catch {
       // fall through
@@ -156,6 +170,7 @@ export async function saveStudyDeck(
     }
   }
 
+  notifyStudyStoreChanged();
   return deck;
 }
 
@@ -171,6 +186,7 @@ export async function putStudyDeckRaw(deck: StoredStudyDeck): Promise<void> {
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
+      notifyStudyStoreChanged();
       return;
     } catch {
       // fall through
@@ -185,6 +201,7 @@ export async function putStudyDeckRaw(deck: StoredStudyDeck): Promise<void> {
       // ignore
     }
   }
+  notifyStudyStoreChanged();
 }
 
 /**
@@ -267,6 +284,7 @@ export async function deleteStudyDeck(deckId: string): Promise<void> {
       // ignore
     }
   }
+  notifyStudyStoreChanged();
 }
 
 export async function loadStudyMeta(): Promise<StudyMetaState> {
@@ -309,6 +327,7 @@ export async function saveStudyMeta(meta: StudyMetaState): Promise<StudyMetaStat
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
       });
+      notifyStudyStoreChanged();
       return meta;
     } catch {
       // fall through
@@ -323,12 +342,14 @@ export async function saveStudyMeta(meta: StudyMetaState): Promise<StudyMetaStat
     }
   }
 
+  notifyStudyStoreChanged();
   return meta;
 }
 
 /** Remembers (or clears) which Google account is signed in, for UI labels on this device. */
 export async function setSyncedUserEmail(email: string | null): Promise<void> {
   const current = await loadStudyMeta();
+  if ((current.syncedUserEmail || null) === (email || null)) return;
   await saveStudyMeta({ ...current, syncedUserEmail: email });
 }
 

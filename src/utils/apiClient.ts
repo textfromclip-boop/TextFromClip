@@ -56,21 +56,95 @@ export async function getTurnstileToken(): Promise<string> {
   }
 }
 
+const REALTIME_CHANNEL = 'lfc_realtime';
+const USAGE_CHANGED_EVENT = 'lfc:usage-changed';
+
+/** Emits an in-tab CustomEvent and cross-tab BroadcastChannel signal. */
+export function emitRealtimeEvent(eventName: string): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(eventName));
+  }
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const channel = new BroadcastChannel(REALTIME_CHANNEL);
+      channel.postMessage({ type: eventName });
+      channel.close();
+    }
+  } catch {
+    // ignore BroadcastChannel restrictions
+  }
+}
+
+/** Subscribes to in-tab CustomEvents, cross-tab BroadcastChannel messages, and optional storage keys. */
+export function listenRealtimeEvent(
+  eventName: string,
+  listener: () => void,
+  storageKeys?: string[]
+): () => void {
+  if (typeof window === 'undefined') return () => {};
+  window.addEventListener(eventName, listener);
+
+  let channel: BroadcastChannel | null = null;
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel(REALTIME_CHANNEL);
+      channel.onmessage = (e: MessageEvent) => {
+        if (e.data?.type === eventName) listener();
+      };
+    }
+  } catch {
+    channel = null;
+  }
+
+  const onStorage = (e: StorageEvent) => {
+    if (!storageKeys || !e.key || storageKeys.includes(e.key)) {
+      listener();
+    }
+  };
+  if (storageKeys?.length) {
+    window.addEventListener('storage', onStorage);
+  }
+
+  return () => {
+    window.removeEventListener(eventName, listener);
+    if (storageKeys?.length) {
+      window.removeEventListener('storage', onStorage);
+    }
+    try {
+      channel?.close();
+    } catch {
+      // ignore
+    }
+  };
+}
+
+export function notifyUsageChanged(): void {
+  emitRealtimeEvent(USAGE_CHANGED_EVENT);
+}
+
+export function onUsageChanged(listener: () => void): () => void {
+  return listenRealtimeEvent(USAGE_CHANGED_EVENT, listener);
+}
+
 /** fetch() that transparently completes a Turnstile challenge when the server asks for one. */
 export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const res = await fetch(input, init);
-  if (res.status !== 403 || !TURNSTILE_SITE_KEY) return res;
-  let code: string | undefined;
   try {
-    code = ((await res.clone().json()) as any)?.error?.code;
-  } catch {
-    return res;
+    const res = await fetch(input, init);
+    if (res.status !== 403 || !TURNSTILE_SITE_KEY) return res;
+    let code: string | undefined;
+    try {
+      code = ((await res.clone().json()) as any)?.error?.code;
+    } catch {
+      return res;
+    }
+    if (code !== 'TURNSTILE_REQUIRED') return res;
+    const token = await getTurnstileToken();
+    const headers = new Headers(init.headers || {});
+    headers.set('X-Turnstile-Token', token);
+    return await fetch(input, { ...init, headers });
+  } finally {
+    notifyUsageChanged();
   }
-  if (code !== 'TURNSTILE_REQUIRED') return res;
-  const token = await getTurnstileToken();
-  const headers = new Headers(init.headers || {});
-  headers.set('X-Turnstile-Token', token);
-  return fetch(input, { ...init, headers });
 }
 
 // ---------------------------------------------------------------------------------------------

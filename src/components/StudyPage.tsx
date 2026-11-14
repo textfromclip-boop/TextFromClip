@@ -8,6 +8,7 @@ import {
   getDeckDueStats,
   loadAllStudyDecks,
   loadStudyMeta,
+  onStudyStoreChanged,
   recordCardReviewInStore,
   StoredStudyDeck,
   StudyMetaState,
@@ -61,8 +62,8 @@ export const StudyPage: React.FC = () => {
   // "Continue with Google" modal state
   const [syncModalOpen, setSyncModalOpen] = useState(false);
 
-  const refreshStore = async () => {
-    setLoading(true);
+  const refreshStore = async (showSpinner: boolean = false) => {
+    if (showSpinner) setLoading(true);
     const [loadedDecks, loadedMeta] = await Promise.all([
       loadAllStudyDecks(),
       loadStudyMeta(),
@@ -76,7 +77,7 @@ export const StudyPage: React.FC = () => {
   const [account, setAccount] = useState<{ signedIn: boolean; email: string | null; cloudSync: boolean } | null>(null);
 
   useEffect(() => {
-    refreshStore();
+    refreshStore(true);
     const checkAccountAndSync = async () => {
       const session = await fetchAuthSession();
       if (session) {
@@ -86,13 +87,22 @@ export const StudyPage: React.FC = () => {
           cloudSync: session.cloudSync,
         });
         if (session.cloudSync && (await syncDecksWithCloud())) {
-          await refreshStore();
+          await refreshStore(false);
         }
       }
     };
+    const handleBackgroundRefresh = () => {
+      void refreshStore(false);
+    };
     checkAccountAndSync();
-    const unsub = onAuthChanged(checkAccountAndSync);
-    return () => unsub();
+    const unsubAuth = onAuthChanged(checkAccountAndSync);
+    const unsubStore = onStudyStoreChanged(handleBackgroundRefresh);
+    window.addEventListener('focus', handleBackgroundRefresh);
+    return () => {
+      unsubAuth();
+      unsubStore();
+      window.removeEventListener('focus', handleBackgroundRefresh);
+    };
   }, []);
 
   const totalDueToday = decks.reduce(

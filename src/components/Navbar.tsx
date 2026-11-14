@@ -10,6 +10,7 @@ import {
   signOutGoogleUser,
 } from './GoogleSignInModal';
 import { syncDecksWithCloud } from '../utils/studyStore';
+import { onUsageChanged } from '../utils/apiClient';
 
 interface NavbarProps {
   current: RoutePath;
@@ -68,7 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
   useEffect(() => {
     let active = true;
     const refreshStatus = () => {
-      fetch('/api/usage')
+      fetch('/api/usage', { cache: 'no-store' })
         .then((r) => r.json())
         .then((json: any) => {
           if (!active || !json?.success || !json?.data) return;
@@ -88,11 +89,21 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
         .catch(() => {});
     };
 
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') refreshStatus();
+    };
+
     refreshStatus();
-    const unsub = onAuthChanged(refreshStatus);
+    const unsubAuth = onAuthChanged(refreshStatus);
+    const unsubUsage = onUsageChanged(refreshStatus);
+    window.addEventListener('focus', refreshStatus);
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       active = false;
-      unsub();
+      unsubAuth();
+      unsubUsage();
+      window.removeEventListener('focus', refreshStatus);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [current]);
 

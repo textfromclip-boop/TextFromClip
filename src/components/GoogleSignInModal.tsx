@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Logo } from './Logo';
 import { setSyncedUserEmail } from '../utils/studyStore';
+import { emitRealtimeEvent, listenRealtimeEvent } from '../utils/apiClient';
 
 export interface GoogleUserSession {
   id: string;
@@ -25,20 +26,16 @@ export interface AuthSessionState {
 const AUTH_CHANGED_EVENT = 'lfc:auth-changed';
 
 export function notifyAuthChanged(): void {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent(AUTH_CHANGED_EVENT));
-  }
+  emitRealtimeEvent(AUTH_CHANGED_EVENT);
 }
 
 export function onAuthChanged(listener: () => void): () => void {
-  if (typeof window === 'undefined') return () => {};
-  window.addEventListener(AUTH_CHANGED_EVENT, listener);
-  return () => window.removeEventListener(AUTH_CHANGED_EVENT, listener);
+  return listenRealtimeEvent(AUTH_CHANGED_EVENT, listener);
 }
 
 export async function fetchAuthSession(): Promise<AuthSessionState | null> {
   try {
-    const res = await fetch('/api/me');
+    const res = await fetch('/api/me', { cache: 'no-store' });
     const json: any = await res.json().catch(() => null);
     if (res.ok && json?.success && json?.data) {
       if (json.data.signedIn && json.data.email) {

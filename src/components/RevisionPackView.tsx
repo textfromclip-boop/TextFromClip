@@ -52,6 +52,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
   const [seekCounter, setSeekCounter] = useState(0);
 
   // Flashcard study state
+  const [liveFlashcards, setLiveFlashcards] = useState<Flashcard[]>(pack.flashcards);
   const [cardViewMode, setCardViewMode] = useState<'study' | 'list'>('study');
   const [activeCardIdx, setActiveCardIdx] = useState(0);
   const [isCardFlipped, setIsCardFlipped] = useState(false);
@@ -65,6 +66,10 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
 
   const mediaPlayerRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const playerContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setLiveFlashcards(pack.flashcards);
+  }, [pack.id, pack.flashcards]);
 
   // Reset internal state when a new pack arrives
   useEffect(() => {
@@ -119,7 +124,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
     URL.revokeObjectURL(url);
   };
 
-  const activeDeck = customDeckCards || pack.flashcards;
+  const activeDeck = customDeckCards || liveFlashcards;
   const currentCard = activeDeck[activeCardIdx] || activeDeck[0];
 
   const handleGradeCard = (rating: 'again' | 'hard' | 'good' | 'easy') => {
@@ -127,6 +132,11 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
     // Release focus from the clicked grade button so Space flips the next card instead of re-grading.
     (document.activeElement as HTMLElement | null)?.blur?.();
     trackEvent('card_reviewed');
+    const updatedCard = scheduleFlashcardSm2(currentCard, rating);
+    const applyCardUpdate = (cards: Flashcard[]) =>
+      cards.map((c) => (c.id === currentCard.id ? updatedCard : c));
+    setLiveFlashcards(applyCardUpdate);
+    setCustomDeckCards((prev) => (prev ? applyCardUpdate(prev) : prev));
     setReviewedCardIds((prev) => ({ ...prev, [currentCard.id]: rating }));
     onCardReviewed?.(currentCard, rating);
     setIsCardFlipped(false);
@@ -523,7 +533,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                   }}
                   className="text-xs font-semibold text-accent hover:underline ml-2"
                 >
-                  Show all {pack.flashcards.length} cards
+                  Show all {liveFlashcards.length} cards
                 </button>
               )}
             </div>
