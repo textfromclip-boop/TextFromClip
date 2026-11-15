@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from '../router';
 import { TranscribePage, PlatformConfig } from './TranscribePage';
+import { formatUsd, PLANS } from '../shared/plans';
 
 export interface SeoLandingSpec {
   path: string;
@@ -160,8 +161,8 @@ const HOME_FAQ: { q: string; a: string }[] = [
     a: 'No. On the free plan your notes, decks and review schedule stay in your browser on your device.',
   },
   {
-    q: 'Do the Exam Pass or Semester Pass renew automatically?',
-    a: 'No. The 7-day Exam Pass ($2.99) and the 4-month Semester Pass ($14.99) are one-time payments. Only the Monthly plan renews, and you can cancel it anytime.',
+    q: 'Do the passes renew automatically?',
+    a: `No. The ${PLANS.exam_pass.name} (${formatUsd(PLANS.exam_pass.priceUsd)} for ${PLANS.exam_pass.per}) and the ${PLANS.prep_pass.name} (${formatUsd(PLANS.prep_pass.priceUsd)} for ${PLANS.prep_pass.per}) are one-time payments. Only the Monthly plan renews, and you can cancel it anytime.`,
   },
   {
     q: 'Can I study in Arabic, Spanish or Turkish?',
@@ -240,7 +241,7 @@ export const HomeSectionsBelowTool: React.FC = () => (
     {/* Plans */}
     <section aria-label="Student pricing" className="mt-20 sm:mt-28 border-y border-rule py-8 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
       <div>
-        <h2 className="text-2xl sm:text-3xl text-ink">Free to start. Exam Pass from $2.99.</h2>
+        <h2 className="text-2xl sm:text-3xl text-ink">Free to start. Passes from {formatUsd(PLANS.exam_pass.priceUsd)}.</h2>
         <p className="mt-1.5 text-[15px] text-muted">
           No account needed on the free plan. Passes are one-time payments and never renew on their own.
         </p>

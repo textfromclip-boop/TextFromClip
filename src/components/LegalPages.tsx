@@ -24,7 +24,7 @@ export const PrivacyPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">2. Paid Passes & Cloud Storage Sync</h2>
         <p>
-          With an Exam Pass, Monthly plan or Semester Pass you can sign in using <strong>Continue with Google</strong> (or an email sign-in link). We then store your Google account email address, display name, your plan and its expiry date, and your study decks (cards, review schedule) in our database on Cloudflare so you can study across devices.
+          With a paid pass or the Monthly plan you can sign in using <strong>Continue with Google</strong> (or an email sign-in link). We then store your Google account email address, display name, your plan and its expiry date, and your study decks (cards, review schedule) in our database on Cloudflare so you can study across devices.
         </p>
         <p className="mt-2">
           Payments are handled by <strong>Lemon Squeezy</strong>, our merchant of record. We never see or store your card details; Lemon Squeezy shares your email, the product you bought and your billing country with us so we can activate your pass.
@@ -92,7 +92,7 @@ export const TermsPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">4. Plans, Passes & Subscriptions</h2>
         <p>
-          <strong>Exam Pass</strong> (7 days) and <strong>Semester Pass</strong> (4 months) are one-time payments that never auto-renew. The <strong>Monthly</strong> plan is a recurring subscription that you can cancel at any time with one click from your billing receipt or by contacting support. Upon cancellation, you retain full access until the end of the paid billing period.
+          The <strong>Exam Week Pass</strong> (7 days) and the <strong>Exam Prep Pass</strong> (3 months) are one-time payments that never auto-renew. The <strong>Monthly</strong> plan is a recurring subscription that you can cancel at any time with one click from your billing receipt or by contacting support. Upon cancellation, you retain full access until the end of the paid billing period.
         </p>
         <p className="mt-2">
           Regional student prices are only available for billing addresses in the listed countries. If a regional price is used with a billing country outside those countries, the pass is not activated and the payment is refunded.
@@ -125,7 +125,7 @@ export const RefundPolicyPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">1. 14-Day 100% Money-Back Guarantee</h2>
         <p>
-          If you purchase an Exam Pass, Monthly subscription, or Semester Pass and decide LearnFromClip is not right for your study routine, you are eligible for a full 100% refund within <strong>14 days of purchase</strong>. No complicated questions asked.
+          If you purchase an Exam Week Pass, an Exam Prep Pass or the Monthly subscription and decide LearnFromClip is not right for your study routine, you are eligible for a full 100% refund within <strong>14 days of purchase</strong>. No complicated questions asked.
         </p>
       </section>
 

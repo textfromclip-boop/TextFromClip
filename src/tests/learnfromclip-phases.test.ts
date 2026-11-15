@@ -262,7 +262,7 @@ describe('Phase 3 — Free Tier Limits, Anonymous Turnstile Identity & Caching',
     // Paid user gets higher limits (50 links/day, 100 AI actions/day, 150 cards/pack)
     const paidStatus = await getDailyQuotaStatus({ actorKey: 'paid_user_1', plan: 'monthly' });
     expect(paidStatus.linksLimit).toBe(50);
-    expect(paidStatus.aiActionsLimit).toBe(100);
+    expect(paidStatus.aiActionsLimit).toBe(20);
     expect(paidStatus.mockExamsLimit).toBe(9999);
     expect(paidStatus.maxCardsPerPack).toBe(150);
     expect(paidStatus.maxLectureSeconds).toBe(14400); // 4 hours
@@ -347,7 +347,7 @@ describe('Phase 4 — Payments, Webhooks, Magic Link Auth & Fraud-Resistant Refe
     // 1. Purchase Exam Pass
     const purchaseResult = await processPaymentWebhook(
       {
-        meta: { event_name: 'order_created', custom_data: { plan: 'semester_pass' } },
+        meta: { event_name: 'order_created', custom_data: { plan: 'prep_pass' } },
         data: {
           id: '9001',
           attributes: { user_email: 'student@example.edu', status: 'paid', first_order_item: { variant_id: 101 } },
@@ -356,7 +356,7 @@ describe('Phase 4 — Payments, Webhooks, Magic Link Auth & Fraud-Resistant Refe
       { eventHash: 'h1', config }
     );
     expect(purchaseResult.handled).toBe(true);
-    // custom_data claimed semester_pass, but the variant is the Exam Pass
+    // custom_data claimed prep_pass, but the variant is the Exam Pass
     expect(purchaseResult.entitlements?.[0].planType).toBe('exam_pass');
 
     const activeEnt = await getActiveEntitlementForUser('student@example.edu');

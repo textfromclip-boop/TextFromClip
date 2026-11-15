@@ -90,8 +90,11 @@ const mockAi = {
       for (let i = 0; i < 6; i++) segs.push({ start: i * 5, end: i * 5 + 4.5, text: ` Part ${i + 1}: ${words.join(' ')} for the exam number ${i + 1}.` });
       return { text: segs.map((s) => s.text).join(''), segments: segs, transcription_info: { language: 'en' } };
     }
-    const msgs = input.messages || [];
-    const sys = msgs[0]?.content || '';
+    // Two request shapes: chat `messages` (Llama etc.) and the Responses API
+    // `{ instructions, input: [...] }` used by @cf/openai/gpt-oss-*.
+    const inputMsgs = Array.isArray(input.input) ? input.input : [];
+    const msgs = input.messages || inputMsgs;
+    const sys = input.instructions || (input.messages ? msgs[0]?.content : '') || '';
     const user = msgs[msgs.length - 1]?.content || '';
     if (sys.startsWith('Translate each flashcard')) {
       const lang = (sys.match(/into natural, accurate (\w+)/) || [])[1] || 'Arabic';

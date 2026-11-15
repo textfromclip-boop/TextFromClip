@@ -686,36 +686,132 @@ describe('Magic link login', () => {
 });
 
 describe('Continue with Google login', () => {
-  it('signs in with Google account, sets HMAC-signed lfc_uid cookie, returns profile on /api/me, and signs out', async () => {
-    const env = { ENVIRONMENT: 'development' } as any;
-    const signIn = await app.request(
-      '/api/auth/google',
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.6.8.1' },
-        body: JSON.stringify({ email: 'google.student@gmail.com', name: 'Google Student' }),
-      },
-      env
+  const CLIENT_ID = 'lfc-client-id.apps.googleusercontent.com';
+  const env = { ENVIRONMENT: 'production', COOKIE_SECRET: PROD_SECRET, GOOGLE_CLIENT_ID: CLIENT_ID, GOOGLE_CLIENT_SECRET: 'gsecret' } as any;
+  const future = () => String(Math.floor(Date.now() / 1000) + 3000);
+  const tokenInfo = (over: Record<string, any> = {}) => ({
+    aud: CLIENT_ID,
+    iss: 'https://accounts.google.com',
+    exp: future(),
+    email: 'google.student@gmail.com',
+    email_verified: 'true',
+    sub: '1234567890',
+    name: 'Google Student',
+    picture: 'https://lh3.googleusercontent.com/a/photo',
+    ...over,
+  });
+  /** Mocks Google's token + tokeninfo endpoints. */
+  const mockGoogle = (info: Record<string, any> | null, tokenOk = true) =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).startsWith('https://oauth2.googleapis.com/tokeninfo')) {
+          return info ? new Response(JSON.stringify(info)) : new Response('{"error":"invalid_token"}', { status: 400 });
+        }
+        if (String(url) === 'https://oauth2.googleapis.com/token') {
+          return tokenOk ? new Response(JSON.stringify({ id_token: 'aaa.bbb.ccc' })) : new Response('{}', { status: 400 });
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      })
     );
-    expect(signIn.status).toBe(200);
-    const signInJson: any = await signIn.json();
-    expect(signInJson.data.authenticated).toBe(true);
-    expect(signInJson.data.user.email).toBe('google.student@gmail.com');
-    expect(signInJson.data.user.name).toBe('Google Student');
+  const post = (body: any, ip: string) =>
+    app.request('/api/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': ip }, body: JSON.stringify(body) }, env);
 
+  it('REJECTS sign-in with just an email (no Google proof): nobody can log in as someone else', async () => {
+    mockGoogle(tokenInfo());
+    const bare = await post({ email: 'victim@university.edu', name: 'Victim', googleSub: '1' }, '10.20.0.1');
+    expect(bare.status).toBe(400);
+    expect(cookieFrom(bare, 'lfc_uid')).toBeNull();
+  });
+
+  it('rejects forged / wrong-audience / unverified / expired / wrong-issuer tokens, and ignores body email', async () => {
+    const forged = 'x.' + btoa(JSON.stringify({ email: 'victim@university.edu', sub: '1' })) + '.y';
+    const cases: Array<[string, Record<string, any> | null]> = [
+      ['google says invalid', null],
+      ['other app audience', tokenInfo({ aud: 'attacker-app.apps.googleusercontent.com' })],
+      ['unverified email', tokenInfo({ email_verified: 'false' })],
+      ['expired', tokenInfo({ exp: String(Math.floor(Date.now() / 1000) - 10) })],
+      ['wrong issuer', tokenInfo({ iss: 'https://evil.example' })],
+    ];
+    let n = 0;
+    for (const [, info] of cases) {
+      mockGoogle(info);
+      const res = await post({ credential: forged, email: 'victim@university.edu' }, `10.20.1.${++n}`);
+      expect(res.status).toBe(401);
+      expect(cookieFrom(res, 'lfc_uid')).toBeNull();
+    }
+    // A valid token signs in as the GOOGLE-verified email, not the email in the body
+    mockGoogle(tokenInfo());
+    const ok = await post({ credential: 'aaa.bbb.ccc', email: 'victim@university.edu' }, '10.20.1.99');
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as any).data.email).toBe('google.student@gmail.com');
+  });
+
+  it('valid Google token: sets signed lfc_uid, /api/me returns the profile, logout clears it', async () => {
+    mockGoogle(tokenInfo());
+    const signIn = await post({ credential: 'aaa.bbb.ccc' }, '10.20.2.1');
+    expect(signIn.status).toBe(200);
     const uidCookie = cookieFrom(signIn, 'lfc_uid')!;
     expect(uidCookie).toBeTruthy();
-
-    const meRes = await app.request('/api/me', { headers: { cookie: uidCookie } }, env);
-    expect(meRes.status).toBe(200);
-    const meJson: any = await meRes.json();
+    const meJson: any = await (await app.request('/api/me', { headers: { cookie: uidCookie, 'cf-connecting-ip': '10.20.2.1' } }, env)).json();
     expect(meJson.data.signedIn).toBe(true);
     expect(meJson.data.email).toBe('google.student@gmail.com');
     expect(meJson.data.user.name).toBe('Google Student');
-
-    const logoutRes = await app.request('/api/auth/logout', { method: 'POST', headers: { cookie: uidCookie } }, env);
-    expect(logoutRes.status).toBe(200);
+    const logoutRes = await app.request('/api/auth/logout', { method: 'POST', headers: { cookie: uidCookie, 'cf-connecting-ip': '10.20.2.1' } }, env);
     expect(logoutRes.headers.get('set-cookie')).toContain('Max-Age=0');
+  });
+
+  it('503 when Google sign-in is not configured (never falls back to trusting the browser)', async () => {
+    const res = await app.request('/api/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json', 'cf-connecting-ip': '10.20.3.1' }, body: JSON.stringify({ email: 'a@b.edu' }) }, { ENVIRONMENT: 'production', COOKIE_SECRET: PROD_SECRET } as any);
+    expect(res.status).toBe(503);
+  });
+
+  it('OAuth redirect flow: signed state + nonce cookie; forged state, missing cookie and open redirects are refused', async () => {
+    // Start: redirects to Google with a signed state and sets the nonce cookie
+    const start = await app.request('/api/auth/google?returnTo=' + encodeURIComponent('/pricing'), { headers: { 'cf-connecting-ip': '10.20.4.1' } }, env);
+    expect(start.status).toBe(302);
+    const loc = new URL(start.headers.get('location')!);
+    expect(loc.origin + loc.pathname).toBe('https://accounts.google.com/o/oauth2/v2/auth');
+    expect(loc.searchParams.get('redirect_uri')).toBe('https://learnfromclip.com/api/auth/google/callback');
+    const state = loc.searchParams.get('state')!;
+    const nonceCookie = cookieFrom(start, 'lfc_oauth')!;
+    expect(nonceCookie).toBeTruthy();
+
+    mockGoogle(tokenInfo());
+    const cb = (st: string, cookie: string, ip: string) =>
+      app.request(`/api/auth/google/callback?code=abc&state=${encodeURIComponent(st)}`, { headers: { cookie, 'cf-connecting-ip': ip } }, env);
+
+    // Another browser (no nonce cookie) cannot complete the login (login CSRF)
+    const noCookie = await cb(state, '', '10.20.4.2');
+    expect(noCookie.headers.get('location')).toContain('auth_error=invalid_state');
+    expect(cookieFrom(noCookie, 'lfc_uid')).toBeNull();
+
+    // Forged / unsigned state (the old format) is refused
+    const oldStyle = encodeURIComponent(JSON.stringify({ returnTo: '//evil.example', ts: Date.now() }));
+    const forged = await cb(oldStyle, nonceCookie, '10.20.4.3');
+    expect(forged.headers.get('location')).toContain('auth_error=invalid_state');
+    expect(forged.headers.get('location')!.startsWith('/study')).toBe(true);
+
+    // Genuine flow succeeds and returns to the requested same-site path
+    const good = await cb(state, nonceCookie, '10.20.4.4');
+    expect(good.status).toBe(302);
+    expect(good.headers.get('location')).toBe('/pricing');
+    expect(cookieFrom(good, 'lfc_uid')).toBeTruthy();
+
+    // Open redirect attempts fall back to a safe path
+    for (const bad of ['//evil.example', 'https://evil.example', '/\\evil.example']) {
+      const s2 = await app.request('/api/auth/google?returnTo=' + encodeURIComponent(bad), { headers: { 'cf-connecting-ip': '10.20.5.' + bad.length } }, env);
+      const st2 = new URL(s2.headers.get('location')!).searchParams.get('state')!;
+      const payload = JSON.parse(atob(st2.slice(0, st2.lastIndexOf('.')).replace(/-/g, '+').replace(/_/g, '/')));
+      expect(payload.r).toBe('/study?synced=1');
+    }
+
+    // Google token exchange failing does not sign anyone in
+    const start2 = await app.request('/api/auth/google', { headers: { 'cf-connecting-ip': '10.20.6.1' } }, env);
+    mockGoogle(tokenInfo(), false);
+    const failed = await cb(new URL(start2.headers.get('location')!).searchParams.get('state')!, cookieFrom(start2, 'lfc_oauth')!, '10.20.6.2');
+    expect(failed.headers.get('location')).toContain('auth_error=oauth_failed');
+    expect(cookieFrom(failed, 'lfc_uid')).toBeNull();
   });
 });
 
@@ -764,8 +860,8 @@ describe('Lemon Squeezy', () => {
     LEMONSQUEEZY_VARIANT_EXAM_PASS_REGIONAL: '102',
     LEMONSQUEEZY_VARIANT_MONTHLY: '201',
     LEMONSQUEEZY_VARIANT_MONTHLY_REGIONAL: '202',
-    LEMONSQUEEZY_VARIANT_SEMESTER_PASS: '301',
-    LEMONSQUEEZY_VARIANT_SEMESTER_PASS_REGIONAL: '302',
+    LEMONSQUEEZY_VARIANT_PREP_PASS: '301',
+    LEMONSQUEEZY_VARIANT_PREP_PASS_REGIONAL: '302',
   } as any;
 
   it('checkout: creates a Lemon Squeezy checkout with the correct store + variant for every plan and region', async () => {
@@ -777,7 +873,7 @@ describe('Lemon Squeezy', () => {
     const cases: Array<[string, string, string]> = [
       ['exam_pass', 'US', '101'], ['exam_pass', 'EG', '102'],
       ['monthly', 'GB', '201'], ['monthly', 'IN', '202'],
-      ['semester_pass', 'DE', '301'], ['semester_pass', 'TR', '302'],
+      ['prep_pass', 'DE', '301'], ['prep_pass', 'TR', '302'],
     ];
     for (const [plan, country, variant] of cases) {
       const res = await app.request('/api/checkout', {
@@ -842,19 +938,19 @@ describe('Lemon Squeezy', () => {
   });
 
   it('plan comes from the variant, not from forgeable custom data', async () => {
-    await deliver(order('6001', 101, 'cheap@uni.edu', { plan: 'semester_pass', plan_type: 'semester_pass' }));
+    await deliver(order('6001', 101, 'cheap@uni.edu', { plan: 'prep_pass', plan_type: 'prep_pass' }));
     expect((await getActiveEntitlementForUser('cheap@uni.edu'))?.planType).toBe('exam_pass');
     await deliver(order('6002', 999, 'unknown@uni.edu'));
     expect(await getActiveEntitlementForUser('unknown@uni.edu')).toBeNull();
   });
 
-  it('Exam Pass expires after 7 days and never auto-renews; Semester Pass after 120 days', async () => {
+  it('Exam Week Pass expires after 7 days and never auto-renews; Exam Prep Pass after 90 days', async () => {
     await deliver(order('7001', 101, 'exam@uni.edu'));
     await deliver(order('7002', 301, 'sem@uni.edu'));
     const now = Math.floor(Date.now() / 1000);
     expect(await getActiveEntitlementForUser('exam@uni.edu', undefined, now + 7 * 86400 + 1)).toBeNull();
-    expect(await getActiveEntitlementForUser('sem@uni.edu', undefined, now + 119 * 86400)).not.toBeNull();
-    expect(await getActiveEntitlementForUser('sem@uni.edu', undefined, now + 121 * 86400)).toBeNull();
+    expect((await getActiveEntitlementForUser('sem@uni.edu', undefined, now + 89 * 86400))?.planType).toBe('prep_pass');
+    expect(await getActiveEntitlementForUser('sem@uni.edu', undefined, now + 91 * 86400)).toBeNull();
   });
 
   it('refund removes access immediately (all rows of that order)', async () => {

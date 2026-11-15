@@ -2,6 +2,8 @@
 // Used by the client router (on navigation) and by scripts/build-pages.mjs, which writes a
 // static HTML file per route so crawlers and link previews see the right tags on direct load.
 
+import { formatUsd, PLANS } from '../shared/plans';
+
 export const SITE_ORIGIN = 'https://learnfromclip.com';
 
 export interface RouteMeta {
@@ -45,7 +47,7 @@ export const ROUTE_META: Record<string, RouteMeta> = {
   },
   '/pricing': {
     title: 'Plans & Student Passes — LearnFromClip',
-    description: 'Free plan with no sign-up. Exam Pass $2.99 for 7 days, Monthly $4.99, Semester Pass $14.99. Passes never auto-renew. Regional student pricing.',
+    description: `Free plan with no sign-up. ${PLANS.exam_pass.name} ${formatUsd(PLANS.exam_pass.priceUsd)} for ${PLANS.exam_pass.per}, ${PLANS.prep_pass.name} ${formatUsd(PLANS.prep_pass.priceUsd)} for ${PLANS.prep_pass.per}, Monthly ${formatUsd(PLANS.monthly.priceUsd)}. Passes never auto-renew. Regional student pricing.`,
   },
   '/guide': {
     title: 'How to Use LearnFromClip — Guide',

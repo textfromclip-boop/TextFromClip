@@ -2,7 +2,11 @@ import { CloudflareBindings, RevisionPack, TranscriptResult } from '../../types'
 import { fnv1aHash } from '../../utils/transformCache';
 import { hmacSha256Hex, randomId, sha256Hex, timingSafeEqual } from './crypto';
 
-export type PlanTier = 'free' | 'exam_pass' | 'monthly' | 'semester_pass';
+import { FREE_LIMITS, PAID_LIMITS, paidAiPeriod } from '../../shared/plans';
+import type { PlanTier } from '../../shared/plans';
+
+export { FREE_LIMITS, PAID_LIMITS };
+export type { PlanTier };
 
 export interface DailyQuotaStatus {
   actorKey: string;
@@ -22,26 +26,13 @@ export interface DailyQuotaStatus {
   maxLectureSeconds: number; // 7200 for free, 14400 for paid
   /** True when the shared per-IP daily ceiling (campus-friendly anti-abuse cap) is what is limiting this actor. */
   ipCeilingReached: boolean;
+  /** Paid plans: AI actions used / allowed in the rolling period (7 days for Exam Week, else 30). */
+  aiPeriodUsed?: number;
+  aiPeriodLimit?: number;
+  aiPeriodDays?: number;
+  /** True when the rolling period cap (not the daily cap) is what is limiting a paid user. */
+  aiPeriodReached?: boolean;
 }
-
-export const FREE_LIMITS = {
-  linksPerDay: 5,
-  uploadSecondsPerDay: 20 * 60, // 20 minutes of audio per day
-  aiActionsPerDay: 3, // 6 half-units
-  cardsPerPack: 30,
-  mockExamsPerDay: 1,
-  maxLectureSeconds: 2 * 3600, // 2 hours
-};
-
-export const PAID_LIMITS = {
-  linksPerDay: 50,
-  examPassUploadSeconds: 10 * 3600, // 10 hours per rolling 7 days
-  monthlyUploadSeconds: 30 * 3600, // 30 hours per rolling 30 days
-  aiActionsPerDay: 100, // 200 half-units
-  cardsPerPack: 150,
-  mockExamsPerDay: 9999, // Unlimited
-  maxLectureSeconds: 4 * 3600, // 4 hours
-};
 
 /**
  * Per-IP daily ceiling for ANONYMOUS (free) usage. Clearing cookies creates a new anonymous
@@ -337,18 +328,21 @@ async function readSingleQuotaBucket(
 }
 
 /** Sums upload seconds over the last `days` UTC days (inclusive of today) for an actor. */
-async function readUploadSecondsInWindow(
+async function readFieldInWindow(
   actorKey: string,
   utcDate: string,
   days: number,
+  field: 'uploadSeconds' | 'aiHalfUnits',
   db?: D1Database
 ): Promise<number> {
+  const col = field === 'uploadSeconds' ? 'upload_seconds_used' : 'ai_actions_half_units';
+  const memField: keyof QuotaBucket = field === 'uploadSeconds' ? 'uploadSecondsUsed' : 'aiActionsHalfUnits';
   const fromDate = utcDateDaysAgo(utcDate, days - 1);
   if (db) {
     try {
       const row = await db
         .prepare(
-          `SELECT COALESCE(SUM(upload_seconds_used), 0) AS total
+          `SELECT COALESCE(SUM(${col}), 0) AS total
            FROM daily_quotas WHERE actor_key = ?1 AND utc_date >= ?2 AND utc_date <= ?3`
         )
         .bind(actorKey, fromDate, utcDate)
@@ -363,7 +357,7 @@ async function readUploadSecondsInWindow(
     const sep = key.lastIndexOf(':');
     const k = key.slice(0, sep);
     const d = key.slice(sep + 1);
-    if (k === actorKey && d >= fromDate && d <= utcDate) total += val.uploadSecondsUsed;
+    if (k === actorKey && d >= fromDate && d <= utcDate) total += val[memField];
   }
   return total;
 }
@@ -398,17 +392,31 @@ export async function getDailyQuotaStatus(params: {
   if (plan === 'exam_pass') {
     uploadWindow = 'week';
     uploadSecondsLimit = PAID_LIMITS.examPassUploadSeconds;
-    uploadSecondsUsed = await readUploadSecondsInWindow(params.actorKey, utcDate, 7, params.db);
+    uploadSecondsUsed = await readFieldInWindow(params.actorKey, utcDate, 7, 'uploadSeconds', params.db);
   } else if (isPaid) {
     uploadWindow = 'month';
     uploadSecondsLimit = PAID_LIMITS.monthlyUploadSeconds;
-    uploadSecondsUsed = await readUploadSecondsInWindow(params.actorKey, utcDate, 30, params.db);
+    uploadSecondsUsed = await readFieldInWindow(params.actorKey, utcDate, 30, 'uploadSeconds', params.db);
   }
 
   let linksUsed = primary.linksUsed;
   let aiHalfUsed = primary.aiActionsHalfUnits;
   let mockUsed = primary.mockExamsUsed;
   let ipCeilingReached = false;
+
+  // Paid plans: a rolling period cap on AI actions sits on top of the daily cap.
+  const period = paidAiPeriod(plan);
+  let aiPeriodUsedHalf = 0;
+  let aiPeriodReached = false;
+  if (period) {
+    aiPeriodUsedHalf = await readFieldInWindow(params.actorKey, utcDate, period.days, 'aiHalfUnits', params.db);
+    const periodRemaining = period.limit * 2 - aiPeriodUsedHalf;
+    if (periodRemaining < aiLimitHalf - aiHalfUsed) {
+      aiPeriodReached = periodRemaining <= 0;
+      // Show the tighter of the two limits as "left today"
+      aiHalfUsed = Math.max(aiHalfUsed, aiLimitHalf - periodRemaining);
+    }
+  }
 
   if (!isPaid && params.networkFallbackKey) {
     const ip = await readSingleQuotaBucket(params.networkFallbackKey, utcDate, params.db);
@@ -444,6 +452,14 @@ export async function getDailyQuotaStatus(params: {
     maxCardsPerPack: isPaid ? PAID_LIMITS.cardsPerPack : FREE_LIMITS.cardsPerPack,
     maxLectureSeconds: isPaid ? PAID_LIMITS.maxLectureSeconds : FREE_LIMITS.maxLectureSeconds,
     ipCeilingReached,
+    ...(period
+      ? {
+          aiPeriodUsed: aiPeriodUsedHalf / 2,
+          aiPeriodLimit: period.limit,
+          aiPeriodDays: period.days,
+          aiPeriodReached,
+        }
+      : {}),
   };
 }
 
@@ -673,7 +689,9 @@ async function tryIncrement(
   amount: number,
   limit: number,
   db?: D1Database,
-  windowFromDate?: string
+  windowFromDate?: string,
+  /** Optional second constraint: the SUM over [fromDate, utcDate] must also stay within `limit`. */
+  alsoWithin?: { fromDate: string; limit: number }
 ): Promise<boolean> {
   if (amount <= 0) return true;
   const col = FIELD_COLUMN[field];
@@ -690,11 +708,16 @@ async function tryIncrement(
       const usedExpr = windowFromDate
         ? `(SELECT COALESCE(SUM(${col}), 0) FROM daily_quotas WHERE actor_key = ?1 AND utc_date >= ?5 AND utc_date <= ?2)`
         : col;
+      const alsoExpr = alsoWithin
+        ? ` AND (SELECT COALESCE(SUM(${col}), 0) FROM daily_quotas WHERE actor_key = ?1 AND utc_date >= ?7 AND utc_date <= ?2) + ?3 <= ?8`
+        : '';
       const stmt = db.prepare(
         `UPDATE daily_quotas SET ${col} = ${col} + ?3, updated_at = ?6
-         WHERE actor_key = ?1 AND utc_date = ?2 AND ${usedExpr} + ?3 <= ?4`
+         WHERE actor_key = ?1 AND utc_date = ?2 AND ${usedExpr} + ?3 <= ?4${alsoExpr}`
       );
-      const res = await stmt.bind(bucketKey, utcDate, amount, limit, windowFromDate || utcDate, nowSec).run();
+      const binds: any[] = [bucketKey, utcDate, amount, limit, windowFromDate || utcDate, nowSec];
+      if (alsoWithin) binds.push(alsoWithin.fromDate, alsoWithin.limit);
+      const res = await stmt.bind(...binds).run();
       const ok = Number(res?.meta?.changes || 0) > 0;
       if (ok) {
         const memKey = `${bucketKey}:${utcDate}`;
@@ -723,18 +746,21 @@ async function tryIncrement(
     }
   }
   // Memory: no awaits between read and write, so this is atomic within the isolate.
-  let used = 0;
-  if (windowFromDate) {
+  const sumFrom = (fromDate: string) => {
+    let total = 0;
     for (const [key, val] of memQuotas.entries()) {
       const sep = key.lastIndexOf(':');
-      if (key.slice(0, sep) === bucketKey && key.slice(sep + 1) >= windowFromDate && key.slice(sep + 1) <= utcDate) {
-        used += val[FIELD_MEM[field]];
+      if (key.slice(0, sep) === bucketKey && key.slice(sep + 1) >= fromDate && key.slice(sep + 1) <= utcDate) {
+        total += val[FIELD_MEM[field]];
       }
     }
-  } else {
-    used = memQuotas.get(`${bucketKey}:${utcDate}`)?.[FIELD_MEM[field]] || 0;
-  }
+    return total;
+  };
+  const used = windowFromDate
+    ? sumFrom(windowFromDate)
+    : memQuotas.get(`${bucketKey}:${utcDate}`)?.[FIELD_MEM[field]] || 0;
   if (used + amount > limit) return false;
+  if (alsoWithin && sumFrom(alsoWithin.fromDate) + amount > alsoWithin.limit) return false;
   const memKey = `${bucketKey}:${utcDate}`;
   const prev = memQuotas.get(memKey) || { ...EMPTY_BUCKET };
   prev[FIELD_MEM[field]] += amount;
@@ -767,9 +793,18 @@ export async function reserveQuota(params: {
   const ipKey = isPaid ? undefined : params.networkFallbackKey;
   const ceiling = params.ipCeiling || DEFAULT_IP_CEILING;
 
-  const userLimits: Record<QuotaField, { limit: number; windowFrom?: string }> = {
+  const aiPeriod = paidAiPeriod(params.plan);
+  const userLimits: Record<
+    QuotaField,
+    { limit: number; windowFrom?: string; alsoWithin?: { fromDate: string; limit: number } }
+  > = {
     links: { limit: isPaid ? PAID_LIMITS.linksPerDay : FREE_LIMITS.linksPerDay },
-    aiHalfUnits: { limit: (isPaid ? PAID_LIMITS.aiActionsPerDay : FREE_LIMITS.aiActionsPerDay) * 2 },
+    aiHalfUnits: {
+      limit: (isPaid ? PAID_LIMITS.aiActionsPerDay : FREE_LIMITS.aiActionsPerDay) * 2,
+      ...(aiPeriod
+        ? { alsoWithin: { fromDate: utcDateDaysAgo(utcDate, aiPeriod.days - 1), limit: aiPeriod.limit * 2 } }
+        : {}),
+    },
     mockExams: { limit: isPaid ? PAID_LIMITS.mockExamsPerDay : FREE_LIMITS.mockExamsPerDay },
     uploadSeconds:
       params.plan === 'exam_pass'
@@ -804,7 +839,7 @@ export async function reserveQuota(params: {
     const amount = Math.ceil(Number(params.delta[field] || 0));
     if (amount <= 0) continue;
     const u = userLimits[field];
-    if (!(await tryIncrement(params.actorKey, utcDate, field, amount, u.limit, params.db, u.windowFrom))) {
+    if (!(await tryIncrement(params.actorKey, utcDate, field, amount, u.limit, params.db, u.windowFrom, u.alsoWithin))) {
       exceeded = exceededName[field];
       break;
     }
