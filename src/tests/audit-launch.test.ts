@@ -309,7 +309,8 @@ describe('Accuracy: long lectures are chunked by time and merged without duplica
     const prompts: string[] = [];
     const ai = {
       run: vi.fn(async (_model: string, payload: any) => {
-        prompts.push(payload.messages[1].content);
+        const promptText = payload?.input?.[0]?.content ?? payload?.messages?.[1]?.content ?? '';
+        prompts.push(promptText);
         return { response: '{"notes":[],"flashcards":[],"quiz":[]}' };
       }),
     };
