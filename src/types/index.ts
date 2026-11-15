@@ -98,8 +98,8 @@ export interface CloudflareBindings {
   LEMONSQUEEZY_VARIANT_EXAM_PASS_REGIONAL?: string;
   LEMONSQUEEZY_VARIANT_MONTHLY?: string;
   LEMONSQUEEZY_VARIANT_MONTHLY_REGIONAL?: string;
-  LEMONSQUEEZY_VARIANT_SEMESTER_PASS?: string;
-  LEMONSQUEEZY_VARIANT_SEMESTER_PASS_REGIONAL?: string;
+  LEMONSQUEEZY_VARIANT_PREP_PASS?: string;
+  LEMONSQUEEZY_VARIANT_PREP_PASS_REGIONAL?: string;
   /** Bearer token for /api/admin/costs (min 24 chars). Unset = admin endpoint disabled. */
   ADMIN_TOKEN?: string;
   /** Google OAuth 2.0 Client ID & Secret for "Continue with Google" sign-in. */

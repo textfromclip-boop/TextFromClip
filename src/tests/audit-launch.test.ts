@@ -860,8 +860,8 @@ describe('Lemon Squeezy', () => {
     LEMONSQUEEZY_VARIANT_EXAM_PASS_REGIONAL: '102',
     LEMONSQUEEZY_VARIANT_MONTHLY: '201',
     LEMONSQUEEZY_VARIANT_MONTHLY_REGIONAL: '202',
-    LEMONSQUEEZY_VARIANT_SEMESTER_PASS: '301',
-    LEMONSQUEEZY_VARIANT_SEMESTER_PASS_REGIONAL: '302',
+    LEMONSQUEEZY_VARIANT_PREP_PASS: '301',
+    LEMONSQUEEZY_VARIANT_PREP_PASS_REGIONAL: '302',
   } as any;
 
   it('checkout: creates a Lemon Squeezy checkout with the correct store + variant for every plan and region', async () => {
@@ -873,7 +873,7 @@ describe('Lemon Squeezy', () => {
     const cases: Array<[string, string, string]> = [
       ['exam_pass', 'US', '101'], ['exam_pass', 'EG', '102'],
       ['monthly', 'GB', '201'], ['monthly', 'IN', '202'],
-      ['semester_pass', 'DE', '301'], ['semester_pass', 'TR', '302'],
+      ['prep_pass', 'DE', '301'], ['prep_pass', 'TR', '302'],
     ];
     for (const [plan, country, variant] of cases) {
       const res = await app.request('/api/checkout', {
@@ -938,19 +938,19 @@ describe('Lemon Squeezy', () => {
   });
 
   it('plan comes from the variant, not from forgeable custom data', async () => {
-    await deliver(order('6001', 101, 'cheap@uni.edu', { plan: 'semester_pass', plan_type: 'semester_pass' }));
+    await deliver(order('6001', 101, 'cheap@uni.edu', { plan: 'prep_pass', plan_type: 'prep_pass' }));
     expect((await getActiveEntitlementForUser('cheap@uni.edu'))?.planType).toBe('exam_pass');
     await deliver(order('6002', 999, 'unknown@uni.edu'));
     expect(await getActiveEntitlementForUser('unknown@uni.edu')).toBeNull();
   });
 
-  it('Exam Pass expires after 7 days and never auto-renews; Semester Pass after 120 days', async () => {
+  it('Exam Week Pass expires after 7 days and never auto-renews; Exam Prep Pass after 90 days', async () => {
     await deliver(order('7001', 101, 'exam@uni.edu'));
     await deliver(order('7002', 301, 'sem@uni.edu'));
     const now = Math.floor(Date.now() / 1000);
     expect(await getActiveEntitlementForUser('exam@uni.edu', undefined, now + 7 * 86400 + 1)).toBeNull();
-    expect(await getActiveEntitlementForUser('sem@uni.edu', undefined, now + 119 * 86400)).not.toBeNull();
-    expect(await getActiveEntitlementForUser('sem@uni.edu', undefined, now + 121 * 86400)).toBeNull();
+    expect((await getActiveEntitlementForUser('sem@uni.edu', undefined, now + 89 * 86400))?.planType).toBe('prep_pass');
+    expect(await getActiveEntitlementForUser('sem@uni.edu', undefined, now + 91 * 86400)).toBeNull();
   });
 
   it('refund removes access immediately (all rows of that order)', async () => {

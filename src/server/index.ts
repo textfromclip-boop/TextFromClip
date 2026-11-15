@@ -80,33 +80,7 @@ import {
 } from './utils/paymentsAndAuth';
 import { hmacSha256Hex, randomToken, sha256Hex, timingSafeEqual, verifyHmacSha256Hex } from './utils/crypto';
 import { isValidAnalyticsEvent } from '../utils/analytics';
-
-const PLAN_CATALOG: Record<
-  'exam_pass' | 'monthly' | 'semester_pass',
-  { name: string; billingType: string; autoRenew: boolean; priceUsd: number; regionalPriceUsd: number }
-> = {
-  exam_pass: {
-    name: 'Exam Pass',
-    billingType: '7 days',
-    autoRenew: false,
-    priceUsd: 2.99,
-    regionalPriceUsd: 1.49,
-  },
-  monthly: {
-    name: 'Monthly',
-    billingType: 'month',
-    autoRenew: true,
-    priceUsd: 4.99,
-    regionalPriceUsd: 2.49,
-  },
-  semester_pass: {
-    name: 'Semester Pass',
-    billingType: '4 months',
-    autoRenew: false,
-    priceUsd: 14.99,
-    regionalPriceUsd: 7.49,
-  },
-};
+import { isPaidPlan, PLANS } from '../shared/plans';
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
@@ -236,7 +210,7 @@ async function reserveOr429(c: any, actor: Actor, delta: QuotaDelta) {
   });
   if (reservation.ok) return { reservation, response: null as Response | null };
   const q = reservation.status;
-  const upgrade = actor.isPaid ? '' : ' Upgrade to an Exam Pass or Semester Pass for higher limits.';
+  const upgrade = actor.isPaid ? '' : ' Upgrade to an Exam Week or Exam Prep Pass for higher limits.';
   const shared = q.ipCeilingReached
     ? ' Your network has reached its shared daily free limit.'
     : '';
@@ -251,7 +225,9 @@ async function reserveOr429(c: any, actor: Actor, delta: QuotaDelta) {
     },
     ai: {
       code: 'QUOTA_EXCEEDED',
-      message: `You have used all ${q.aiActionsLimit} AI actions for today (resets 00:00 UTC).${shared}${upgrade}`,
+      message: q.aiPeriodReached
+        ? `You have used all ${q.aiPeriodLimit} AI actions included in your plan for the last ${q.aiPeriodDays} days. More become available as older ones roll off.`
+        : `You have used all ${q.aiActionsLimit} AI actions for today (resets 00:00 UTC).${shared}${upgrade}`,
     },
     mockExams: {
       code: 'QUOTA_EXCEEDED',
@@ -1929,7 +1905,7 @@ app.post('/api/decks/sync', async (c) => {
 app.post('/api/checkout', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const plan = (body?.plan || body?.planType) as PaidPlan;
-  if (!['exam_pass', 'monthly', 'semester_pass'].includes(plan)) {
+  if (!isPaidPlan(plan)) {
     return c.json(
       {
         success: false,
@@ -1945,7 +1921,7 @@ app.post('/api/checkout', async (c) => {
   // customer's billing country in the webhook (a VPN alone cannot unlock the regional price).
   const ipCountry = (c.req.header('CF-IPCountry') || '').toUpperCase();
   const regional = isEligibleForRegionalPricing(ipCountry);
-  const pricing = PLAN_CATALOG[plan];
+  const pricing = PLANS[plan];
   const config = readLemonSqueezyConfig(c.env as any);
 
   try {
@@ -1967,7 +1943,7 @@ app.post('/api/checkout', async (c) => {
       data: {
         plan,
         name: pricing.name,
-        billingType: pricing.billingType,
+        billingType: pricing.per,
         autoRenew: pricing.autoRenew,
         regionalPricingApplied: regional && Boolean(config.variantsByPlan[plan].regional),
         priceUsd: regional && config.variantsByPlan[plan].regional ? pricing.regionalPriceUsd : pricing.priceUsd,

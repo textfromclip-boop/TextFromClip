@@ -193,7 +193,7 @@ async function run(label, contextOpts, ip) {
   // 9. Pricing page + Buy button
   await page.goto(BASE + '/pricing', { waitUntil: 'networkidle' });
   await shot(page, 'pricing', true);
-  await page.getByRole('button', { name: /Get 7-Day Exam Pass/ }).click();
+  await page.getByRole('button', { name: /Get the Exam Week Pass/ }).click();
   await page.fill('#checkout-email', 'student@uni.edu');
   const coResp = page.waitForResponse((r) => r.url().includes('/api/checkout'));
   await page.getByRole('button', { name: /Proceed to Secure Payment/ }).click();

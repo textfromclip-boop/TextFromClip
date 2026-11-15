@@ -1,5 +1,7 @@
 import { cookieAttributes, PlanTier, signCookieValue } from './quotasAndCache';
 import { randomId, randomToken, sha256Hex } from './crypto';
+import { isPaidPlan, normalizePlanTier, PLANS } from '../../shared/plans';
+import type { PaidPlan } from '../../shared/plans';
 
 export const REGIONAL_PRICING_COUNTRIES = new Set([
   'EG', // Egypt
@@ -23,7 +25,7 @@ export const MAGIC_LINK_TTL_SECONDS = 15 * 60;
 /** Max referral rewards claimable by invitees from one IP per 30 days (stops cookie-clearing farms). */
 export const MAX_REFERRAL_CLAIMS_PER_IP_30D = 3;
 
-export type PaidPlan = 'exam_pass' | 'monthly' | 'semester_pass';
+export type { PaidPlan } from '../../shared/plans';
 
 export type EntitlementStatus =
   | 'active'
@@ -79,11 +81,9 @@ export function isEligibleForRegionalPricing(billingCountryCode?: string | null)
   return REGIONAL_PRICING_COUNTRIES.has(billingCountryCode.trim().toUpperCase());
 }
 
+/** Access length per plan (the Monthly subscription's real expiry follows renews_at). */
 export function getPlanDurationSeconds(planType: PlanTier): number {
-  if (planType === 'exam_pass') return 7 * 86400; // 7 days, one-time
-  if (planType === 'monthly') return 31 * 86400; // 1 month subscription (actual expiry follows renews_at)
-  if (planType === 'semester_pass') return 120 * 86400; // 4 months, one-time
-  return 0;
+  return isPaidPlan(planType) ? PLANS[planType].durationDays * 86400 : 0;
 }
 
 export function isValidEmail(email: string): boolean {
@@ -224,7 +224,7 @@ function rowToEntitlement(row: any): EntitlementRecord {
     id: row.id,
     userId: row.user_id,
     email: row.email,
-    planType: row.plan_type as PlanTier,
+    planType: normalizePlanTier(row.plan_type),
     status: row.status,
     providerOrderId: row.provider_order_id || undefined,
     providerSubscriptionId: row.provider_subscription_id || undefined,
@@ -416,14 +416,14 @@ export function readLemonSqueezyConfig(env: Record<string, any> | undefined): Le
     ['exam_pass', true, e.LEMONSQUEEZY_VARIANT_EXAM_PASS_REGIONAL],
     ['monthly', false, e.LEMONSQUEEZY_VARIANT_MONTHLY],
     ['monthly', true, e.LEMONSQUEEZY_VARIANT_MONTHLY_REGIONAL],
-    ['semester_pass', false, e.LEMONSQUEEZY_VARIANT_SEMESTER_PASS],
-    ['semester_pass', true, e.LEMONSQUEEZY_VARIANT_SEMESTER_PASS_REGIONAL],
+    ['prep_pass', false, e.LEMONSQUEEZY_VARIANT_PREP_PASS],
+    ['prep_pass', true, e.LEMONSQUEEZY_VARIANT_PREP_PASS_REGIONAL],
   ];
   const variants: LemonSqueezyConfig['variants'] = {};
   const variantsByPlan: LemonSqueezyConfig['variantsByPlan'] = {
     exam_pass: {},
     monthly: {},
-    semester_pass: {},
+    prep_pass: {},
   };
   for (const [plan, regional, id] of pairs) {
     const clean = typeof id === 'string' ? id.trim() : '';
@@ -526,7 +526,7 @@ export interface WebhookResult {
 /**
  * Processes a VERIFIED Lemon Squeezy webhook (signature must be checked by the caller).
  *
- * - order_created (one-time Exam/Semester Pass): grants the pass ONCE (duplicate deliveries are
+ * - order_created (one-time Exam Week / Exam Prep Pass): grants the pass ONCE (duplicate deliveries are
  *   ignored via webhook_events + INSERT-only entitlement rows). Passes never renew.
  * - subscription_created / subscription_updated / subscription_resumed: Monthly plan; access
  *   follows the subscription status and renews_at/ends_at.

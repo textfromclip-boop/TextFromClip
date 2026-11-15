@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from '../router';
 import { trackEvent } from '../utils/analytics';
+import { comparisonRows, formatUsd, PAID_LIMITS, PLAN_ORDER, PLANS as PLAN_CATALOG } from '../shared/plans';
+import type { PaidPlan } from '../shared/plans';
 import {
   fetchAuthSession,
   GoogleGLogo,
@@ -37,7 +39,7 @@ export const PricingPage: React.FC = () => {
   const [refCodeLink, setRefCodeLink] = useState<string | null>(null);
   const [refCopied, setRefCopied] = useState(false);
 
-  const handleStartCheckout = async (planId: 'exam_pass' | 'monthly' | 'semester_pass') => {
+  const handleStartCheckout = async (planId: PaidPlan) => {
     trackEvent('checkout_started', '/pricing');
     setCheckoutPlan(planId);
     setCheckoutNotice(null);
@@ -87,64 +89,27 @@ export const PricingPage: React.FC = () => {
     }
   };
 
-  const PLANS: {
-    id: 'exam_pass' | 'monthly' | 'semester_pass';
-    name: string;
-    price: string;
-    regional: string;
-    per: string;
-    billing: string;
-    blurb: string;
-    upload: string;
-    cta: string;
-    featured?: boolean;
-  }[] = [
-    {
-      id: 'exam_pass',
-      name: 'Exam Pass',
-      price: '$2.99',
-      regional: '$1.49',
-      per: '7 days',
-      billing: 'One-time payment. Never renews.',
-      blurb: 'For finals or midterm week.',
-      upload: '10 hours of uploads per week',
-      cta: 'Get 7-Day Exam Pass',
-    },
-    {
-      id: 'semester_pass',
-      name: 'Semester Pass',
-      price: '$14.99',
-      regional: '$7.49',
-      per: '4 months',
-      billing: 'One-time payment. Never renews.',
-      blurb: 'A whole term for the price of three exam weeks.',
-      upload: '30 hours of uploads per month',
-      cta: 'Get 4-Month Semester Pass',
-      featured: true,
-    },
-    {
-      id: 'monthly',
-      name: 'Monthly',
-      price: '$4.99',
-      regional: '$2.49',
-      per: 'month',
-      billing: 'Subscription. Cancel anytime.',
-      blurb: 'Month to month, for ongoing classes.',
-      upload: '30 hours of uploads per month',
-      cta: 'Start Monthly Plan',
-    },
-  ];
+  // Plans, prices and limits come from src/shared/plans.ts (the same file the server enforces).
+  const PLANS = PLAN_ORDER.map((id) => {
+    const p = PLAN_CATALOG[id];
+    return {
+      id,
+      name: p.name,
+      price: formatUsd(p.priceUsd),
+      regional: formatUsd(p.regionalPriceUsd),
+      per: p.per,
+      billing: p.billingNote,
+      blurb: p.blurb,
+      upload:
+        id === 'exam_pass'
+          ? `${PAID_LIMITS.examPassUploadSeconds / 3600} hours of uploads per week`
+          : `${PAID_LIMITS.monthlyUploadSeconds / 3600} hours of uploads per month`,
+      cta: p.cta,
+      featured: p.featured,
+    };
+  });
 
-  const COMPARISON: [string, string, string][] = [
-    ['Lecture links', '5 per day', '50 per day'],
-    ['Audio and video uploads', '20 minutes per day', '10 h per week (Exam) · 30 h per month'],
-    ['AI actions (packs, translations, formats)', '3 per day', '100 per day'],
-    ['Flashcards per pack', '30', '150'],
-    ['Quizzes', '1 per day', 'Unlimited'],
-    ['Longest lecture', '2 hours', '4 hours'],
-    ['Where your decks live', 'On this device', 'Synced across devices'],
-    ['PDF, Anki and Markdown export', 'Included', 'Included'],
-  ];
+  const COMPARISON = comparisonRows();
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-5 pt-10 sm:pt-16 pb-8">
@@ -254,7 +219,7 @@ export const PricingPage: React.FC = () => {
         <div className="md:col-span-7">
           <h2 className="text-2xl sm:text-3xl text-ink">Invite a classmate, both get 3 days free.</h2>
           <p className="mt-2 text-[15px] text-muted leading-relaxed">
-            Share your invite link. When your friend makes their first revision pack, you each get a 3-day Exam Pass.
+            Share your invite link. When your friend makes their first revision pack, you each get 3 days of full paid access.
             Up to 5 rewards per student.
           </p>
         </div>
@@ -292,7 +257,7 @@ export const PricingPage: React.FC = () => {
           <div role="dialog" aria-modal="true" aria-labelledby="checkout-title" className="w-full max-w-md rounded-lg bg-surface border border-rule p-6 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 id="checkout-title" className="text-lg font-semibold text-ink">
-                Continue to Checkout ({checkoutPlan.replace('_', ' ')})
+                Continue to checkout ({PLAN_CATALOG[checkoutPlan as PaidPlan]?.name || 'plan'})
               </h3>
               <button
                 type="button"
