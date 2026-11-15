@@ -7,6 +7,7 @@ import {
   cleanTranscriptForAi,
   cleanTextForTranslation,
   budgetTranscriptForPrompt,
+  buildModelRunParams,
   buildTransformPrompt,
   buildTranslateMessages,
   extractAiResponseText,
@@ -322,7 +323,7 @@ describe('7 & 8. Bounded fallback, cost controls, and HTTP endpoint behavior wit
       expect(res.status).toBe(200);
       const json: any = await res.json();
       expect(json.success).toBe(true);
-      expect(json.data.model).toBe('@cf/google/gemma-4-26b-a4b-it');
+      expect(json.data.model).toBe('@cf/openai/gpt-oss-120b');
       expect(runSpy).toHaveBeenCalledTimes(1);
     }
   });
@@ -404,7 +405,7 @@ describe('7 & 8. Bounded fallback, cost controls, and HTTP endpoint behavior wit
     expect(JSON.stringify(authJson)).not.toContain('sk_live_supersecret999');
   });
 
-  it('retries malformed/empty output at most once on primary Gemma 4 model without escalating to 70B, and caps total attempts at 3', async () => {
+  it('retries malformed/empty output at most once on primary gpt-oss-120b model without escalating to 70B, and caps total attempts at 3', async () => {
     const malformedSpy = vi.fn().mockResolvedValue({ response: '' });
     const res = await app.request(
       '/api/transform',
@@ -417,10 +418,10 @@ describe('7 & 8. Bounded fallback, cost controls, and HTTP endpoint behavior wit
     );
 
     expect(res.status).toBe(422);
-    // Called primary Gemma 4 model twice (initial + 1 controlled retry), never called 70B
+    // Called primary gpt-oss-120b model twice (initial + 1 controlled retry), never called 70B
     expect(malformedSpy).toHaveBeenCalledTimes(2);
-    expect(malformedSpy.mock.calls[0][0]).toBe('@cf/google/gemma-4-26b-a4b-it');
-    expect(malformedSpy.mock.calls[1][0]).toBe('@cf/google/gemma-4-26b-a4b-it');
+    expect(malformedSpy.mock.calls[0][0]).toBe('@cf/openai/gpt-oss-120b');
+    expect(malformedSpy.mock.calls[1][0]).toBe('@cf/openai/gpt-oss-120b');
 
     // Even if every upstream model throws 503, total calls never exceed 3
     const upstreamFailSpy = vi.fn().mockRejectedValue(new Error('503 Service Unavailable'));
@@ -673,10 +674,11 @@ describe('10. Multilingual translation formatting, source selection, and structu
       expect(json.success).toBe(true);
       expect(json.data.targetLanguage).toBe(lang);
 
-      // Verify /api/translate did NOT flatten newlines in the user message sent to the AI
-      const sentMessages = runSpy.mock.calls[0][1].messages;
-      expect(sentMessages[1].content).toContain('Executive Summary\nBelieving in oneself');
-      expect(sentMessages[1].content).toContain('\n\nKey Takeaways\n• Reframe Limitations:');
+      // Verify /api/translate did NOT flatten newlines in the user prompt sent to the AI
+      const sentPayload = runSpy.mock.calls[0][1];
+      const sentUserText = sentPayload.input?.[0]?.content ?? sentPayload.messages?.[1]?.content;
+      expect(sentUserText).toContain('Executive Summary\nBelieving in oneself');
+      expect(sentUserText).toContain('\n\nKey Takeaways\n• Reframe Limitations:');
 
       // Verify structure in returned API text (3 blank-line sections, 3 bullet items, no added timestamps)
       const out = json.data.translatedText as string;
@@ -894,9 +896,12 @@ describe('10. Multilingual translation formatting, source selection, and structu
     );
     expect(recoveredRes.status).toBe(200);
     expect(recoverSpy).toHaveBeenCalledTimes(2);
-    // Retry notice must be placed in system message so it is never translated as user text
-    expect(recoverSpy.mock.calls[1][1].messages[0].content).toContain('previous draft was rejected');
-    expect(recoverSpy.mock.calls[1][1].messages[1].content).toBe(englishExecutiveSummary);
+    // Retry notice must be placed in system instructions so it is never translated as user text
+    const retryPayload = recoverSpy.mock.calls[1][1];
+    const retrySystemText = retryPayload.instructions ?? retryPayload.messages?.[0]?.content;
+    const retryUserText = retryPayload.input?.[0]?.content ?? retryPayload.messages?.[1]?.content;
+    expect(retrySystemText).toContain('previous draft was rejected');
+    expect(retryUserText).toBe(englishExecutiveSummary);
 
     // Case B: Both attempts return flattened text -> fails with HTTP 422 instead of presenting broken output as success
     const alwaysFlatSpy = vi.fn().mockResolvedValue({ response: flattenedWallOfText });
@@ -1004,10 +1009,81 @@ describe('10. Multilingual translation formatting, source selection, and structu
     expect(html).toContain('R: Para no saturar la memoria disponible.');
   });
 
-  it('8. configures @cf/google/gemma-4-26b-a4b-it, parses OpenAI-format Gemma 4 responses, and enforces strict cue-locked alignment on both motivational speech transcripts', async () => {
-    expect(ACTIVE_TEXT_MODELS[0]).toBe('@cf/google/gemma-4-26b-a4b-it');
+  it('8. configures @cf/openai/gpt-oss-120b, parses Responses API & Chat Completions payloads, and enforces strict cue-locked alignment on both motivational speech transcripts', async () => {
+    expect(ACTIVE_TEXT_MODELS[0]).toBe('@cf/openai/gpt-oss-120b');
 
-    // OpenAI Chat Completions payload with inline Gemma 4 thought block
+    const ossParams = buildModelRunParams(
+      '@cf/openai/gpt-oss-120b',
+      [
+        { role: 'system', content: 'System instruction' },
+        { role: 'user', content: 'User content' },
+      ],
+      400,
+      0.2
+    );
+    expect(ossParams).toEqual({
+      instructions: 'System instruction',
+      input: [{ role: 'user', content: 'User content' }],
+      max_output_tokens: 1024,
+      temperature: 0.2,
+      reasoning: { effort: 'low' },
+    });
+
+    const llamaParams = buildModelRunParams(
+      '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+      [
+        { role: 'system', content: 'System instruction' },
+        { role: 'user', content: 'User content' },
+      ],
+      400,
+      0.2
+    );
+    expect(llamaParams).toEqual({
+      messages: [
+        { role: 'system', content: 'System instruction' },
+        { role: 'user', content: 'User content' },
+      ],
+      max_tokens: 400,
+      temperature: 0.2,
+    });
+
+    // Workers AI ResponsesOutput payload (reasoning item + message item with output_text)
+    expect(
+      extractAiResponseText({
+        object: 'response',
+        output: [
+          {
+            id: 'rs_1',
+            type: 'reasoning',
+            summary: [{ type: 'summary_text', text: 'internal summary' }],
+            content: [{ type: 'reasoning_text', text: 'Aligning 25 cues step by step.' }],
+          },
+          {
+            id: 'msg_1',
+            type: 'message',
+            role: 'assistant',
+            status: 'completed',
+            content: [
+              {
+                type: 'output_text',
+                text: '[00:00] HABLANTE: Si solo tienes 24 horas al día,',
+              },
+            ],
+          },
+        ],
+      })
+    ).toBe('[00:00] HABLANTE: Si solo tienes 24 horas al día,');
+
+    // ResponsesOutput with top-level output_text or nested result wrapper
+    expect(
+      extractAiResponseText({
+        result: {
+          output_text: 'Top-level Responses text',
+        },
+      })
+    ).toBe('Top-level Responses text');
+
+    // OpenAI Chat Completions payload with inline thought block (fallback compatibility)
     expect(
       extractAiResponseText({
         choices: [
@@ -1123,7 +1199,7 @@ describe('10. Multilingual translation formatting, source selection, and structu
       .join('\n');
     expect(validateTranslateOutput(mergedDuplicateCue, cleanedEn).valid).toBe(false);
 
-    // Faithful 25-cue Spanish output via OpenAI choices format on Gemma 4 succeeds in 1 call
+    // Faithful 25-cue Spanish output via ResponsesOutput format on gpt-oss-120b succeeds in 1 call
     const faithfulSpanish25 = [
       '[00:00] HABLANTE: Si solo tienes 24 horas al día,',
       '[00:03] tu éxito depende de cómo uses esas 24 horas.',
@@ -1152,8 +1228,23 @@ describe('10. Multilingual translation formatting, source selection, and structu
       '[01:01] si continúas siguiendo ese horario.',
     ].join('\n');
 
-    const gemmaSpy = vi.fn().mockResolvedValue({
-      choices: [{ message: { content: faithfulSpanish25 } }],
+    const ossSpy = vi.fn().mockResolvedValue({
+      object: 'response',
+      output: [
+        {
+          id: 'rs_translate',
+          type: 'reasoning',
+          summary: [],
+          content: [{ type: 'reasoning_text', text: 'Preserving all 25 timestamp cues.' }],
+        },
+        {
+          id: 'msg_translate',
+          type: 'message',
+          role: 'assistant',
+          status: 'completed',
+          content: [{ type: 'output_text', text: faithfulSpanish25 }],
+        },
+      ],
     });
 
     const translateRes = await app.request(
@@ -1163,13 +1254,17 @@ describe('10. Multilingual translation formatting, source selection, and structu
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: englishSpeechTranscript, targetLanguage: 'Spanish' }),
       },
-      { AI: { run: gemmaSpy } } as any
+      { AI: { run: ossSpy } } as any
     );
 
     expect(translateRes.status).toBe(200);
-    expect(gemmaSpy.mock.calls[0][1].chat_template_kwargs).toEqual({ enable_thinking: false });
+    expect(ossSpy.mock.calls[0][0]).toBe('@cf/openai/gpt-oss-120b');
+    expect(ossSpy.mock.calls[0][1].reasoning).toEqual({ effort: 'low' });
+    expect(ossSpy.mock.calls[0][1].instructions).toContain('TIMESTAMP CUE LOCK');
+    expect(ossSpy.mock.calls[0][1].messages).toBeUndefined();
+    expect(ossSpy.mock.calls[0][1].chat_template_kwargs).toBeUndefined();
     const translateJson: any = await translateRes.json();
-    expect(translateJson.data.model).toBe('@cf/google/gemma-4-26b-a4b-it');
+    expect(translateJson.data.model).toBe('@cf/openai/gpt-oss-120b');
     expect(translateJson.data.translatedText.split('\n').length).toBe(25);
     expect(translateJson.data.translatedText).toContain(
       '[00:34] Solo tienes 24 horas, y he visto de primera mano cómo puede marcar la diferencia.'

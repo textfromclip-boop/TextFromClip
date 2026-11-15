@@ -16,7 +16,7 @@ export const DEFAULT_PROMPT_BUDGET_CHARS = 14_000;
 export const DEFAULT_TRANSLATE_BUDGET_CHARS = 12_000;
 
 export const ACTIVE_TEXT_MODELS = [
-  '@cf/google/gemma-4-26b-a4b-it',
+  '@cf/openai/gpt-oss-120b',
   '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
   '@cf/meta/llama-3.1-8b-instruct-fast',
 ] as const;
@@ -1287,46 +1287,74 @@ export class BoundedAiError extends Error {
 }
 
 /**
- * Normalizes text responses across both legacy Workers AI `{ response }` payloads
- * and OpenAI-compatible Chat Completions `{ choices: [{ message: { content } }] }` payloads
- * (used by @cf/google/gemma-4-26b-a4b-it), stripping internal reasoning/thought blocks if present.
+ * Normalizes text responses across legacy Workers AI `{ response }` payloads,
+ * OpenAI Responses API `{ output_text }` / `{ output: [...] }` payloads (used by `@cf/openai/gpt-oss-120b`),
+ * and OpenAI-compatible Chat Completions `{ choices: [{ message: { content } }] }` payloads,
+ * skipping reasoning blocks and stripping internal thought markers if present.
  */
 export function extractAiResponseText(res: unknown): string {
   if (!res || typeof res !== 'object') return '';
   const root = res as Record<string, any>;
   const payload = root.result && typeof root.result === 'object' ? root.result : root;
 
+  const extractPartText = (part: any): string => {
+    if (typeof part === 'string') return part;
+    if (
+      part &&
+      typeof part === 'object' &&
+      part.type !== 'thinking' &&
+      part.type !== 'reasoning' &&
+      part.type !== 'reasoning_text' &&
+      part.type !== 'summary_text' &&
+      part.type !== 'refusal' &&
+      typeof part.text === 'string'
+    ) {
+      return part.text;
+    }
+    return '';
+  };
+
   let raw = '';
   if (typeof root.response === 'string' && root.response.length > 0) {
     raw = root.response;
   } else if (typeof payload.response === 'string' && payload.response.length > 0) {
     raw = payload.response;
+  } else if (typeof payload.output_text === 'string' && payload.output_text.length > 0) {
+    raw = payload.output_text;
+  } else if (Array.isArray(payload.output) && payload.output.length > 0) {
+    const parts: string[] = [];
+    for (const item of payload.output) {
+      if (!item || typeof item !== 'object') continue;
+      if (item.type === 'reasoning' || item.type === 'thinking') continue;
+      if (item.type && item.type !== 'message') continue;
+      if (typeof item.content === 'string') {
+        parts.push(item.content);
+      } else if (Array.isArray(item.content)) {
+        parts.push(item.content.map(extractPartText).join(''));
+      } else if (typeof item.text === 'string') {
+        parts.push(item.text);
+      }
+    }
+    raw = parts.join('');
   } else if (Array.isArray(payload.choices) && payload.choices.length > 0) {
     const msgContent = payload.choices[0]?.message?.content ?? payload.choices[0]?.text;
     if (typeof msgContent === 'string') {
       raw = msgContent;
     } else if (Array.isArray(msgContent)) {
-      raw = msgContent
-        .map((part: any) => {
-          if (typeof part === 'string') return part;
-          if (
-            part &&
-            typeof part === 'object' &&
-            part.type !== 'thinking' &&
-            part.type !== 'reasoning' &&
-            typeof part.text === 'string'
-          ) {
-            return part.text;
-          }
-          return '';
-        })
-        .join('');
+      raw = msgContent.map(extractPartText).join('');
     }
-  } else if (typeof payload.output_text === 'string') {
-    raw = payload.output_text;
   }
 
   if (!raw) return '';
+
+  const harmonyFinalMarker = '<|channel|>final<|message|>';
+  const harmonyFinalIdx = raw.lastIndexOf(harmonyFinalMarker);
+  if (harmonyFinalIdx !== -1) {
+    raw = raw
+      .slice(harmonyFinalIdx + harmonyFinalMarker.length)
+      .replace(/<(?:return|end)\|>/g, '')
+      .replace(/<\|(?:return|end)\|>/g, '');
+  }
 
   return raw
     .replace(/<\|channel>thought\b[\s\S]*?<channel\|>/gi, '')
@@ -1336,23 +1364,42 @@ export function extractAiResponseText(res: unknown): string {
     .trim();
 }
 
-function buildModelRunParams(
+/**
+ * Builds model-specific Workers AI run parameters.
+ * `@cf/openai/gpt-oss-120b` uses the Responses API schema (`instructions`, `input`,
+ * `max_output_tokens`, `reasoning`), whereas Meta Llama fallbacks use Chat Completions (`messages`).
+ */
+export function buildModelRunParams(
   model: string,
-  messages: Array<{ role: 'system' | 'user'; content: string }>,
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
   requestedMaxTokens: number,
   temperature: number
 ): Record<string, unknown> {
-  // @cf/google/gemma-4-26b-a4b-it runs on Workers AI vLLM with thinking enabled by default,
-  // spending hundreds/thousands of completion tokens in `reasoning_content` and risking
-  // `finish_reason: "length"` truncation unless `chat_template_kwargs.enable_thinking` is false.
-  if (model.includes('gemma-4')) {
+  if (model.includes('gpt-oss')) {
+    const instructions = messages
+      .filter((m) => m.role === 'system')
+      .map((m) => m.content)
+      .join('\n\n')
+      .trim();
+    const nonSystemMessages = messages
+      .filter((m) => m.role !== 'system')
+      .map((m) => ({ role: m.role, content: m.content }));
+
+    // Reserve modest headroom so `reasoning.effort: "low"` never starves `max_output_tokens`.
+    const maxOutputTokens = Math.min(16384, Math.max(requestedMaxTokens + 512, 1024));
+
     return {
-      messages,
-      max_tokens: requestedMaxTokens,
+      ...(instructions ? { instructions } : {}),
+      input:
+        nonSystemMessages.length > 0
+          ? nonSystemMessages
+          : messages.map((m) => ({ role: m.role, content: m.content })),
+      max_output_tokens: maxOutputTokens,
       temperature,
-      chat_template_kwargs: { enable_thinking: false },
+      reasoning: { effort: 'low' },
     };
   }
+
   return {
     messages,
     max_tokens: requestedMaxTokens,
@@ -1361,7 +1408,7 @@ function buildModelRunParams(
 }
 
 /**
- * Executes chat inference starting on @cf/google/gemma-4-26b-a4b-it with strict bounds:
+ * Executes inference starting on `@cf/openai/gpt-oss-120b` with strict bounds:
  * - Hard cap of maxTotalCalls (default 3) across the entire request.
  * - Falls back to secondary models ONLY when classifyWorkersAiError allows fallback
  *   (model deprecation / 404 / transient 5xx), NEVER on 400/401/403/429/quota errors.

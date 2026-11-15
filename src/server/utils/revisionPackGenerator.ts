@@ -11,7 +11,7 @@ import {
   TranscriptSegment,
 } from '../../types';
 import { formatTimestamp } from './formatters';
-import { ACTIVE_TEXT_MODELS } from './aiTransform';
+import { ACTIVE_TEXT_MODELS, buildModelRunParams, extractAiResponseText } from './aiTransform';
 
 const PRIMARY_AI_MODEL = ACTIVE_TEXT_MODELS[0];
 const FALLBACK_AI_MODEL = ACTIVE_TEXT_MODELS[1];
@@ -773,28 +773,26 @@ async function populateMissingBilingualTranslations(
   }));
 
   try {
-    const response = await ai.run(PRIMARY_AI_MODEL, {
-      messages: [
-        {
-          role: 'system',
-          content: `Translate each flashcard's "front" and "back" into natural, accurate ${secondLanguage}. Output ONLY a valid JSON array of objects: [{"idx": 0, "front_translation": "...", "back_translation": "..."}]`,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(payload),
-        },
-      ],
-      max_tokens: 2500,
-      temperature: 0.15,
-      chat_template_kwargs: { enable_thinking: false },
-    });
+    const response = await ai.run(
+      PRIMARY_AI_MODEL,
+      buildModelRunParams(
+        PRIMARY_AI_MODEL,
+        [
+          {
+            role: 'system',
+            content: `Translate each flashcard's "front" and "back" into natural, accurate ${secondLanguage}. Output ONLY a valid JSON array of objects: [{"idx": 0, "front_translation": "...", "back_translation": "..."}]`,
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(payload),
+          },
+        ],
+        2500,
+        0.15
+      )
+    );
 
-    const rawText =
-      typeof response?.response === 'string'
-        ? response.response
-        : typeof response?.choices?.[0]?.message?.content === 'string'
-        ? response.choices[0].message.content
-        : '';
+    const rawText = extractAiResponseText(response);
     const firstBracket = rawText.indexOf('[');
     const lastBracket = rawText.lastIndexOf(']');
     if (firstBracket !== -1 && lastBracket > firstBracket) {
@@ -1001,21 +999,9 @@ export async function generateVerifiedRevisionPack(
 
           for (const model of [PRIMARY_AI_MODEL, FALLBACK_AI_MODEL]) {
             try {
-              const payload: Record<string, unknown> = {
-                messages,
-                max_tokens: maxOutputTokens,
-                temperature: 0.2,
-              };
-              if (model.includes('gemma-4')) {
-                payload.chat_template_kwargs = { enable_thinking: false };
-              }
+              const payload = buildModelRunParams(model, messages, maxOutputTokens, 0.2);
               const res = await ai.run(model, payload);
-              const text =
-                typeof res?.response === 'string'
-                  ? res.response
-                  : typeof res?.choices?.[0]?.message?.content === 'string'
-                  ? res.choices[0].message.content
-                  : '';
+              const text = extractAiResponseText(res);
               const parsed = parseJsonFromLlmResponse(text);
               if (parsed) {
                 const validated = validateAndFilterParsedPack(

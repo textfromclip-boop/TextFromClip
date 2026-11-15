@@ -1130,8 +1130,8 @@ export async function getDailyCostReport(
   const whisperEstimatedUsd = Number((whisperMinutes * 0.000453).toFixed(4));
   const llmEstimatedUsd = Number(
     (
-      (stats.llmInputTokens / 1_000_000) * 0.1 +
-      (stats.llmOutputTokens / 1_000_000) * 0.3
+      (stats.llmInputTokens / 1_000_000) * 0.35 +
+      (stats.llmOutputTokens / 1_000_000) * 0.75
     ).toFixed(4)
   );
   const totalTxLookups = stats.transcriptCacheHits + stats.transcriptCacheMisses;
