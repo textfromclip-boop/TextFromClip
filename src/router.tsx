@@ -40,7 +40,7 @@ export const ROUTES: { path: RoutePath; label: string; title: string }[] = [
 ];
 
 export const ALL_KNOWN_ROUTES: { path: RoutePath; title: string }[] = [
-  { path: '/', title: '2-hour lecture → 10-minute revision pack.' },
+  { path: '/', title: 'Don’t just watch lectures. Study them.' },
   { path: '/app', title: 'Lecture to Revision Pack Tool' },
   ...ROUTES,
   { path: '/about', title: 'About' },

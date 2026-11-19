@@ -21,11 +21,11 @@ export const YOUTUBE: PlatformConfig = {
   id: 'youtube',
   route: '/youtube',
   name: 'YouTube',
-  eyebrow: 'YouTube Lectures & Study Clips',
-  headingPrefix: '2-hour lecture →',
-  headingHighlight: '10-minute revision pack.',
+  eyebrow: '2-hour lecture → 10-minute revision pack',
+  headingPrefix: 'Don’t just watch lectures.',
+  headingHighlight: 'Study\u00A0them.', // non-breaking space keeps the two words on one line
   intro:
-    'One upload. Transcript, notes, flashcards and quiz, every point linked to the lecture.',
+    'Turn videos into source-verified notes, flashcards, quizzes and visual revision packs. Every important point takes you back to where it was taught.',
   placeholder: 'https://www.youtube.com/watch?v=…',
   example: {
     label: 'Try sample: “Me at the zoo”',

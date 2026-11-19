@@ -14,12 +14,12 @@ export interface RouteMeta {
   canonical?: string;
 }
 
-const SUB = 'One upload. Transcript, notes, flashcards and quiz, every point linked to the lecture.';
+const SUB = 'Turn videos into source-verified notes, flashcards, quizzes and visual revision packs. Every important point takes you back to where it was taught.';
 
 export const ROUTE_META: Record<string, RouteMeta> = {
   '/': {
-    title: 'LearnFromClip — 2-hour lecture → 10-minute revision pack.',
-    description: `${SUB} No account needed. On the free plan, your notes stay on your device.`,
+    title: 'LearnFromClip — Don’t just watch lectures. Study them.',
+    description: `${SUB} No account needed.`,
   },
   '/app': {
     title: 'Lecture to Revision Pack Tool — LearnFromClip',
