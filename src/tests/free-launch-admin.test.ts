@@ -176,6 +176,31 @@ describe('cookieless visit analytics', () => {
     expect(hashes[2]).not.toBe(hashes[0]);
   });
 
+  it('creates the visits table itself if migration 0005 was never applied', async () => {
+    const created: string[] = [];
+    let inserts = 0;
+    let tableExists = false;
+    const db = {
+      prepare: (sql: string) => ({
+        run: async () => {
+          if (/CREATE TABLE IF NOT EXISTS page_views/.test(sql)) tableExists = true;
+          created.push(sql);
+          return {};
+        },
+        bind: () => ({
+          run: async () => {
+            if (!tableExists) throw new Error('D1_ERROR: no such table: page_views: SQLITE_ERROR');
+            inserts++;
+            return {};
+          },
+        }),
+      }),
+    } as any;
+    expect(await recordPageView({ ...base, path: '/' }, db)).toBe(true);
+    expect(inserts).toBe(1);
+    expect(created.some((s) => /CREATE TABLE IF NOT EXISTS page_views/.test(s))).toBe(true);
+  });
+
   it('rejects bots, odd paths and fake country codes', async () => {
     const { db, inserts } = fakeDb();
     expect(await recordPageView({ ...base, path: '/<script>' }, db)).toBe(false);

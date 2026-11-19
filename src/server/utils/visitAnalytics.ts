@@ -2,7 +2,7 @@
 // Stores: time, page, country, city, referring site, device type, browser, OS and a daily-rotating
 // visitor hash. Never stores IP addresses or anything that identifies a person across days.
 import { sha256Hex } from './crypto';
-import { getDailyCostReport } from './quotasAndCache';
+import { ensureLearnFromClipTables, getDailyCostReport } from './quotasAndCache';
 import { getAiBudgetStatus } from './aiBudget';
 
 const BOT_UA = /bot|crawl|spider|slurp|headless|lighthouse|pagespeed|preview|facebookexternalhit|embedly|monitor|curl|wget|python-requests|httpclient|axios|node-fetch|go-http|java\//i;
@@ -92,16 +92,29 @@ export async function recordPageView(input: PageViewInput, db?: D1Database): Pro
     await sha256Hex(`visit:${utcDate}:${input.ip}:${input.userAgent.slice(0, 300)}:${input.salt}`)
   ).slice(0, 20);
   const path = input.path.length > 1 ? input.path.replace(/\/+$/, '') : input.path;
-  try {
-    await db
+  const insert = () =>
+    db
       .prepare(
         `INSERT INTO page_views (created_at, utc_date, path, country, city, referrer, device, browser, os, visitor_hash)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
       )
       .bind(Math.floor(now.getTime() / 1000), utcDate, path, country, city, referrer, device, browser, os, visitorHash)
       .run();
+  try {
+    await insert();
     return true;
   } catch (err) {
+    // Migration 0005 not applied yet: create the table (IF NOT EXISTS) and try once more.
+    if (/no such table/i.test(String((err as any)?.message || err))) {
+      try {
+        await ensureLearnFromClipTables(db);
+        await insert();
+        return true;
+      } catch (retryErr) {
+        console.warn('[LearnFromClip] page view not recorded:', retryErr);
+        return false;
+      }
+    }
     console.warn('[LearnFromClip] page view not recorded:', err);
     return false;
   }
