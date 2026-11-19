@@ -58,8 +58,8 @@ async function run(label, contextOpts, ip) {
   // 1. Homepage
   await page.goto(BASE + '/', { waitUntil: 'networkidle' });
   const h1 = (await page.locator('h1').first().innerText()).replace(/\s+/g, ' ');
-  check(`[${label}] homepage headline`, /2-hour lecture → 10-minute revision pack\./.test(h1), h1);
-  check(`[${label}] sub-headline`, (await page.content()).includes('One upload. Transcript, notes, flashcards and quiz, every point linked to the lecture.'));
+  check(`[${label}] homepage headline`, /Don’t just watch lectures\. Study them\./.test(h1), h1);
+  check(`[${label}] sub-headline`, (await page.content()).includes('Turn videos into source-verified notes, flashcards, quizzes and visual revision packs. Every important point takes you back to where it was taught.'));
   await shot(page, 'home');
 
   // 2. Paste link -> transcript
