@@ -102,6 +102,10 @@ export interface CloudflareBindings {
   LEMONSQUEEZY_VARIANT_PREP_PASS_REGIONAL?: string;
   /** Bearer token for /api/admin/costs (min 24 chars). Unset = admin endpoint disabled. */
   ADMIN_TOKEN?: string;
+  /** Secret address of the private admin console (16-64 letters, digits, - or _). */
+  ADMIN_PATH?: string;
+  /** Site-wide daily AI spending cap in USD. Default 0.09 (inside Cloudflare's free daily AI). */
+  AI_DAILY_BUDGET_USD?: string;
   /** Google OAuth 2.0 Client ID & Secret for "Continue with Google" sign-in. */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;

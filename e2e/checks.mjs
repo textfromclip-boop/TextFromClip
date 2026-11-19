@@ -132,7 +132,9 @@ const ROUTES = ['/', '/app', '/study', '/pricing', '/privacy', '/terms', '/youtu
 
   const sitemap = await (await page.request.get(BASE + '/sitemap.xml')).text();
   const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1].replace('https://learnfromclip.com', ''));
-  check('sitemap.xml lists all routes on learnfromclip.com', ROUTES.every((r) => locs.includes(r)) && !/textfromclip/i.test(sitemap), `${locs.length} urls`);
+  // Free launch: /pricing and /refund still load, but are left out of the sitemap (nothing to buy)
+  const IN_SITEMAP = ROUTES.filter((r) => r !== '/pricing' && r !== '/refund');
+  check('sitemap.xml lists all public routes on learnfromclip.com (no pricing during free launch)', IN_SITEMAP.every((r) => locs.includes(r)) && !locs.includes('/pricing') && !locs.includes('/refund') && !/textfromclip/i.test(sitemap), `${locs.length} urls`);
   const robots = await (await page.request.get(BASE + '/robots.txt')).text();
   check('robots.txt allows site, disallows /api/, points to sitemap', /Allow: \//.test(robots) && /Disallow: \/api\//.test(robots) && /Sitemap: https:\/\/learnfromclip\.com\/sitemap\.xml/.test(robots));
   const unknown = await page.request.get(BASE + '/does-not-exist');

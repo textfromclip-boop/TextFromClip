@@ -27,7 +27,7 @@ void quotas;
 
 const proxy = await getPlatformProxy({
   configPath: join(ROOT, 'e2e/wrangler.e2e.toml'),
-  persist: { path: join(ROOT, '.wrangler/e2e/v3') },
+  persist: { path: join(ROOT, process.env.E2E_PERSIST || '.wrangler/e2e', 'v3') },
 });
 
 // ---- Seed: a cached YouTube lecture transcript (YouTube itself is not reachable from the sandbox)
@@ -137,6 +137,9 @@ const env = {
   ENVIRONMENT: 'development',
   COOKIE_SECRET: 'e2e-cookie-secret-0123456789abcdefghijkl',
   ADMIN_TOKEN: 'e2e-admin-token-0123456789abcdef',
+  ADMIN_PATH: 'e2e-console-7f3k2m9q4x8w',
+  // The walkthroughs make many packs; the budget cap itself is covered by e2e/admin.mjs and unit tests.
+  AI_DAILY_BUDGET_USD: process.env.E2E_AI_BUDGET || '1000',
 };
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
@@ -153,7 +156,8 @@ http
   .createServer(async (req, res) => {
     try {
       const url = new URL(req.url, `http://localhost:${PORT}`);
-      if (!url.pathname.startsWith('/api/') && url.pathname !== '/robots.txt' && url.pathname !== '/sitemap.xml') {
+      const isAdmin = url.pathname === `/${env.ADMIN_PATH}` || url.pathname.startsWith(`/${env.ADMIN_PATH}/`);
+      if (!isAdmin && !url.pathname.startsWith('/api/') && url.pathname !== '/robots.txt' && url.pathname !== '/sitemap.xml') {
         const { body, type } = serveStatic(url.pathname);
         // Cloudflare compresses text assets in production; mirror that so Lighthouse is realistic.
         if (/gzip/.test(req.headers['accept-encoding'] || '') && /text|javascript|json|svg/.test(type)) {
@@ -169,6 +173,8 @@ http
       const headers = new Headers();
       for (const [k, v] of Object.entries(req.headers)) if (typeof v === 'string') headers.set(k, v);
       headers.set('cf-connecting-ip', req.headers['x-test-ip'] || '203.0.113.7');
+      // Cloudflare adds the visitor's country; tests choose one with x-test-country.
+      if (req.headers['x-test-country']) headers.set('cf-ipcountry', String(req.headers['x-test-country']));
       const request = new Request(url, { method: req.method, headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : body });
       const response = await app.fetch(request, env, { waitUntil() {}, passThroughOnException() {} });
       const out = Buffer.from(await response.arrayBuffer());

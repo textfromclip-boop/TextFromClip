@@ -864,33 +864,14 @@ describe('Lemon Squeezy', () => {
     LEMONSQUEEZY_VARIANT_PREP_PASS_REGIONAL: '302',
   } as any;
 
-  it('checkout: creates a Lemon Squeezy checkout with the correct store + variant for every plan and region', async () => {
-    const calls: any[] = [];
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init: any) => {
-      calls.push({ url, init, body: JSON.parse(init.body) });
-      return new Response(JSON.stringify({ data: { attributes: { url: 'https://learnfromclip.lemonsqueezy.com/checkout/custom/abc' } } }), { status: 201 });
-    }));
-    const cases: Array<[string, string, string]> = [
-      ['exam_pass', 'US', '101'], ['exam_pass', 'EG', '102'],
-      ['monthly', 'GB', '201'], ['monthly', 'IN', '202'],
-      ['prep_pass', 'DE', '301'], ['prep_pass', 'TR', '302'],
-    ];
-    for (const [plan, country, variant] of cases) {
-      const res = await app.request('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'CF-IPCountry': country, 'x-forwarded-for': `10.8.${variant}.1` },
-        body: JSON.stringify({ plan, email: 'buyer@uni.edu', billingCountry: 'EG' }), // body country is ignored
-      }, LS_ENV);
-      expect(res.status).toBe(200);
-      const json: any = await res.json();
-      expect(json.data.checkoutUrl).toContain('lemonsqueezy.com');
-      const last = calls[calls.length - 1];
-      expect(last.url).toBe('https://api.lemonsqueezy.com/v1/checkouts');
-      expect(last.init.headers.Authorization).toBe('Bearer test_key');
-      expect(last.body.data.relationships.store.data.id).toBe('1234');
-      expect(last.body.data.relationships.variant.data.id).toBe(variant);
-      expect(last.body.data.attributes.checkout_data.custom.aid).toMatch(/^u_/);
-    }
+  it('free launch: checkout is refused even when Lemon Squeezy is configured (nothing to buy yet)', async () => {
+    const res = await app.request('/api/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plan: 'exam_pass', email: 'buyer@uni.edu' }),
+    }, LS_ENV);
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as any).error.code).toBe('PAYMENTS_PAUSED');
   });
 
   it('checkout without configuration returns a clear 503 (no fake URL)', async () => {

@@ -72,8 +72,9 @@ describe('plan catalogue', () => {
     const rows = comparisonRows();
     expect(rows.find((r) => r[0].startsWith('AI actions'))![2]).toContain(`${PAID_LIMITS.aiActionsPerDay} per day`);
     expect(rows.find((r) => r[0] === 'Lecture links')![1]).toBe(`${FREE_LIMITS.linksPerDay} per day`);
-    expect(ROUTE_META['/pricing'].description).toContain(formatUsd(PLANS.prep_pass.priceUsd));
-    expect(ROUTE_META['/pricing'].description).not.toMatch(/2\.99|14\.99|Semester/);
+    // Free launch: the pricing page and its SEO text show no prices (paid-mode text: payments-enabled.test.ts)
+    expect(ROUTE_META['/pricing'].description).toMatch(/free during launch/i);
+    expect(ROUTE_META['/pricing'].description).not.toMatch(/\$\d/);
     expect(formatUsd(29)).toBe('$29');
     expect(formatUsd(4.99)).toBe('$4.99');
     expect(formatUsd(14.5)).toBe('$14.50');

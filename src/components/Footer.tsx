@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link } from '../router';
 import { Logo } from './Logo';
+import { PAYMENTS_ENABLED } from '../shared/launch';
 
 const COLUMNS: { heading: string; links: { to: string; label: string }[] }[] = [
   {
@@ -9,7 +10,7 @@ const COLUMNS: { heading: string; links: { to: string; label: string }[] }[] = [
       { to: '/app', label: 'Make a revision pack' },
       { to: '/upload', label: 'Upload a recording' },
       { to: '/study', label: 'Study' },
-      { to: '/pricing', label: 'Pricing' },
+      ...(PAYMENTS_ENABLED ? [{ to: '/pricing', label: 'Pricing' }] : []),
       { to: '/guide', label: 'Guide' },
     ],
   },
@@ -41,7 +42,7 @@ const COLUMNS: { heading: string; links: { to: string; label: string }[] }[] = [
       { to: '/about', label: 'About' },
       { to: '/privacy', label: 'Privacy' },
       { to: '/terms', label: 'Terms' },
-      { to: '/refund', label: 'Refund policy' },
+      ...(PAYMENTS_ENABLED ? [{ to: '/refund', label: 'Refund policy' }] : []),
     ],
   },
 ];

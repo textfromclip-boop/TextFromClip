@@ -81,6 +81,10 @@ import {
 import { hmacSha256Hex, randomToken, sha256Hex, timingSafeEqual, verifyHmacSha256Hex } from './utils/crypto';
 import { isValidAnalyticsEvent } from '../utils/analytics';
 import { isPaidPlan, PLANS } from '../shared/plans';
+import { PAYMENTS_ENABLED } from '../shared/launch';
+import { aiBusyMessage, getAiBudgetStatus } from './utils/aiBudget';
+import { recordPageView } from './utils/visitAnalytics';
+import { handleAdminRequest } from './admin/console';
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
@@ -210,7 +214,11 @@ async function reserveOr429(c: any, actor: Actor, delta: QuotaDelta) {
   });
   if (reservation.ok) return { reservation, response: null as Response | null };
   const q = reservation.status;
-  const upgrade = actor.isPaid ? '' : ' Upgrade to an Exam Week or Exam Prep Pass for higher limits.';
+  const upgrade = actor.isPaid
+    ? ''
+    : PAYMENTS_ENABLED
+    ? ' Upgrade to an Exam Week or Exam Prep Pass for higher limits.'
+    : ' Come back tomorrow for more.';
   const shared = q.ipCeilingReached
     ? ' Your network has reached its shared daily free limit.'
     : '';
@@ -239,6 +247,33 @@ async function reserveOr429(c: any, actor: Actor, delta: QuotaDelta) {
     reservation,
     response: c.json({ success: false, error: m, usage: q }, 429) as Response,
   };
+}
+
+/**
+ * Site-wide daily AI budget (see utils/aiBudget.ts). Returns a 503 response when today's estimated
+ * AI spend has reached AI_DAILY_BUDGET_USD, so new AI work pauses until 00:00 UTC.
+ */
+async function aiBudgetOr503(c: any): Promise<Response | null> {
+  const status = await getAiBudgetStatus(c.env, c.env.DB);
+  if (status.ok) return null;
+  if (c.env.DB) {
+    try {
+      await c.env.DB
+        .prepare(`INSERT INTO analytics_events (event_name, route_path, plan_type, created_at) VALUES ('ai_paused', ?1, 'free', ?2)`)
+        .bind(c.req.path.slice(0, 80), Math.floor(Date.now() / 1000))
+        .run();
+    } catch {
+      // ignore
+    }
+  }
+  c.header('Retry-After', String(status.resetsInSeconds));
+  return c.json(
+    {
+      success: false,
+      error: { code: 'AI_DAILY_BUDGET_REACHED', message: aiBusyMessage(status.resetsInSeconds) },
+    },
+    503
+  );
 }
 
 const TURNSTILE_HUMAN_COOKIE_TTL = 24 * 3600;
@@ -307,8 +342,16 @@ app.use('*', async (c, next) => {
   await next();
   c.header('X-Content-Type-Options', 'nosniff');
   c.header('X-Frame-Options', 'DENY');
-  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  if (!c.res.headers.get('Referrer-Policy')) c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+});
+
+// Private admin console at the secret ADMIN_PATH (see admin/console.ts). Any other path, or no
+// ADMIN_PATH configured, falls through to the normal website.
+app.use('*', async (c, next) => {
+  const adminResponse = await handleAdminRequest(c, { getClientIp, getCookieSecret, isSecureRequest });
+  if (adminResponse) return adminResponse;
+  await next();
 });
 
 // CORS Middleware
@@ -578,11 +621,15 @@ app.post('/api/transcript', async (c) => {
   if (limitResponse) return limitResponse;
 
   const startTime = Date.now();
+  // Captions are free; only videos without captions need AI (Whisper). When today's AI budget is
+  // used up, run the provider without the AI binding so captions still work but Whisper can't.
+  const aiBudget = await getAiBudgetStatus(c.env, c.env.DB);
+  const providerEnv = aiBudget.ok ? c.env : { ...c.env, AI: undefined };
 
   try {
     // 3. Process video transcript via provider
     const result = await withJobConcurrencyLimit(() =>
-      provider.getTranscript(safeUrl, preferredLanguage, c.env)
+      provider.getTranscript(safeUrl, preferredLanguage, providerEnv as any)
     );
 
     // Enforce maximum lecture length (Free: 2 hours, Paid: 4 hours)
@@ -638,6 +685,11 @@ app.post('/api/transcript', async (c) => {
     if (err instanceof QueueBusyError) {
       return c.json({ success: false, error: { code: 'QUEUE_BUSY', message: err.message } }, 429);
     }
+    if (!aiBudget.ok) {
+      // This video has no captions and would need AI transcription, which is paused for today.
+      const budgetBlocked = await aiBudgetOr503(c);
+      if (budgetBlocked) return budgetBlocked;
+    }
     const errorMsg = err?.message || 'An unexpected error occurred while processing the video transcript.';
 
     // Log failure event to D1 if available
@@ -679,6 +731,9 @@ app.post('/api/upload/chunk', async (c) => {
       503
     );
   }
+  // Don't accept audio we can't transcribe today.
+  const budgetBlockedUpload = await aiBudgetOr503(c);
+  if (budgetBlockedUpload) return budgetBlockedUpload;
 
   const contentLengthHeader = c.req.header('content-length');
   if (contentLengthHeader) {
@@ -859,6 +914,12 @@ app.post('/api/upload/transcribe', async (c) => {
         400
       );
     }
+  }
+
+  const budgetBlockedTranscribe = await aiBudgetOr503(c);
+  if (budgetBlockedTranscribe) {
+    await Promise.allSettled(rawKeys.map((k: string) => c.env.UPLOADS_BUCKET!.delete(k)));
+    return budgetBlockedTranscribe;
   }
 
   if (!c.env.AI) {
@@ -1114,6 +1175,8 @@ app.post('/api/transform', async (c) => {
   const actor = await resolveRequestActor(c);
   const humanCheck = await requireHuman(c, actor, body?.turnstileToken);
   if (humanCheck) return humanCheck;
+  const budgetBlocked = await aiBudgetOr503(c);
+  if (budgetBlocked) return budgetBlocked;
   const { reservation, response: limitResponse } = await reserveOr429(c, actor, { aiHalfUnits: 2 });
   if (limitResponse) return limitResponse;
 
@@ -1173,8 +1236,9 @@ app.post('/api/transform', async (c) => {
 
     await recordCostTelemetry(
       {
-        llmInputTokens: Math.ceil(budgeted.text.length / 4),
-        llmOutputTokens: Math.ceil(verifiedOutput.length / 4),
+        // Conservative estimate: prompt instructions (~800 tokens) and reasoning (~600) included.
+        llmInputTokens: Math.ceil(budgeted.text.length / 4) + 800,
+        llmOutputTokens: Math.ceil(verifiedOutput.length / 4) + 600,
       },
       c.env.DB
     );
@@ -1295,6 +1359,8 @@ app.post('/api/translate', async (c) => {
   const actor = await resolveRequestActor(c);
   const humanCheck = await requireHuman(c, actor, body?.turnstileToken);
   if (humanCheck) return humanCheck;
+  const budgetBlocked = await aiBudgetOr503(c);
+  if (budgetBlocked) return budgetBlocked;
   const { reservation, response: limitResponse } = await reserveOr429(c, actor, { aiHalfUnits: 2 });
   if (limitResponse) return limitResponse;
 
@@ -1336,8 +1402,8 @@ app.post('/api/translate', async (c) => {
 
     await recordCostTelemetry(
       {
-        llmInputTokens: Math.ceil(clipped.length / 4),
-        llmOutputTokens: Math.ceil(translated.length / 4),
+        llmInputTokens: Math.ceil(clipped.length / 4) + 500,
+        llmOutputTokens: Math.ceil(translated.length / 4) + 600,
       },
       c.env.DB
     );
@@ -1481,6 +1547,10 @@ app.post('/api/revision-pack', async (c) => {
     });
   }
 
+  // Cache miss: needs new AI work, so the site-wide daily AI budget applies.
+  const budgetBlocked = await aiBudgetOr503(c);
+  if (budgetBlocked) return budgetBlocked;
+
   // Cache miss: 1 full AI action + 1 quiz
   const { reservation, response: limitResponse } = await reserveOr429(c, actor, {
     aiHalfUnits: 2,
@@ -1509,8 +1579,9 @@ app.post('/api/revision-pack', async (c) => {
     await setCachedRevisionPack(packCacheKey, transcriptHash, pack, c.env.DB);
     await recordCostTelemetry(
       {
-        llmInputTokens: Math.ceil(transcriptTextForHash.length / 4),
-        llmOutputTokens: 1600 * Math.max(1, pack.metadata.totalChunks),
+        // Conservative estimate per chunk: ~1,200 prompt tokens and ~2,500 output + reasoning tokens.
+        llmInputTokens: Math.ceil(transcriptTextForHash.length / 4) + 1200 * Math.max(1, pack.metadata.totalChunks),
+        llmOutputTokens: 2500 * Math.max(1, pack.metadata.totalChunks),
       },
       c.env.DB
     );
@@ -1903,6 +1974,15 @@ app.post('/api/decks/sync', async (c) => {
 
 // Checkout Session (Lemon Squeezy Merchant of Record) — creates a real hosted checkout via the API
 app.post('/api/checkout', async (c) => {
+  if (!PAYMENTS_ENABLED) {
+    return c.json(
+      {
+        success: false,
+        error: { code: 'PAYMENTS_PAUSED', message: 'Everything is free during launch. There is nothing to buy yet.' },
+      },
+      503
+    );
+  }
   const body = await c.req.json().catch(() => ({}));
   const plan = (body?.plan || body?.planType) as PaidPlan;
   if (!isPaidPlan(plan)) {
@@ -2053,6 +2133,39 @@ app.get('/api/admin/costs', async (c) => {
   });
 });
 
+// Cookieless page-view analytics for the admin dashboard (no IP stored; see utils/visitAnalytics.ts)
+app.post('/api/pv', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const cf = (c.req.raw as any).cf || {};
+  let ownHost = '';
+  try {
+    ownHost = new URL(c.req.url).hostname;
+  } catch {
+    // ignore
+  }
+  let salt = DEV_ONLY_COOKIE_SECRET;
+  try {
+    salt = getCookieSecret(c);
+  } catch {
+    // production without COOKIE_SECRET: the dev salt is fine for an analytics hash
+  }
+  const recorded = await recordPageView(
+    {
+      path: body?.path,
+      referrer: body?.referrer,
+      utmSource: body?.utm,
+      userAgent: c.req.header('user-agent') || '',
+      ip: getClientIp(c),
+      country: (typeof cf.country === 'string' ? cf.country : null) || c.req.header('cf-ipcountry') || null,
+      city: typeof cf.city === 'string' ? cf.city : null,
+      ownHost,
+      salt,
+    },
+    c.env.DB
+  );
+  return c.body(null, recorded ? 204 : 202);
+});
+
 // Privacy-friendly product analytics
 app.post('/api/events', async (c) => {
   const actor = await resolveRequestActor(c);
@@ -2129,6 +2242,7 @@ app.get('/sitemap.xml', (c) => {
   ];
 
   const urlsXml = paths
+    .filter((item) => PAYMENTS_ENABLED || (item.path !== '/pricing' && item.path !== '/refund'))
     .map(
       (item) => `  <url>
     <loc>https://learnfromclip.com${item.path}</loc>

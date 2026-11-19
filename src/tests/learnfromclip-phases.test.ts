@@ -531,7 +531,9 @@ describe('Phase 5 — Admin Costs, Privacy Analytics & SEO Endpoints', () => {
     const xml = await res.text();
     expect(xml).toContain('https://learnfromclip.com/');
     expect(xml).toContain('https://learnfromclip.com/study');
-    expect(xml).toContain('https://learnfromclip.com/pricing');
+    // Free launch: nothing to buy, so /pricing and /refund are left out of the sitemap
+    expect(xml).not.toContain('https://learnfromclip.com/pricing');
+    expect(xml).not.toContain('https://learnfromclip.com/refund');
     expect(xml).toContain('https://learnfromclip.com/youtube-lecture-to-flashcards');
     expect(xml).toContain('https://learnfromclip.com/lecture-to-notes');
     expect(xml).toContain('https://learnfromclip.com/video-to-quiz');

@@ -13,7 +13,8 @@ import {
   SeoLandingPage,
 } from './components/SeoPagesAndHome';
 import { useRoute } from './router';
-import { checkAndTrackDay7Return, trackEvent } from './utils/analytics';
+import { checkAndTrackDay7Return, trackEvent, trackPageView } from './utils/analytics';
+import { FREE_LAUNCH_BANNER, PAYMENTS_ENABLED } from './shared/launch';
 import { captureReferralFromUrl } from './utils/apiClient';
 
 export const YOUTUBE: PlatformConfig = {
@@ -205,6 +206,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     checkAndTrackDay7Return();
+    trackPageView(window.location.pathname);
   }, [route]);
 
   const seoSpec = SEO_LANDING_PAGES[route];
@@ -217,6 +219,11 @@ export const App: React.FC = () => {
       >
         Skip to content
       </a>
+      {!PAYMENTS_ENABLED && (
+        <p className="bg-accent-soft text-ink text-center text-[13px] font-medium py-1.5 px-4 border-b border-rule">
+          {FREE_LAUNCH_BANNER}
+        </p>
+      )}
       <Navbar current={route} />
       <main id="main" className="flex-1">
         {(route === '/' || route === '/app' || route === '/youtube') && (

@@ -18,6 +18,7 @@ import {
 } from './FormattedContent';
 import { RevisionPackView } from './RevisionPackView';
 import { trackEvent } from '../utils/analytics';
+import { PAYMENTS_ENABLED } from '../shared/launch';
 import {
   exportRevisionPackPdf,
   exportTranscriptPdf,
@@ -412,7 +413,7 @@ export const TranscriptResultView: React.FC<Props> = ({
       if (!res.ok || !json?.success || !json?.data) {
         throw new Error(
           json?.error?.message ||
-          (res.status === 429 ? 'Daily limit reached. Please wait or upgrade.' : 'Could not generate revision pack right now.')
+          (res.status === 429 ? 'Daily limit reached. Please come back tomorrow.' : 'Could not generate revision pack right now.')
         );
       }
 
@@ -717,7 +718,7 @@ export const TranscriptResultView: React.FC<Props> = ({
         {packError && (
           <div role="alert" className="mt-4 p-3.5 rounded-md bg-red-50 border border-red-200 text-red-900 text-sm">
             {packError}
-            {/limit|used all|upgrade|quiz per day/i.test(packError) && (
+            {PAYMENTS_ENABLED && /limit|used all|upgrade|quiz per day/i.test(packError) && (
               <a
                 href="/pricing"
                 onClick={(e) => {

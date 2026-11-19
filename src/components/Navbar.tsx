@@ -11,6 +11,7 @@ import {
 } from './GoogleSignInModal';
 import { syncDecksWithCloud } from '../utils/studyStore';
 import { onUsageChanged } from '../utils/apiClient';
+import { PAYMENTS_ENABLED } from '../shared/launch';
 
 interface NavbarProps {
   current: RoutePath;
@@ -25,7 +26,7 @@ const SOURCE_LINKS: { path: RoutePath; label: string }[] = [
 
 const PAGE_LINKS: { path: RoutePath; label: string }[] = [
   { path: '/study', label: 'Study' },
-  { path: '/pricing', label: 'Pricing' },
+  ...(PAYMENTS_ENABLED ? [{ path: '/pricing' as RoutePath, label: 'Pricing' }] : []),
   { path: '/guide', label: 'Guide' },
 ];
 
@@ -173,7 +174,7 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
               Sign in
             </button>
           )}
-          {!isPaidPlan && (
+          {PAYMENTS_ENABLED && !isPaidPlan && (
             <Link
               to="/pricing"
               className="px-3 py-1.5 rounded-md text-sm font-semibold text-ink border border-ink hover:bg-ink hover:text-white transition-colors whitespace-nowrap"
@@ -248,7 +249,7 @@ export const Navbar: React.FC<NavbarProps> = ({ current }) => {
           ))}
           <div className="flex items-center justify-between py-3 text-sm border-b border-rule">
             <span className="text-muted">{aiLeftLabel}</span>
-            {!isPaidPlan && (
+            {PAYMENTS_ENABLED && !isPaidPlan && (
               <Link to="/pricing" onClick={() => setMobileMenuOpen(false)} className="font-semibold text-accent">
                 Upgrade
               </Link>
