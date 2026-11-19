@@ -12,12 +12,11 @@ export function renderAdminHtml(nonce: string, base: string, signedIn: boolean):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="only light">
 <title>LearnFromClip Analytics</title>
 <style nonce="${nonce}">
-:root{--paper:#F4F4F1;--surface:#FFFFFF;--ink:#021433;--muted:#5B6476;--faint:#8A91A0;--rule:#E3E3DE;--accent:#2E62F4;--accent-wash:rgba(46,98,244,.14);--track:#ECECE8;--map-empty:#E6E6E1;--map-stroke:#FFFFFF;
+:root{color-scheme:light only;--paper:#F7F7F5;--surface:#FFFFFF;--ink:#021433;--muted:#5B6476;--faint:#8A91A0;--rule:#E3E3DE;--accent:#2E62F4;--accent-wash:rgba(46,98,244,.14);--track:#ECECE8;--map-empty:#E6E6E1;--map-stroke:#FFFFFF;
 --seq1:#DCE6FD;--seq2:#A9C0FA;--seq3:#7096F6;--seq4:#3F6EF0;--seq5:#1F49C7;--good:#15803D;--warn:#B45309;--bad:#B91C1C}
-@media (prefers-color-scheme:dark){:root{--paper:#111110;--surface:#1a1a19;--ink:#EDEDEA;--muted:#A3A39E;--faint:#7C7C77;--rule:#2C2C2A;--accent:#5A84F8;--accent-wash:rgba(90,132,248,.18);--track:#2A2A28;--map-empty:#2A2A28;--map-stroke:#1a1a19;
---seq1:#1E2A4A;--seq2:#233E86;--seq3:#2E62F4;--seq4:#5A84F8;--seq5:#A9C0FA;--good:#4ADE80;--warn:#F59E0B;--bad:#F87171}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .wrap{max-width:1240px;margin:0 auto;padding:0 16px 40px}
@@ -39,7 +38,8 @@ button:focus-visible,select:focus-visible,input:focus-visible,[tabindex]:focus-v
 .card{background:var(--surface);border:1px solid var(--rule);border-radius:12px;padding:16px;min-width:0}
 .card h2{font-size:13px;font-weight:600;margin:0 0 12px;color:var(--ink)}
 .card h2 small{font-weight:400;color:var(--muted)}
-.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid var(--rule);margin:-16px -16px 14px}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid var(--rule);margin:-16px -16px 14px;border-radius:12px 12px 0 0;overflow:hidden}
+.metric{border-top-color:transparent!important}.metric[aria-pressed="true"]{border-top-color:var(--accent)!important}
 .metric{border:0;border-radius:0;background:none;text-align:left;padding:14px 16px 12px;border-top:3px solid transparent;border-right:1px solid var(--rule)}
 .metric:last-child{border-right:0}
 .metric[aria-pressed="true"]{border-top-color:var(--accent);background:var(--accent-wash)}
