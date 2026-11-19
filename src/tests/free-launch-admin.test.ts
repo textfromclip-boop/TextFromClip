@@ -14,8 +14,9 @@ import {
   resolveAiDailyBudgetUsd,
   secondsUntilUtcMidnight,
 } from '../server/utils/aiBudget';
-import { isBotUserAgent, parseUserAgent, recordPageView, referrerSource } from '../server/utils/visitAnalytics';
-import { createAdminSession, verifyAdminSession } from '../server/admin/console';
+import { isBotUserAgent, parseFilters, parseUserAgent, recordPageView, recordWebVitals, referrerSource, resolveRange } from '../server/utils/visitAnalytics';
+import { createAdminSession, ownerCookieValue, verifyAdminSession } from '../server/admin/console';
+import { DEV_ONLY_COOKIE_SECRET } from '../server/utils/quotasAndCache';
 import { PAYMENTS_ENABLED } from '../shared/launch';
 
 beforeEach(() => {
@@ -171,7 +172,7 @@ describe('cookieless visit analytics', () => {
     await recordPageView({ ...base, path: '/', now: new Date('2026-11-19T08:00:00Z') }, db);
     await recordPageView({ ...base, path: '/guide', now: new Date('2026-11-19T20:00:00Z') }, db);
     await recordPageView({ ...base, path: '/', now: new Date('2026-11-20T08:00:00Z') }, db);
-    const hashes = inserts.map((r) => r[r.length - 1]);
+    const hashes = inserts.map((r) => r[9]); // visitor_hash column
     expect(hashes[0]).toBe(hashes[1]);
     expect(hashes[2]).not.toBe(hashes[0]);
   });
@@ -187,6 +188,7 @@ describe('cookieless visit analytics', () => {
           created.push(sql);
           return {};
         },
+        all: async () => ({ results: [{ name: 'is_entry' }] }),
         bind: () => ({
           run: async () => {
             if (!tableExists) throw new Error('D1_ERROR: no such table: page_views: SQLITE_ERROR');
@@ -209,6 +211,54 @@ describe('cookieless visit analytics', () => {
     await recordPageView({ ...base, path: '/', country: 'XX' }, db);
     expect(inserts.length).toBe(1);
     expect(inserts[0][3]).toBeNull();
+  });
+
+  it('marks the first page of a visit, so visits and page views are counted separately', async () => {
+    const { db, inserts } = fakeDb();
+    await recordPageView({ ...base, path: '/', entry: true }, db);
+    await recordPageView({ ...base, path: '/study', entry: false }, db);
+    expect(inserts[0][10]).toBe(1);
+    expect(inserts[1][10]).toBe(0);
+  });
+
+  it('speed samples: keeps valid numbers only, drops bots and empty reports', async () => {
+    const { db, inserts } = fakeDb();
+    expect(await recordWebVitals({ path: '/', lcp: 1834.6, inp: 96, cls: 0.0512, ttfb: 210, load: 2400, userAgent: base.userAgent, country: 'DE' }, db)).toBe(true);
+    const row = inserts[0];
+    expect(row).toContain(1835); // LCP rounded to ms
+    expect(row).toContain(0.051); // CLS to 3 decimals
+    expect(row).toContain('DE');
+    expect(await recordWebVitals({ path: '/', lcp: -5, inp: 'fast', cls: 999, userAgent: base.userAgent }, db)).toBe(false);
+    expect(await recordWebVitals({ path: '/', lcp: 900, userAgent: 'Googlebot/2.1' }, db)).toBe(false);
+    expect(await recordWebVitals({ path: '/<x>', lcp: 900, userAgent: base.userAgent }, db)).toBe(false);
+    expect(inserts.length).toBe(1);
+  });
+
+  it('filters: only known keys, short values; ranges compare with the same span before', () => {
+    const q: Record<string, string> = { country: 'SO', path: '/study', evil: 'x; DROP TABLE users', referrer: 'a'.repeat(500) };
+    expect(parseFilters((k) => q[k])).toEqual({ country: 'SO', path: '/study' });
+    const now = Date.parse('2026-11-19T15:30:00Z') / 1000;
+    const today = resolveRange(1, now);
+    expect(today.bucket).toBe('hour');
+    expect(today.fromSec).toBe(Date.parse('2026-11-19T00:00:00Z') / 1000);
+    expect(today.prevFromSec).toBe(Date.parse('2026-11-18T00:00:00Z') / 1000);
+    expect(today.prevToSec).toBe(today.toSec - 86400); // yesterday up to the same time
+    const week = resolveRange(7, now);
+    expect(week.bucket).toBe('day');
+    expect(week.fromSec).toBe(Date.parse('2026-11-13T00:00:00Z') / 1000);
+    expect(resolveRange(5000, now).days).toBe(90);
+  });
+
+  it("the site owner's own browser is not counted", async () => {
+    const env = { ENVIRONMENT: 'test' } as any;
+    const owner = `lfc_owner=${await ownerCookieValue(DEV_ONLY_COOKIE_SECRET)}`;
+    const ua = { 'user-agent': base.userAgent, 'Content-Type': 'application/json' };
+    const ownVisit = await app.request('/api/pv', { method: 'POST', headers: { ...ua, cookie: owner }, body: JSON.stringify({ path: '/' }) }, env);
+    expect(ownVisit.headers.get('x-analytics')).toBe('owner-ignored');
+    const forged = await app.request('/api/pv', { method: 'POST', headers: { ...ua, cookie: 'lfc_owner=1.00000000000000000000000000000000' }, body: JSON.stringify({ path: '/' }) }, env);
+    expect(forged.headers.get('x-analytics')).toBeNull(); // a fake owner cookie is not trusted
+    const ownSpeed = await app.request('/api/vitals', { method: 'POST', headers: { ...ua, cookie: owner }, body: JSON.stringify({ path: '/', lcp: 900 }) }, env);
+    expect(ownSpeed.headers.get('x-analytics')).toBe('owner-ignored');
   });
 
   it('/api/pv answers without a body even when nothing is stored', async () => {
@@ -289,7 +339,9 @@ describe('private admin console', () => {
     const json: any = await data.json();
     expect(json.ok).toBe(true);
     expect(json.data.range.days).toBe(7);
-    expect(json.data.budget.budgetUsd).toBe(DEFAULT_AI_DAILY_BUDGET_USD);
+    expect(json.data.usage.budget.budgetUsd).toBe(DEFAULT_AI_DAILY_BUDGET_USD);
+    // the owner's browser is marked so their own visits are not counted
+    expect((res.headers as any).getSetCookie().some((c: string) => /^lfc_owner=1\.[0-9a-f]{32}; Path=\//.test(c))).toBe(true);
     const page = await app.request(`/${ADMIN_PATH}`, { headers: { cookie } }, env);
     expect(await page.text()).toContain('data-signed-in="1"');
   });

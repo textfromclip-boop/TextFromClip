@@ -85,6 +85,14 @@ export function checkAndTrackDay7Return(): void {
 
 let firstPageViewSent = false;
 
+function isSameSiteReferrer(): boolean {
+  try {
+    return Boolean(document.referrer) && new URL(document.referrer).host === window.location.host;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Cookieless page-view beacon for the private admin dashboard. Sends only the page path, the
  * referring site on the first page of a visit, and a utm_source if present. The server adds the
@@ -96,6 +104,9 @@ export function trackPageView(path: string): void {
     const params = new URLSearchParams(window.location.search);
     const payload = JSON.stringify({
       path,
+      // A visit = arriving from outside the site (Cloudflare's definition): the first page of this
+      // page load, unless the browser came from another page of this same site.
+      entry: !firstPageViewSent && !isSameSiteReferrer(),
       referrer: firstPageViewSent ? undefined : document.referrer || undefined,
       utm: firstPageViewSent ? undefined : params.get('utm_source') || undefined,
     });
@@ -108,4 +119,83 @@ export function trackPageView(path: string): void {
   } catch {
     // never block UI on analytics
   }
+}
+
+let vitalsStarted = false;
+
+/**
+ * Real-user speed of the page load (Core Web Vitals), sent once when the page is hidden or closed:
+ * LCP (largest content shown), INP (slowest response to a tap or key), CLS (layout shift),
+ * TTFB (server response) and full load time. Numbers only; no identifiers.
+ */
+export function startWebVitals(): void {
+  if (vitalsStarted || typeof window === 'undefined' || typeof PerformanceObserver === 'undefined') return;
+  vitalsStarted = true;
+  const path = window.location.pathname;
+  let lcp: number | undefined;
+  let inp: number | undefined;
+  let cls = 0;
+  let sessionValue = 0;
+  let sessionEntries: any[] = [];
+  const observe = (type: string, cb: (entries: any[]) => void, opts: Record<string, unknown> = {}) => {
+    try {
+      const po = new PerformanceObserver((list) => cb(list.getEntries() as any[]));
+      po.observe({ type, buffered: true, ...opts } as PerformanceObserverInit);
+    } catch {
+      // metric not supported by this browser
+    }
+  };
+  observe('largest-contentful-paint', (entries) => {
+    const last = entries[entries.length - 1];
+    if (last) lcp = last.startTime;
+  });
+  observe('layout-shift', (entries) => {
+    for (const e of entries) {
+      if (e.hadRecentInput) continue;
+      const firstE = sessionEntries[0];
+      const lastE = sessionEntries[sessionEntries.length - 1];
+      if (sessionEntries.length && (e.startTime - lastE.startTime > 1000 || e.startTime - firstE.startTime > 5000)) {
+        sessionValue = 0;
+        sessionEntries = [];
+      }
+      sessionValue += e.value;
+      sessionEntries.push(e);
+      cls = Math.max(cls, sessionValue);
+    }
+  });
+  observe('event', (entries) => {
+    for (const e of entries) {
+      if (e.interactionId && (inp === undefined || e.duration > inp)) inp = e.duration;
+    }
+  }, { durationThreshold: 40 });
+  observe('first-input', (entries) => {
+    const e = entries[0];
+    if (e && inp === undefined) inp = e.processingEnd - e.startTime;
+  });
+
+  let sent = false;
+  const send = () => {
+    if (sent) return;
+    sent = true;
+    try {
+      const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+      const payload = JSON.stringify({
+        path,
+        lcp,
+        inp,
+        cls: Math.round(cls * 1000) / 1000,
+        ttfb: nav ? Math.max(0, nav.responseStart) : undefined,
+        load: nav && nav.loadEventEnd > 0 ? nav.loadEventEnd : undefined,
+      });
+      if (typeof navigator.sendBeacon === 'function') {
+        navigator.sendBeacon('/api/vitals', new Blob([payload], { type: 'application/json' }));
+      }
+    } catch {
+      // never block UI on analytics
+    }
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') send();
+  });
+  window.addEventListener('pagehide', send);
 }

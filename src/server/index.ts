@@ -83,8 +83,8 @@ import { isValidAnalyticsEvent } from '../utils/analytics';
 import { isPaidPlan, PLANS } from '../shared/plans';
 import { PAYMENTS_ENABLED } from '../shared/launch';
 import { aiBusyMessage, getAiBudgetStatus } from './utils/aiBudget';
-import { recordPageView } from './utils/visitAnalytics';
-import { handleAdminRequest } from './admin/console';
+import { recordPageView, recordWebVitals } from './utils/visitAnalytics';
+import { handleAdminRequest, isOwnerBrowser } from './admin/console';
 
 const app = new Hono<{ Bindings: CloudflareBindings }>();
 
@@ -2133,6 +2133,39 @@ app.get('/api/admin/costs', async (c) => {
   });
 });
 
+function analyticsSalt(c: any): string {
+  try {
+    return getCookieSecret(c);
+  } catch {
+    // production without COOKIE_SECRET: the dev salt is fine for an analytics hash
+    return DEV_ONLY_COOKIE_SECRET;
+  }
+}
+
+// Real-user speed (Core Web Vitals) for the admin console; no identifiers stored at all.
+app.post('/api/vitals', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (await isOwnerBrowser(c.req.header('cookie'), analyticsSalt(c))) {
+    c.header('X-Analytics', 'owner-ignored');
+    return c.body(null, 202);
+  }
+  const cf = (c.req.raw as any).cf || {};
+  const recorded = await recordWebVitals(
+    {
+      path: body?.path,
+      lcp: body?.lcp,
+      inp: body?.inp,
+      cls: body?.cls,
+      ttfb: body?.ttfb,
+      load: body?.load,
+      userAgent: c.req.header('user-agent') || '',
+      country: (typeof cf.country === 'string' ? cf.country : null) || c.req.header('cf-ipcountry') || null,
+    },
+    c.env.DB
+  );
+  return c.body(null, recorded ? 204 : 202);
+});
+
 // Cookieless page-view analytics for the admin dashboard (no IP stored; see utils/visitAnalytics.ts)
 app.post('/api/pv', async (c) => {
   const body = await c.req.json().catch(() => ({}));
@@ -2143,17 +2176,18 @@ app.post('/api/pv', async (c) => {
   } catch {
     // ignore
   }
-  let salt = DEV_ONLY_COOKIE_SECRET;
-  try {
-    salt = getCookieSecret(c);
-  } catch {
-    // production without COOKIE_SECRET: the dev salt is fine for an analytics hash
+  const salt = analyticsSalt(c);
+  // The site owner's own browsers (signed in to the admin console once) are not counted.
+  if (await isOwnerBrowser(c.req.header('cookie'), salt)) {
+    c.header('X-Analytics', 'owner-ignored');
+    return c.body(null, 202);
   }
   const recorded = await recordPageView(
     {
       path: body?.path,
       referrer: body?.referrer,
       utmSource: body?.utm,
+      entry: body?.entry,
       userAgent: c.req.header('user-agent') || '',
       ip: getClientIp(c),
       country: (typeof cf.country === 'string' ? cf.country : null) || c.req.header('cf-ipcountry') || null,

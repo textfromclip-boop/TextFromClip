@@ -30,9 +30,12 @@ async function visit({ ua, country, ip, pages, referer }) {
   const page = await ctx.newPage();
   for (const [i, p] of pages.entries()) {
     const pv = page.waitForResponse((r) => r.url().endsWith('/api/pv'), { timeout: 8000 }).catch(() => null);
-    await page.goto(BASE + p, { waitUntil: 'networkidle', referer: i === 0 ? referer : undefined });
+    // First page: arriving (from Google or directly). Later pages: moving within the site.
+    await page.goto(BASE + p, { waitUntil: 'networkidle', referer: i === 0 ? referer : BASE + pages[i - 1] });
     await pv;
   }
+  await page.close({ runBeforeUnload: true });
+  await new Promise((r) => setTimeout(r, 300));
   await ctx.close();
 }
 
@@ -68,27 +71,63 @@ async function consoleRun(label, contextOpts) {
 
   await page.getByLabel('Admin password').fill(ADMIN_TOKEN);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await page.getByText('Live now').waitFor({ timeout: 8000 });
-  await page.getByRole('button', { name: 'Today' }).waitFor();
+  await page.getByText('live now').waitFor({ timeout: 8000 });
+  await page.getByRole('heading', { name: /^Countries/ }).waitFor();
   const text = await page.locator('body').innerText();
-  check(`[${label}] dashboard lists visitor countries`, /Germany/.test(text) && /United States/.test(text));
-  check(`[${label}] dashboard shows where visitors came from`, /google\.com/.test(text));
-  check(`[${label}] dashboard shows pages, devices and browsers`, /\/guide/.test(text) && /Desktop/.test(text) && /Mobile/.test(text) && /Safari/.test(text));
-  check(`[${label}] dashboard shows the AI budget`, /daily budget/.test(text) && /Status: running/.test(text));
-  check(`[${label}] latest visits feed`, /→ \/study/.test(text));
-  // One visitor each from Germany and the US, however many pages they opened. (Other test browsers
-  // that pretend to be iPhones are counted too, under "Unknown" country, so the total isn't checked.)
-  const perCountry = (name) => Number(((text.match(new RegExp(name + '\\s*\\n\\s*(\\d+)')) || [])[1]) || -1);
-  check(`[${label}] counts unique visitors per day, not page views`, perCountry('Germany') === 1 && perCountry('United States') === 1, `DE ${perCountry('Germany')}, US ${perCountry('United States')}`);
-  await page.screenshot({ path: join(OUT, `${label}-2-dashboard.png`), fullPage: true });
+  check(`[${label}] metric tiles with change vs previous period`, /Visits/.test(text) && /Page views/.test(text) && /Bounce rate/.test(text) && /vs yesterday \(same time\)/.test(text));
+  check(`[${label}] hourly chart for today`, (await page.locator('.chart svg path').count()) >= 2 && /00:00/.test(text));
+  const mapPaths = await page.locator('.map svg path').count();
+  const shaded = await page.locator('.map svg path:not([fill="var(--map-empty)"])').count();
+  check(`[${label}] world map with visiting countries shaded`, mapPaths > 150 && shaded >= 2, `${mapPaths} countries, ${shaded} shaded`);
+  check(`[${label}] lists countries, sources, pages, devices, browsers`, /Germany/.test(text) && /United States/.test(text) && /google\.com/.test(text) && /\/guide/.test(text) && /Desktop/.test(text) && /Safari/.test(text));
+  // Visits = arrivals: Germany arrived once (3 pages), the US once (2 pages)
+  const rowValue = (name) => Number(((text.match(new RegExp(name + '\\s*\\n\\s*(\\d+)')) || [])[1]) || -1);
+  check(`[${label}] counts visits, not page views`, rowValue('Germany') === 1 && rowValue('United States') === 1, `DE ${rowValue('Germany')}, US ${rowValue('United States')}`);
+  await page.screenshot({ path: join(OUT, `${label}-2-traffic.png`), fullPage: true });
 
-  await page.getByRole('button', { name: '30 days' }).click();
-  await page.waitForFunction(() => document.querySelector('button[aria-pressed="true"]')?.textContent === '30 days');
-  check(`[${label}] range switch works`, /last 30 days/.test(await page.locator('body').innerText()));
+  // Page views metric switches the lists too
+  await page.getByRole('button', { name: /^Page views/ }).click();
+  await page.getByRole('heading', { name: /Countries · Page views/ }).waitFor();
+  const pvText = await page.locator('body').innerText();
+  check(`[${label}] page-views metric: Germany 3, US 2`, Number((pvText.match(/Germany\s*\n\s*(\d+)/) || [])[1]) === 3 && Number((pvText.match(/United States\s*\n\s*(\d+)/) || [])[1]) === 2);
+
+  // Tap a country: everything filters to it
+  await page.locator('.rows li', { hasText: 'Germany' }).first().click();
+  await page.getByText(/Country: .*Germany/).waitFor();
+  const filtered = await page.locator('main, #main').first().innerText();
+  check(`[${label}] tapping a country filters the whole page`, !/United States/.test(filtered) && /\/guide/.test(filtered) && !/youtube-lecture-to-flashcards/.test(filtered));
+  await page.screenshot({ path: join(OUT, `${label}-3-filtered.png`), fullPage: true });
+  await page.getByRole('button', { name: 'Remove filter Country' }).click();
+  await page.getByText('Tap any country').waitFor();
+
+  // Speed tab
+  await page.getByRole('tab', { name: /Speed/ }).click();
+  await page.getByRole('heading', { name: /Largest Contentful Paint/ }).waitFor();
+  const speed = await page.locator('body').innerText();
+  const samples = Number((speed.match(/(\d+) page loads measured/) || [])[1] || 0);
+  check(`[${label}] speed tab shows real-user LCP/INP/CLS with ratings`, samples >= 1 && /(Good|Needs improvement|Poor)/.test(speed) && /Interaction to Next Paint/.test(speed) && /Cumulative Layout Shift/.test(speed), `${samples} samples`);
+  await page.screenshot({ path: join(OUT, `${label}-4-speed.png`), fullPage: true });
+
+  // AI & usage tab
+  await page.getByRole('tab', { name: 'AI & usage' }).click();
+  await page.getByRole('heading', { name: 'Free AI today' }).waitFor();
+  const usage = await page.locator('body').innerText();
+  check(`[${label}] AI tab shows budget, packs and actions`, /daily budget/.test(usage) && /Running/.test(usage) && /AI per day/.test(usage));
+  await page.screenshot({ path: join(OUT, `${label}-5-ai.png`), fullPage: true });
+
+  // Range switch
+  await page.getByRole('tab', { name: 'Traffic' }).click();
+  await page.getByLabel('Time range').selectOption('30');
+  await page.getByText(/vs previous 30 days/).first().waitFor();
+  check(`[${label}] range switch to 30 days`, true);
+
+  // This browser signed in, so its own visits are no longer counted
+  const own = await page.request.post(`${BASE}/api/pv`, { data: { path: '/' }, headers: { 'user-agent': PHONE_UA } });
+  check(`[${label}] the owner's own visits are not counted`, own.headers()['x-analytics'] === 'owner-ignored');
 
   // Session survives a reload; sign out returns to the sign-in form
   await page.reload({ waitUntil: 'networkidle' });
-  await page.getByText('Live now').waitFor({ timeout: 8000 });
+  await page.getByText('live now').waitFor({ timeout: 8000 });
   await page.getByRole('button', { name: 'Sign out' }).click();
   await page.getByLabel('Admin password').waitFor();
   const after = await page.request.get(`${BASE}/${ADMIN_PATH}/data?days=1`);

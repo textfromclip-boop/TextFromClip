@@ -561,8 +561,8 @@ const FIELD_MEM: Record<QuotaField, keyof QuotaBucket> = {
  */
 let d1TablesBootstrapped = false;
 
-export async function ensureLearnFromClipTables(db: D1Database): Promise<void> {
-  if (d1TablesBootstrapped) return;
+export async function ensureLearnFromClipTables(db: D1Database, force = false): Promise<void> {
+  if (d1TablesBootstrapped && !force) return;
   try {
     const stmts = [
       `CREATE TABLE IF NOT EXISTS cached_transcripts (
@@ -676,8 +676,25 @@ export async function ensureLearnFromClipTables(db: D1Database): Promise<void> {
         device TEXT,
         browser TEXT,
         os TEXT,
-        visitor_hash TEXT NOT NULL
+        visitor_hash TEXT NOT NULL,
+        is_entry INTEGER NOT NULL DEFAULT 0
       )`,
+      `CREATE TABLE IF NOT EXISTS web_vitals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at INTEGER NOT NULL,
+        utc_date TEXT NOT NULL,
+        path TEXT NOT NULL,
+        country TEXT,
+        device TEXT,
+        browser TEXT,
+        os TEXT,
+        lcp_ms INTEGER,
+        inp_ms INTEGER,
+        cls REAL,
+        ttfb_ms INTEGER,
+        load_ms INTEGER
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_web_vitals_created ON web_vitals(created_at)`,
       `CREATE INDEX IF NOT EXISTS idx_page_views_date ON page_views(utc_date)`,
       `CREATE INDEX IF NOT EXISTS idx_page_views_created ON page_views(created_at)`,
       `CREATE TABLE IF NOT EXISTS analytics_events (
