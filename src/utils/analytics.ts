@@ -82,3 +82,30 @@ export function checkAndTrackDay7Return(): void {
     // ignore
   }
 }
+
+let firstPageViewSent = false;
+
+/**
+ * Cookieless page-view beacon for the private admin dashboard. Sends only the page path, the
+ * referring site on the first page of a visit, and a utm_source if present. The server adds the
+ * country from Cloudflare and stores no IP address.
+ */
+export function trackPageView(path: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const payload = JSON.stringify({
+      path,
+      referrer: firstPageViewSent ? undefined : document.referrer || undefined,
+      utm: firstPageViewSent ? undefined : params.get('utm_source') || undefined,
+    });
+    firstPageViewSent = true;
+    if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+      navigator.sendBeacon('/api/pv', new Blob([payload], { type: 'application/json' }));
+    } else if (typeof fetch === 'function') {
+      fetch('/api/pv', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true }).catch(() => {});
+    }
+  } catch {
+    // never block UI on analytics
+  }
+}

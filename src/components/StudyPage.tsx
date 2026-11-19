@@ -22,6 +22,7 @@ import {
   generatePackMarkdown,
 } from '../utils/packExporters';
 import { trackEvent } from '../utils/analytics';
+import { PAYMENTS_ENABLED } from '../shared/launch';
 import {
   fetchAuthSession,
   GoogleGLogo,
@@ -211,7 +212,8 @@ export const StudyPage: React.FC = () => {
                 Review {totalDueToday} due today
               </button>
             )}
-            {!account?.signedIn ? (
+            {/* Cloud sync is a paid feature; hidden during the free launch. */}
+            {(PAYMENTS_ENABLED || account?.cloudSync) && (!account?.signedIn ? (
               <button
                 type="button"
                 onClick={() => setSyncModalOpen(true)}
@@ -235,7 +237,7 @@ export const StudyPage: React.FC = () => {
                 <GoogleGLogo className="w-4 h-4" />
                 <span>{account.cloudSync ? 'Sync decks now' : 'Upgrade for cloud sync'}</span>
               </button>
-            )}
+            ))}
           </div>
         </div>
 

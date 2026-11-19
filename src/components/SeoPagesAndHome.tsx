@@ -1,7 +1,8 @@
 import React from 'react';
 import { Link } from '../router';
 import { TranscribePage, PlatformConfig } from './TranscribePage';
-import { formatUsd, PLANS } from '../shared/plans';
+import { formatUsd, FREE_LIMITS, PLANS } from '../shared/plans';
+import { PAYMENTS_ENABLED } from '../shared/launch';
 
 export interface SeoLandingSpec {
   path: string;
@@ -160,10 +161,15 @@ const HOME_FAQ: { q: string; a: string }[] = [
     q: 'Do I need an account?',
     a: 'No. On the free plan your notes, decks and review schedule stay in your browser on your device.',
   },
-  {
-    q: 'Do the passes renew automatically?',
-    a: `No. The ${PLANS.exam_pass.name} (${formatUsd(PLANS.exam_pass.priceUsd)} for ${PLANS.exam_pass.per}) and the ${PLANS.prep_pass.name} (${formatUsd(PLANS.prep_pass.priceUsd)} for ${PLANS.prep_pass.per}) are one-time payments. Only the Monthly plan renews, and you can cancel it anytime.`,
-  },
+  PAYMENTS_ENABLED
+    ? {
+        q: 'Do the passes renew automatically?',
+        a: `No. The ${PLANS.exam_pass.name} (${formatUsd(PLANS.exam_pass.priceUsd)} for ${PLANS.exam_pass.per}) and the ${PLANS.prep_pass.name} (${formatUsd(PLANS.prep_pass.priceUsd)} for ${PLANS.prep_pass.per}) are one-time payments. Only the Monthly plan renews, and you can cancel it anytime.`,
+      }
+    : {
+        q: 'Is it really free?',
+        a: `Yes. During launch everything is free, with no account and no card. Each student gets ${FREE_LIMITS.aiActionsPerDay} AI actions (packs, translations, formats) and ${FREE_LIMITS.linksPerDay} new lecture links a day, reset at 00:00 UTC.`,
+      },
   {
     q: 'Can I study in Arabic, Spanish or Turkish?',
     a: 'Yes. Pick a second language (Arabic, Spanish, French, German, Turkish, Portuguese or Hindi) and each card keeps the original wording with a translation underneath. Arabic renders right-to-left, including in PDF and Anki exports.',
@@ -204,12 +210,14 @@ export const HomeSectionsBelowTool: React.FC = () => (
           >
             Open study mode
           </Link>
-          <Link
-            to="/pricing"
-            className="px-4 py-2.5 rounded-md border border-rule bg-surface text-ink text-sm font-semibold hover:border-ink transition-colors"
-          >
-            See plans
-          </Link>
+          {PAYMENTS_ENABLED && (
+            <Link
+              to="/pricing"
+              className="px-4 py-2.5 rounded-md border border-rule bg-surface text-ink text-sm font-semibold hover:border-ink transition-colors"
+            >
+              See plans
+            </Link>
+          )}
         </div>
       </div>
 
@@ -238,7 +246,8 @@ export const HomeSectionsBelowTool: React.FC = () => (
       </figure>
     </section>
 
-    {/* Plans */}
+    {/* Plans (hidden during the free launch) */}
+    {PAYMENTS_ENABLED && (
     <section aria-label="Student pricing" className="mt-20 sm:mt-28 border-y border-rule py-8 flex flex-col sm:flex-row sm:items-center justify-between gap-5">
       <div>
         <h2 className="text-2xl sm:text-3xl text-ink">Free to start. Passes from {formatUsd(PLANS.exam_pass.priceUsd)}.</h2>
@@ -253,6 +262,7 @@ export const HomeSectionsBelowTool: React.FC = () => (
         Compare plans
       </Link>
     </section>
+    )}
 
     {/* FAQ */}
     <section aria-label="Frequently Asked Questions" className="mt-20 sm:mt-28 grid lg:grid-cols-12 gap-x-10 gap-y-6">

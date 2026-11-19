@@ -3,6 +3,7 @@
 // static HTML file per route so crawlers and link previews see the right tags on direct load.
 
 import { formatUsd, PLANS } from '../shared/plans';
+import { PAYMENTS_ENABLED } from '../shared/launch';
 
 export const SITE_ORIGIN = 'https://learnfromclip.com';
 
@@ -45,10 +46,15 @@ export const ROUTE_META: Record<string, RouteMeta> = {
     title: 'Today’s Study Schedule & Decks — LearnFromClip',
     description: 'Review your due flashcards with spaced repetition (SM-2), keep your daily streak and retake quizzes from your lectures.',
   },
-  '/pricing': {
+  '/pricing': PAYMENTS_ENABLED
+    ? {
     title: 'Plans & Student Passes — LearnFromClip',
     description: `Free plan with no sign-up. ${PLANS.exam_pass.name} ${formatUsd(PLANS.exam_pass.priceUsd)} for ${PLANS.exam_pass.per}, ${PLANS.prep_pass.name} ${formatUsd(PLANS.prep_pass.priceUsd)} for ${PLANS.prep_pass.per}, Monthly ${formatUsd(PLANS.monthly.priceUsd)}. Passes never auto-renew. Regional student pricing.`,
-  },
+  }
+    : {
+        title: 'Pricing: Free During Launch — LearnFromClip',
+        description: 'LearnFromClip is free during launch. No account, no card. Transcripts, revision packs, flashcards, quizzes and exports for every student.',
+      },
   '/guide': {
     title: 'How to Use LearnFromClip — Guide',
     description: 'Step-by-step guide: paste a lecture link or upload a recording, make a revision pack, study with spaced repetition and export to PDF or Anki.',

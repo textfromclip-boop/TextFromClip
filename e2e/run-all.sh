@@ -15,6 +15,7 @@ node e2e/walkthrough.mjs "http://localhost:$PORT" || status=1
 node e2e/checks.mjs "http://localhost:$PORT" || status=1
 node e2e/regression.mjs "http://localhost:$PORT" || status=1
 node e2e/visuals.mjs "http://localhost:$PORT" || status=1
+node e2e/admin.mjs "http://localhost:$PORT" || status=1
 kill $SERVER 2>/dev/null || true
 node e2e/quota-sql.mjs || status=1
 exit $status

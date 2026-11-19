@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from '../router';
 import { trackEvent } from '../utils/analytics';
-import { comparisonRows, formatUsd, PAID_LIMITS, PLAN_ORDER, PLANS as PLAN_CATALOG } from '../shared/plans';
+import { comparisonRows, formatUsd, FREE_LIMITS, PAID_LIMITS, PLAN_ORDER, PLANS as PLAN_CATALOG } from '../shared/plans';
+import { FREE_LAUNCH_BANNER, PAYMENTS_ENABLED } from '../shared/launch';
 import type { PaidPlan } from '../shared/plans';
 import {
   fetchAuthSession,
@@ -11,7 +12,7 @@ import {
   onAuthChanged,
 } from './GoogleSignInModal';
 
-export const PricingPage: React.FC = () => {
+const PaidPricingPage: React.FC = () => {
   const [showRegional, setShowRegional] = useState(false);
   const [checkoutPlan, setCheckoutPlan] = useState<string | null>(null);
   const [checkoutEmail, setCheckoutEmail] = useState('');
@@ -330,3 +331,46 @@ export const PricingPage: React.FC = () => {
     </div>
   );
 };
+
+/** Shown at /pricing while PAYMENTS_ENABLED is false: no plans, nothing to buy. */
+const FreeLaunchPricing: React.FC = () => {
+  const rows: [string, string][] = [
+    ['AI actions (revision packs, translations, formats)', `${FREE_LIMITS.aiActionsPerDay} per day`],
+    ['New lecture links', `${FREE_LIMITS.linksPerDay} per day`],
+    ['Audio and video uploads', `${FREE_LIMITS.uploadSecondsPerDay / 60} minutes per day`],
+    ['Longest lecture', `${FREE_LIMITS.maxLectureSeconds / 3600} hours`],
+    ['Flashcards per pack', String(FREE_LIMITS.cardsPerPack)],
+    ['Lectures someone already turned into a transcript or pack', 'Load instantly'],
+    ['Study mode, quizzes, PDF, Anki and Markdown export', 'Included'],
+  ];
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-5 pt-12 pb-6">
+      <div className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">Pricing</div>
+      <h1 className="mt-3 text-4xl sm:text-5xl font-medium tracking-tight text-ink leading-[1.1]">
+        Everything is free right now.
+      </h1>
+      <p className="mt-3 text-lg text-muted">{FREE_LAUNCH_BANNER} Limits reset every day at 00:00 UTC.</p>
+      <table className="mt-8 w-full text-left text-[15px] border-t border-rule">
+        <caption className="sr-only">What every student gets for free</caption>
+        <tbody>
+          {rows.map(([label, value]) => (
+            <tr key={label} className="border-b border-rule">
+              <th scope="row" className="py-3 pr-4 font-medium text-ink">{label}</th>
+              <td className="py-3 text-right text-muted whitespace-nowrap">{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-8">
+        <Link
+          to="/app"
+          className="inline-flex px-4 py-2.5 rounded-md bg-ink text-white text-sm font-semibold hover:bg-ink/90 transition-colors"
+        >
+          Make a revision pack
+        </Link>
+      </div>
+    </div>
+  );
+};
+
+export const PricingPage: React.FC = () => (PAYMENTS_ENABLED ? <PaidPricingPage /> : <FreeLaunchPricing />);

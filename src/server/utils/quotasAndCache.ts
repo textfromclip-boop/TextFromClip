@@ -665,6 +665,21 @@ export async function ensureLearnFromClipTables(db: D1Database): Promise<void> {
         pack_cache_misses INTEGER NOT NULL DEFAULT 0,
         updated_at INTEGER NOT NULL
       )`,
+      `CREATE TABLE IF NOT EXISTS page_views (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at INTEGER NOT NULL,
+        utc_date TEXT NOT NULL,
+        path TEXT NOT NULL,
+        country TEXT,
+        city TEXT,
+        referrer TEXT,
+        device TEXT,
+        browser TEXT,
+        os TEXT,
+        visitor_hash TEXT NOT NULL
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_page_views_date ON page_views(utc_date)`,
+      `CREATE INDEX IF NOT EXISTS idx_page_views_created ON page_views(created_at)`,
       `CREATE TABLE IF NOT EXISTS analytics_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         event_name TEXT NOT NULL,
@@ -1162,7 +1177,8 @@ export async function getDailyCostReport(
   }
 
   const whisperMinutes = Number((stats.whisperAudioSeconds / 60).toFixed(2));
-  const whisperEstimatedUsd = Number((whisperMinutes * 0.000453).toFixed(4));
+  // Workers AI list price for whisper-large-v3-turbo, measured 2026-11 via the account API.
+  const whisperEstimatedUsd = Number((whisperMinutes * 0.000513).toFixed(4));
   const llmEstimatedUsd = Number(
     (
       (stats.llmInputTokens / 1_000_000) * 0.35 +

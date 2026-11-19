@@ -17,7 +17,7 @@ await build({
 const q = await import(join(ROOT, 'e2e/.build/quotas.mjs') + `?t=${Date.now()}`);
 const proxy = await getPlatformProxy({
   configPath: join(ROOT, 'e2e/wrangler.e2e.toml'),
-  persist: { path: join(ROOT, '.wrangler/e2e/v3') },
+  persist: { path: join(ROOT, process.env.E2E_PERSIST || '.wrangler/e2e', 'v3') },
 });
 const db = proxy.env.DB;
 const results = [];
@@ -75,6 +75,18 @@ const reserve = (actorKey, plan) => q.reserveQuota({ actorKey, plan, delta: { ai
   let ok = 0;
   for (let i = 0; i < 6; i++) if ((await q.reserveQuota({ actorKey: actor, networkFallbackKey: `ip:sql-${tag}`, plan: 'free', delta: { aiHalfUnits: 2 }, db })).ok) ok++;
   check('D1: free plan still 3 AI actions a day', ok === 3, `${ok} granted of 6`);
+}
+
+// 6. Site-wide daily AI budget, read from the real cost_telemetry table
+{
+  await build({ entryPoints: [join(ROOT, 'src/server/utils/aiBudget.ts')], bundle: true, format: 'esm', platform: 'node', outfile: join(ROOT, 'e2e/.build/aiBudget.mjs'), logLevel: 'error' });
+  const b = await import(join(ROOT, 'e2e/.build/aiBudget.mjs') + `?t=${Date.now()}`);
+  const before = await b.getAiBudgetStatus({ AI_DAILY_BUDGET_USD: '1000' }, db);
+  await q.recordCostTelemetry({ llmOutputTokens: 200_000 }, db); // about $0.15
+  const after = await b.getAiBudgetStatus({}, db);
+  check('D1: AI spend is read from cost_telemetry and pauses AI at the free daily amount', after.spentUsd >= before.spentUsd + 0.149 && after.ok === false && after.budgetUsd === 0.09, `spent $${after.spentUsd}`);
+  const raised = await b.getAiBudgetStatus({ AI_DAILY_BUDGET_USD: '1000' }, db);
+  check('D1: a raised AI_DAILY_BUDGET_USD lets AI run again', raised.ok === true);
 }
 
 await proxy.dispose();

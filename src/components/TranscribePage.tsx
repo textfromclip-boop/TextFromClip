@@ -16,6 +16,7 @@ import {
 } from '../utils/studyStore';
 import { trackEvent } from '../utils/analytics';
 import { apiFetch } from '../utils/apiClient';
+import { PAYMENTS_ENABLED } from '../shared/launch';
 
 const HISTORY_STORAGE_KEY = 'learnfromclip_history_v1';
 const LEGACY_HISTORY_KEY = 'textfromclip_history_v1';
@@ -235,7 +236,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
           (res.status === 405
             ? 'The API endpoint is currently being updated. Please refresh in a moment.'
             : res.status === 429
-            ? 'Daily rate limit reached. Please wait a moment or upgrade for unlimited packs.'
+            ? 'Daily limit reached. Please come back tomorrow.'
             : 'The transcript could not be created. Please try again.')
         );
       }
@@ -758,7 +759,7 @@ export const TranscribePage: React.FC<{ config: PlatformConfig }> = ({ config })
                     <div className="flex-1">
                       <p className="font-semibold text-red-950">Notice</p>
                       <p className="text-red-800 text-[13.5px] mt-0.5 leading-snug">{error}</p>
-                      {/limit|used all|upgrade/i.test(error) && (
+                      {PAYMENTS_ENABLED && /limit|used all|upgrade/i.test(error) && (
                         <Link
                           to="/pricing"
                           className="mt-2 inline-flex items-center px-3 py-1.5 rounded-lg bg-accent text-white text-xs font-bold hover:bg-accent-dark"

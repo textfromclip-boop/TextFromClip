@@ -184,23 +184,19 @@ async function run(label, contextOpts, ip) {
     await alert.waitFor();
     await alert.scrollIntoViewIfNeeded();
     await page.evaluate(() => window.scrollBy(0, 200));
-    check(`[${label}] free limit hit shows upgrade button`, await page.getByText('See plans & upgrade →').first().isVisible());
+    const alertText = await alert.innerText();
+    check(`[${label}] free limit hit says come back tomorrow (no upgrade during free launch)`, /Come back tomorrow/.test(alertText) && (await page.getByText('See plans & upgrade →').count()) === 0, alertText);
     await shot(page, 'limit-hit');
   } else {
-    check(`[${label}] free limit hit shows upgrade button`, false, `status ${pr.status()}`);
+    check(`[${label}] free limit hit says come back tomorrow (no upgrade during free launch)`, false, `status ${pr.status()}`);
   }
 
-  // 9. Pricing page + Buy button
+  // 9. Free launch: banner on every page, no Pricing link or Buy buttons, /pricing says it's free
   await page.goto(BASE + '/pricing', { waitUntil: 'networkidle' });
-  await shot(page, 'pricing', true);
-  await page.getByRole('button', { name: /Get the Exam Week Pass/ }).click();
-  await page.fill('#checkout-email', 'student@uni.edu');
-  const coResp = page.waitForResponse((r) => r.url().includes('/api/checkout'));
-  await page.getByRole('button', { name: /Proceed to Secure Payment/ }).click();
-  const co = await coResp;
-  const coJson = await co.json();
-  check(`[${label}] Buy button calls checkout with the right plan`, co.status() === 503 && coJson.error.code === 'CHECKOUT_NOT_CONFIGURED', 'NEEDS CONFIG: Lemon Squeezy keys not set locally');
-  await shot(page, 'checkout-not-configured');
+  check(`[${label}] free-launch banner shown`, await page.getByText('Free during launch. No account, no card.').first().isVisible());
+  check(`[${label}] /pricing says everything is free, nothing to buy`, (await page.getByRole('heading', { name: 'Everything is free right now.' }).isVisible()) && (await page.getByRole('button', { name: /Get the|Start Monthly|Proceed to Secure Payment/ }).count()) === 0);
+  check(`[${label}] no Pricing or Upgrade link in the menu`, (await page.locator('header').getByRole('link', { name: /^(Pricing|Upgrade)$/ }).count()) === 0);
+  await shot(page, 'pricing-free-launch', true);
 
   check(`[${label}] no uncaught page errors`, consoleErrors.length === 0, consoleErrors.join(' | '));
   await browser.close();

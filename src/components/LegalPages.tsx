@@ -41,7 +41,7 @@ export const PrivacyPage: React.FC = () => (
       <section>
         <h2 className="text-xl font-bold text-ink mb-2">4. Fair-Use Quotas & Turnstile Protection</h2>
         <p>
-          Free daily limits use a signed, anonymous browser cookie plus a shared per-network ceiling, and may ask you to pass an invisible Cloudflare Turnstile check. For rate limits and quotas we store only a one-way hash of your IP address, never the address itself, and these counters are kept per day. Product analytics are aggregate event counts (for example “quiz finished”) with the page path and plan type only: no names, emails, IP addresses or lecture content. We do not sell personal data or use ad networks.
+          Free daily limits use a signed, anonymous browser cookie plus a shared per-network ceiling, and may ask you to pass an invisible Cloudflare Turnstile check. For rate limits and quotas we store only a one-way hash of your IP address, never the address itself, and these counters are kept per day. Product analytics are aggregate event counts (for example “quiz finished”) with the page path and plan type only: no names, emails, IP addresses or lecture content. To count visits we record, for each page view, the page, the referring website, your approximate location (country and city, as provided by Cloudflare), and your device type, browser and operating system. No cookie is used for this and no IP address is stored: visits on the same day are grouped by a one-way hash that changes every day, so we cannot follow you from one day to the next. Visit records are deleted after 90 days. We do not sell personal data or use ad networks.
         </p>
       </section>
 
