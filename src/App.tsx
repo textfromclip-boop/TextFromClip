@@ -13,7 +13,7 @@ import {
   SeoLandingPage,
 } from './components/SeoPagesAndHome';
 import { useRoute } from './router';
-import { checkAndTrackDay7Return, trackEvent, trackPageView } from './utils/analytics';
+import { checkAndTrackDay7Return, startWebVitals, trackEvent, trackPageView } from './utils/analytics';
 import { FREE_LAUNCH_BANNER, PAYMENTS_ENABLED } from './shared/launch';
 import { captureReferralFromUrl } from './utils/apiClient';
 
@@ -191,6 +191,7 @@ export const App: React.FC = () => {
   const route = useRoute();
 
   useEffect(() => {
+    startWebVitals();
     captureReferralFromUrl();
     // Lemon Squeezy redirects back to /study?purchase=success after payment
     try {
