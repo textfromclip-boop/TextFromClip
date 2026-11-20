@@ -30,8 +30,8 @@ for (const [label, opts] of [['d', { viewport: { width: 1440, height: 900 } }], 
   await shot('03-pack-notes', false);
   await p.getByRole('button', { name: /From lecture · / }).first().click();
   await p.getByRole('button', { name: /Flashcards/ }).first().click();
-  await p.getByRole('button', { name: /Reveal Answer/ }).click();
-  await p.getByRole('button', { name: /Reveal|Show Question/ }).scrollIntoViewIfNeeded();
+  await p.getByRole('button', { name: /^Show answer$/ }).click();
+  await p.getByRole('button', { name: /Show answer|Show the question/ }).scrollIntoViewIfNeeded();
   await shot('04-flashcard', false);
   await p.getByRole('button', { name: /^Good/ }).first().click();
   await p.getByRole('button', { name: /Quiz/ }).first().click();

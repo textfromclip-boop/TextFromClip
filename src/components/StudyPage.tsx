@@ -23,6 +23,9 @@ import {
 } from '../utils/packExporters';
 import { trackEvent } from '../utils/analytics';
 import { PAYMENTS_ENABLED } from '../shared/launch';
+import { FlashcardReviewer } from './study/FlashcardReviewer';
+import { QuizRunner } from './study/QuizRunner';
+import { QuizQuestion } from '../types';
 import {
   fetchAuthSession,
   GoogleGLogo,
@@ -45,6 +48,7 @@ export const StudyPage: React.FC = () => {
   const [mode, setMode] = useState<'dashboard' | 'review' | 'quiz'>('dashboard');
   const [cardIdx, setCardIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [sessionReviewed, setSessionReviewed] = useState(0);
 
   // Interactive lecture timestamp player inside /study
   const [seekInfo, setSeekInfo] = useState<{
@@ -148,6 +152,7 @@ export const StudyPage: React.FC = () => {
       void syncDecksWithCloud([currentDueItem.deck.id]);
     }
     setFlipped(false);
+    setSessionReviewed((n) => n + 1);
     if (cardIdx + 1 < dueQueue.length) {
       setCardIdx(cardIdx);
     } else {
@@ -205,6 +210,7 @@ export const StudyPage: React.FC = () => {
                   setActiveDeckId('all');
                   setCardIdx(0);
                   setFlipped(false);
+                  setSessionReviewed(0);
                   setMode('review');
                 }}
                 className="px-4 py-2.5 rounded-md font-semibold text-sm text-white bg-accent hover:bg-accent-dark transition-colors"
@@ -322,158 +328,24 @@ export const StudyPage: React.FC = () => {
           </div>
 
           {currentDueItem ? (
-            <div className="max-w-2xl mx-auto">
-              <div className="rounded-lg border-2 border-accent/25 bg-surface p-6 sm:p-8">
-                <div className="flex items-center justify-between gap-2 mb-4">
-                  <span className="text-xs font-bold text-muted truncate">
-                    {currentDueItem.deck.title}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setSeekInfo({
-                        provider: currentDueItem.deck.provider,
-                        videoId: currentDueItem.deck.videoId,
-                        seconds: currentDueItem.card.source.start_seconds,
-                        quote: currentDueItem.card.source.quote,
-                        sourceUrl: currentDueItem.deck.sourceUrl,
-                      })
-                    }
-                    className="inline-flex items-center gap-1.5 font-mono text-xs text-accent hover:underline underline-offset-2"
-                    dir="ltr"
-                  >
-                    <span>
-                      From lecture · {formatTimestamp(currentDueItem.card.source.start_seconds)}
-                    </span>
-                  </button>
-                </div>
-
-                <div
-                  onClick={() => setFlipped((f) => !f)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setFlipped((f) => !f);
-                    }
-                  }}
-                  key={`${currentDueItem.card.id}-${flipped ? 'b' : 'f'}`}
-                  style={{ borderTopColor: visualColor(cardIdx), borderTopWidth: 4 }}
-                  className="card-flip cursor-pointer relative overflow-hidden rounded-lg border border-rule bg-surface p-6 sm:p-8 min-h-[260px] flex flex-col justify-between hover:border-ink transition-colors"
-                >
-                  <span
-                  aria-hidden="true"
-                  className="card-number"
-                  data-n={String(cardIdx + 1).padStart(2, '0')}
-                  style={{ color: visualColor(cardIdx) }}
-                />
-                  {!flipped ? (
-                    <div>
-                      <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted mb-3">
-                        Question
-                      </span>
-                      <p dir="auto" className="font-serif text-2xl sm:text-[1.7rem] text-ink leading-snug">
-                        {currentDueItem.card.front}
-                      </p>
-                      {currentDueItem.card.front_translation && (
-                        <p
-                          dir={
-                            currentDueItem.card.bilingual_language?.toLowerCase() === 'arabic'
-                              ? 'rtl'
-                              : 'auto'
-                          }
-                          className="mt-3 p-3 rounded-md bg-slate-50 border border-slate-200 text-base text-slate-800"
-                        >
-                          {currentDueItem.card.front_translation}
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <span className="inline-block px-2 py-0.5 rounded bg-emerald-50 text-[11px] font-mono uppercase text-emerald-700 mb-2">
-                        Answer
-                      </span>
-                      <p dir="auto" className="text-lg sm:text-xl text-ink leading-relaxed">
-                        {currentDueItem.card.back}
-                      </p>
-                      {currentDueItem.card.back_translation && (
-                        <p
-                          dir={
-                            currentDueItem.card.bilingual_language?.toLowerCase() === 'arabic'
-                              ? 'rtl'
-                              : 'auto'
-                          }
-                          className="mt-3 p-3 rounded-md bg-slate-50 border border-slate-200 text-base text-slate-800"
-                        >
-                          {currentDueItem.card.back_translation}
-                        </p>
-                      )}
-                      <p dir="auto" className="mt-3 text-xs text-muted italic">
-                        Verbatim lecture quote: “{currentDueItem.card.source.quote}”
-                      </p>
-                      {currentDueItem.card.ai_explanation && (
-                        <div
-                          dir="auto"
-                          className="mt-3 p-3 rounded-md bg-[#F5F3FF] border border-[#502EF0]/25 text-xs text-[#1E1B4B]"
-                        >
-                          <span className="inline-block px-2 py-0.5 mr-2 rounded bg-[#502EF0] text-white font-bold text-[10px] uppercase">
-                            AI explanation
-                          </span>
-                          <bdi dir="auto">{currentDueItem.card.ai_explanation}</bdi>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-muted">
-                    <span>
-                      Interval: {currentDueItem.card.interval}d · Ease: {currentDueItem.card.ease} · Reps:{' '}
-                      {currentDueItem.card.reps}
-                    </span>
-                    <span className="font-semibold text-accent">
-                      {flipped ? 'Show Question' : 'Flip card'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* SM-2 Buttons: Again / Hard / Good / Easy */}
-              <div className="mt-4 grid grid-cols-4 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => handleGrade('again')}
-                  className="py-3 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm"
-                >
-                  Again
-                  <span className="block text-[11px] font-normal text-muted">Due today</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGrade('hard')}
-                  className="py-3 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm"
-                >
-                  Hard
-                  <span className="block text-[11px] font-normal text-muted">Short interval</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGrade('good')}
-                  className="py-3 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm"
-                >
-                  Good
-                  <span className="block text-[11px] font-normal text-muted">Standard SM-2</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGrade('easy')}
-                  className="py-3 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm"
-                >
-                  Easy
-                  <span className="block text-[11px] font-normal text-muted">Bonus interval</span>
-                </button>
-              </div>
-            </div>
+            <FlashcardReviewer
+              card={currentDueItem.card}
+              position={sessionReviewed + 1}
+              total={sessionReviewed + dueQueue.length}
+              accent={visualColor(cardIdx + sessionReviewed)}
+              deckLabel={activeDeckId === 'all' ? currentDueItem.deck.title : undefined}
+              rtl={currentDueItem.card.bilingual_language?.toLowerCase() === 'arabic'}
+              onGrade={handleGrade}
+              onSeek={(seconds, quote) =>
+                setSeekInfo({
+                  provider: currentDueItem.deck.provider,
+                  videoId: currentDueItem.deck.videoId,
+                  seconds,
+                  quote,
+                  sourceUrl: currentDueItem.deck.sourceUrl,
+                })
+              }
+            />
           ) : (
             <div className="max-w-lg mx-auto text-center p-8 rounded-lg bg-surface border border-rule">
               <h3 className="text-xl font-semibold text-ink">You finished today’s queue.</h3>
@@ -506,172 +378,42 @@ export const StudyPage: React.FC = () => {
             <span className="text-xs font-semibold text-muted">{selectedDeck.title}</span>
           </div>
 
-          {!quizDone && selectedDeck.pack.quiz[quizIdx] ? (
-            (() => {
-              const q = selectedDeck.pack.quiz[quizIdx];
-              const chosen = quizAnswers[q.id];
-              return (
-                <div className="rounded-lg border border-rule bg-surface p-6">
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <span className="text-xs font-mono font-bold text-accent uppercase">
-                      Question {quizIdx + 1} of {selectedDeck.pack.quiz.length}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSeekInfo({
-                          provider: selectedDeck.provider,
-                          videoId: selectedDeck.videoId,
-                          seconds: q.source.start_seconds,
-                          quote: q.source.quote,
-                          sourceUrl: selectedDeck.sourceUrl,
-                        })
-                      }
-                      className="inline-flex items-center gap-1.5 font-mono text-xs text-accent hover:underline underline-offset-2"
-                      dir="ltr"
-                    >
-                      From lecture · {formatTimestamp(q.source.start_seconds)}
-                    </button>
-                  </div>
-
-                  <h3 dir="auto" className="text-lg font-bold text-ink">
-                    {q.question}
-                  </h3>
-
-                  <div className="mt-4 space-y-2.5">
-                    {q.options.map((opt, oIdx) => {
-                      const isAnswered = chosen !== undefined;
-                      const isCorrect = oIdx === q.correct_index;
-                      const isSelected = chosen === oIdx;
-                      let cls = 'border-rule bg-surface hover:border-accent text-ink';
-                      if (isAnswered) {
-                        if (isCorrect) cls = 'border-emerald-500 bg-emerald-50 text-emerald-950 font-semibold';
-                        else if (isSelected) cls = 'border-red-400 bg-red-50 text-red-900';
-                        else cls = 'border-rule bg-slate-50 text-muted';
-                      }
-                      return (
-                        <button
-                          key={oIdx}
-                          type="button"
-                          disabled={isAnswered}
-                          onClick={() =>
-                            setQuizAnswers((prev) => ({ ...prev, [q.id]: oIdx }))
-                          }
-                          dir="auto"
-                          className={`w-full text-left p-3.5 rounded-md border text-sm flex items-start gap-3 ${cls}`}
-                        >
-                          <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 text-ink">
-                            {String.fromCharCode(65 + oIdx)}
-                          </span>
-                          <span className="flex-1">{opt}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {chosen !== undefined && (
-                    <div className="mt-4 p-4 rounded-md bg-slate-50 border border-slate-200 text-xs sm:text-sm">
-                      <p className="font-bold text-ink">
-                        {chosen === q.correct_index
-                          ? 'Correct'
-                          : `Incorrect. Answer is ${String.fromCharCode(65 + q.correct_index)}`}
-                      </p>
-                      <p dir="auto" className="mt-1 text-slate-700">
-                        {q.explanation}
-                      </p>
-                    </div>
-                  )}
-
-                  <div className="mt-5 pt-4 border-t border-slate-100 flex justify-between">
-                    <button
-                      type="button"
-                      disabled={quizIdx === 0}
-                      onClick={() => setQuizIdx((i) => Math.max(0, i - 1))}
-                      className="text-xs font-semibold text-muted disabled:opacity-40"
-                    >
-                      ← Previous
-                    </button>
-                    {quizIdx + 1 < selectedDeck.pack.quiz.length ? (
-                      <button
-                        type="button"
-                        onClick={() => setQuizIdx((i) => i + 1)}
-                        className="px-4 py-2 rounded-md bg-accent text-white text-xs font-bold"
-                      >
-                        Next Question →
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          trackEvent('quiz_finished', '/study');
-                          setQuizDone(true);
-                        }}
-                        className="px-5 py-2 rounded-md bg-accent text-white text-xs font-bold"
-                      >
-                        Finish Quiz →
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })()
-          ) : (
-            (() => {
-              const wrongQs = selectedDeck.pack.quiz.filter(
-                (q) => quizAnswers[q.id] !== q.correct_index
-              );
-              const score = selectedDeck.pack.quiz.length - wrongQs.length;
-              return (
-                <div className="rounded-lg border border-rule bg-surface p-6 text-center">
-                  <h3 className="text-2xl font-semibold text-ink">
-                    Score: {score} / {selectedDeck.pack.quiz.length}
-                  </h3>
-                  <div className="mt-5 flex flex-wrap justify-center gap-3">
-                    {wrongQs.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const todayUtc = new Date().toISOString().slice(0, 10);
-                          const missedCards: Flashcard[] = wrongQs.map((q, idx) => ({
-                            id: `missed-${q.id}-${idx}`,
-                            front: q.question,
-                            back: `${q.options[q.correct_index]} — ${q.explanation}`,
-                            source: q.source,
-                            ai_explanation: q.ai_explanation,
-                            due_date: todayUtc,
-                            interval: 0,
-                            ease: 2.5,
-                            reps: 0,
-                          }));
-                          const newDeck = await createMissedQuestionsDeck(
-                            selectedDeck.title,
-                            missedCards,
-                            selectedDeck.provider,
-                            selectedDeck.videoId
-                          );
-                          await refreshStore();
-                          setActiveDeckId(newDeck.id);
-                          setCardIdx(0);
-                          setFlipped(false);
-                          setMode('review');
-                        }}
-                        className="px-5 py-2.5 rounded-md bg-accent text-white font-bold text-xs sm:text-sm"
-                      >
-                        Review what you missed ({wrongQs.length} cards) →
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setMode('dashboard')}
-                      className="px-4 py-2.5 rounded-md border border-rule font-bold text-xs sm:text-sm"
-                    >
-                      Back to Decks
-                    </button>
-                  </div>
-                </div>
-              );
-            })()
-          )}
+          <QuizRunner
+            key={`${selectedDeck.id}-${quizIdx}`}
+            questions={selectedDeck.pack.quiz}
+            trackPath="/study"
+            onSeek={(seconds, quote) =>
+              setSeekInfo({
+                provider: selectedDeck.provider,
+                videoId: selectedDeck.videoId,
+                seconds,
+                quote,
+                sourceUrl: selectedDeck.sourceUrl,
+              })
+            }
+            onReviewMissed={async (missed: QuizQuestion[]) => {
+              const todayUtc = new Date().toISOString().slice(0, 10);
+              const missedCards: Flashcard[] = missed.map((q, idx) => ({
+                id: `missed-${q.id}-${idx}`,
+                front: q.question,
+                back: `${q.options[q.correct_index]} — ${q.explanation}`,
+                source: q.source,
+                ai_explanation: q.ai_explanation,
+                due_date: todayUtc,
+                interval: 0,
+                ease: 2.5,
+                reps: 0,
+              }));
+              const newDeck = await createMissedQuestionsDeck(selectedDeck.title, missedCards, selectedDeck.provider, selectedDeck.videoId);
+              await refreshStore();
+              setActiveDeckId(newDeck.id);
+              setCardIdx(0);
+              setSessionReviewed(0);
+              setFlipped(false);
+              setSessionReviewed(0);
+                  setMode('review');
+            }}
+          />
         </div>
       )}
 
@@ -740,7 +482,8 @@ export const StudyPage: React.FC = () => {
                             setActiveDeckId(deck.id);
                             setCardIdx(0);
                             setFlipped(false);
-                            setMode('review');
+                            setSessionReviewed(0);
+                  setMode('review');
                           }}
                           className="px-3.5 py-2 rounded-md bg-ink text-white text-sm font-semibold hover:bg-ink/90"
                         >

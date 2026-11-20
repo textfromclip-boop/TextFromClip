@@ -102,7 +102,7 @@ async function run(label, contextOpts, ip) {
   // 5. Study 5 cards
   await page.getByRole('button', { name: /Flashcards \(/ }).click();
   for (let i = 0; i < 5; i++) {
-    await page.getByRole('button', { name: /Reveal Answer/ }).click();
+    await page.getByRole('button', { name: /^Show answer$/ }).click();
     await page.getByRole('button', { name: /^Good/ }).first().click();
   }
   await shot(page, 'studied-5-cards');
@@ -155,7 +155,7 @@ async function run(label, contextOpts, ip) {
   for (let q = 0; q < 10; q++) {
     const opts = page.locator('main button[dir="auto"]:not([disabled])');
     await opts.first().click();
-    const next = page.getByRole('button', { name: /Next Question|Finish Quiz|Finish & See Score/ });
+    const next = page.getByRole('button', { name: /Next question|Finish & see score/ });
     if (await next.count()) await next.first().click();
   }
   await page.getByText(/Review what you missed/).first().waitFor({ timeout: 5000 });

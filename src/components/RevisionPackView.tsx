@@ -14,12 +14,10 @@ import { trackEvent } from '../utils/analytics';
 import { scheduleFlashcardSm2, Sm2Rating } from '../utils/sm2';
 import { visualColor } from '../utils/packVisuals';
 import { CardSheetVisual, MindMapVisual, SketchnotesVisual } from './PackVisuals';
-
-/** Shows the interval SM-2 will actually schedule for this card and rating. */
-function intervalLabel(card: Flashcard, rating: Sm2Rating): string {
-  const days = scheduleFlashcardSm2(card, rating).interval;
-  return days === 0 ? 'today' : `${days}d`;
-}
+import { FlashcardReviewer, SessionSummary } from './study/FlashcardReviewer';
+import { QuizRunner } from './study/QuizRunner';
+import { AiNote, QuoteBlock, SourceChip } from './study/StudyBits';
+import { QuizQuestion } from '../types';
 
 interface RevisionPackViewProps {
   pack: RevisionPack;
@@ -56,13 +54,10 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
   const [cardViewMode, setCardViewMode] = useState<'study' | 'list'>('study');
   const [activeCardIdx, setActiveCardIdx] = useState(0);
   const [isCardFlipped, setIsCardFlipped] = useState(false);
-  const [reviewedCardIds, setReviewedCardIds] = useState<Record<string, string>>({});
+  const [reviewedCardIds, setReviewedCardIds] = useState<Record<string, Sm2Rating>>({});
   const [customDeckCards, setCustomDeckCards] = useState<Flashcard[] | null>(null);
-
-  // Quiz interactive state (1 question at a time)
-  const [quizIdx, setQuizIdx] = useState(0);
-  const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number>>({});
-  const [quizFinished, setQuizFinished] = useState(false);
+  const [sessionDone, setSessionDone] = useState(false);
+  const [quizKey, setQuizKey] = useState(0);
 
   const mediaPlayerRef = useRef<HTMLVideoElement | HTMLAudioElement | null>(null);
   const playerContainerRef = useRef<HTMLDivElement | null>(null);
@@ -77,9 +72,8 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
     setIsCardFlipped(false);
     setReviewedCardIds({});
     setCustomDeckCards(null);
-    setQuizIdx(0);
-    setSelectedAnswers({});
-    setQuizFinished(false);
+    setSessionDone(false);
+    setQuizKey((k) => k + 1);
   }, [pack.id]);
 
   // Seek local HTML5 video/audio element when seekSeconds updates
@@ -127,10 +121,8 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
   const activeDeck = customDeckCards || liveFlashcards;
   const currentCard = activeDeck[activeCardIdx] || activeDeck[0];
 
-  const handleGradeCard = (rating: 'again' | 'hard' | 'good' | 'easy') => {
+  const handleGradeCard = (rating: Sm2Rating) => {
     if (!currentCard) return;
-    // Release focus from the clicked grade button so Space flips the next card instead of re-grading.
-    (document.activeElement as HTMLElement | null)?.blur?.();
     trackEvent('card_reviewed');
     const updatedCard = scheduleFlashcardSm2(currentCard, rating);
     const applyCardUpdate = (cards: Flashcard[]) =>
@@ -139,28 +131,24 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
     setCustomDeckCards((prev) => (prev ? applyCardUpdate(prev) : prev));
     setReviewedCardIds((prev) => ({ ...prev, [currentCard.id]: rating }));
     onCardReviewed?.(currentCard, rating);
-    setIsCardFlipped(false);
     if (activeCardIdx + 1 < activeDeck.length) {
       setActiveCardIdx((i) => i + 1);
     } else {
-      setActiveCardIdx(0);
+      setSessionDone(true);
     }
   };
 
-  const currentQuestion = pack.quiz[quizIdx] || pack.quiz[0];
-  const wrongQuestions = pack.quiz.filter(
-    (q) =>
-      selectedAnswers[q.id] !== undefined &&
-      selectedAnswers[q.id] !== q.correct_index
-  );
-  const quizScore = pack.quiz.reduce(
-    (acc, q) => acc + (selectedAnswers[q.id] === q.correct_index ? 1 : 0),
-    0
-  );
+  const startSession = (cards: Flashcard[] | null) => {
+    setCustomDeckCards(cards);
+    setActiveCardIdx(0);
+    setReviewedCardIds({});
+    setSessionDone(false);
+    setCardViewMode('study');
+  };
 
-  const handleReviewMissedFromQuiz = () => {
+  const handleReviewMissedFromQuiz = (missed: QuizQuestion[]) => {
     const todayUtc = new Date().toISOString().slice(0, 10);
-    const missedCards: Flashcard[] = wrongQuestions.map((q, idx) => ({
+    const missedCards: Flashcard[] = missed.map((q, idx) => ({
       id: `missed-${q.id}-${idx}`,
       front: q.question,
       back: `${q.options[q.correct_index]} — ${q.explanation}`,
@@ -172,61 +160,15 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
       reps: 0,
     }));
     if (missedCards.length > 0) {
-      setCustomDeckCards(missedCards);
-      setActiveCardIdx(0);
-      setIsCardFlipped(false);
-      setCardViewMode('study');
+      startSession(missedCards);
       setActiveSection('flashcards');
       onBuildMissedDeck?.(missedCards);
     }
   };
 
-  const renderSourceBadge = (startSeconds: number, quote: string) => {
-    const label = `From lecture · ${formatTimestamp(startSeconds)}`;
-    return (
-      <button
-        type="button"
-        onClick={() => handleSeekToLecture(startSeconds, quote)}
-        title={`Play lecture at ${formatTimestamp(startSeconds)} — "${quote}"`}
-        className="inline-flex items-center gap-1.5 font-mono text-xs text-accent hover:text-accent-dark hover:underline underline-offset-2 shrink-0"
-        dir="ltr"
-      >
-        <svg className="w-3 h-3 fill-current shrink-0" viewBox="0 0 24 24">
-          <path d="M8 5v14l11-7z" />
-        </svg>
-        <span>{label}</span>
-      </button>
-    );
-  };
-
-  const renderAiExplanationBox = (aiExplanation?: string) => {
-    if (!aiExplanation) return null;
-    return (
-      <div dir="auto" className="mt-3 border-l-2 border-[#502EF0] pl-3.5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#502EF0]">AI explanation</p>
-        <p className="mt-0.5 text-sm text-muted leading-relaxed">
-          <bdi dir="auto">{aiExplanation}</bdi>
-        </p>
-      </div>
-    );
-  };
-
-  // Study shortcuts: Space/Enter flips, 1-4 = Again/Hard/Good/Easy (after flipping)
-  useEffect(() => {
-    if (activeSection !== 'flashcards' || cardViewMode !== 'study') return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      if (t && /^(INPUT|SELECT|TEXTAREA|BUTTON|A)$/.test(t.tagName)) return;
-      if (e.key === ' ' || e.key === 'Enter') {
-        e.preventDefault();
-        setIsCardFlipped((f) => !f);
-      } else if (isCardFlipped && ['1', '2', '3', '4'].includes(e.key)) {
-        handleGradeCard((['again', 'hard', 'good', 'easy'] as const)[Number(e.key) - 1]);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  });
+  const renderSourceBadge = (startSeconds: number, quote: string) => (
+    <SourceChip source={{ start_seconds: startSeconds, end_seconds: startSeconds, quote }} onSeek={handleSeekToLecture} />
+  );
 
   const isArabic =
     pack.secondLanguage?.toLowerCase() === 'arabic' ||
@@ -433,38 +375,66 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
         </div>
       </div>
 
-      {/* SECTION 1: STRUCTURED NOTES — reads like a page of notes, not a stack of cards */}
+      {/* SECTION 1: STRUCTURED NOTES — numbered sections, contents rail, quotes as real quotations */}
       {activeSection === 'notes' && (
-        <div className="px-5 sm:px-8 py-6 sm:py-8 max-w-3xl">
-          {pack.notes.map((section, sIdx) => (
-            <section key={section.id} className={sIdx > 0 ? 'mt-10' : ''}>
-              <h4 dir="auto" className="font-serif text-xl sm:text-2xl text-ink">
-                {section.heading}
-              </h4>
-
-              <ul className="mt-3 border-t border-rule">
-                {section.bullets.map((bullet) => (
-                  <li key={bullet.id} className="py-4 border-b border-rule">
-                    <p dir="auto" className="text-[15px] sm:text-base text-ink leading-relaxed">
-                      {bullet.is_definition && bullet.term ? (
-                        <strong className="font-semibold">{bullet.term}: </strong>
-                      ) : null}
-                      {bullet.text}
-                    </p>
-
-                    <p dir="auto" className="mt-1.5 text-sm text-ink/75 leading-relaxed">
-                      <span className="sr-only">Verbatim lecture quote: </span>
-                      <span className="quote-mark">“{bullet.source.quote}”</span>
-                    </p>
-
-                    <div className="mt-2">{renderSourceBadge(bullet.source.start_seconds, bullet.source.quote)}</div>
-
-                    {renderAiExplanationBox(bullet.ai_explanation)}
+        <div className={`px-5 sm:px-8 py-7 sm:py-10 ${pack.notes.length > 1 ? 'lg:grid lg:grid-cols-[200px_minmax(0,1fr)] lg:gap-12' : ''}`}>
+          {pack.notes.length > 1 && (
+            <nav aria-label="Note sections" className="hidden lg:block sticky top-24 self-start">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted">Contents</p>
+              <ol className="mt-3 space-y-1 border-l border-rule">
+                {pack.notes.map((section, sIdx) => (
+                  <li key={section.id}>
+                    <a
+                      href={`#note-${section.id}`}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        document.getElementById(`note-${section.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }}
+                      className="-ml-px block border-l-2 border-transparent py-1.5 pl-3 text-sm text-muted hover:border-accent hover:text-ink"
+                    >
+                      <span className="mr-2 font-mono text-xs text-accent">{String(sIdx + 1).padStart(2, '0')}</span>
+                      <span dir="auto">{section.heading}</span>
+                    </a>
                   </li>
                 ))}
-              </ul>
-            </section>
-          ))}
+              </ol>
+            </nav>
+          )}
+          <div className="max-w-3xl">
+            {pack.notes.map((section, sIdx) => (
+              <section key={section.id} id={`note-${section.id}`} className={`scroll-mt-24 ${sIdx > 0 ? 'mt-14' : ''}`}>
+                <div className="flex items-baseline gap-4">
+                  <span className="font-mono text-sm font-medium text-accent">{String(sIdx + 1).padStart(2, '0')}</span>
+                  <div className="min-w-0">
+                    <h4 dir="auto" className="font-serif text-2xl sm:text-[1.75rem] leading-tight text-ink">
+                      {section.heading}
+                    </h4>
+                    <p className="mt-1 text-sm text-muted">
+                      {section.bullets.length} {section.bullets.length === 1 ? 'point' : 'points'}, each checked against the lecture
+                    </p>
+                  </div>
+                </div>
+
+                <ul className="mt-6 space-y-4">
+                  {section.bullets.map((bullet) => (
+                    <li key={bullet.id} className="rounded-2xl border border-rule bg-surface px-5 py-5 sm:px-6">
+                      {bullet.is_definition && bullet.term && (
+                        <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-semibold text-accent">
+                          Definition
+                        </p>
+                      )}
+                      <p dir="auto" className="text-[16px] sm:text-[17px] leading-relaxed text-ink">
+                        {bullet.is_definition && bullet.term ? <strong className="font-semibold">{bullet.term}: </strong> : null}
+                        {bullet.text}
+                      </p>
+                      <QuoteBlock source={bullet.source} onSeek={handleSeekToLecture} className="mt-4" />
+                      <AiNote text={bullet.ai_explanation} className="mt-4" />
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
         </div>
       )}
 
@@ -544,126 +514,25 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
           </div>
 
           {cardViewMode === 'study' && currentCard ? (
-            <div className="max-w-2xl mx-auto">
-              {/* Progress Bar */}
-              <div className="flex items-center justify-between text-xs font-semibold text-muted mb-2">
-                <span>
-                  Card {activeCardIdx + 1} of {activeDeck.length}
-                </span>
-                {renderSourceBadge(currentCard.source.start_seconds, currentCard.source.quote)}
-              </div>
-              <div className="h-1 w-full rounded-full bg-slate-200 overflow-hidden mb-5">
-                <div
-                  className="h-full bg-accent transition-all"
-                  style={{
-                    width: `${Math.round(((activeCardIdx + 1) / Math.max(1, activeDeck.length)) * 100)}%`,
-                  }}
-                />
-              </div>
-
-              {/* Flip Card Box */}
-              <div
-                onClick={() => setIsCardFlipped((f) => !f)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setIsCardFlipped((f) => !f);
-                  }
-                }}
-                key={`${currentCard.id}-${isCardFlipped ? 'b' : 'f'}`}
-                style={{ borderTopColor: visualColor(activeCardIdx), borderTopWidth: 4 }}
-                className="card-flip cursor-pointer relative overflow-hidden rounded-lg border border-rule bg-surface p-6 sm:p-9 hover:border-ink transition-colors min-h-[280px] flex flex-col justify-between"
-              >
-                <span
-                  aria-hidden="true"
-                  className="card-number"
-                  data-n={String(activeCardIdx + 1).padStart(2, '0')}
-                  style={{ color: visualColor(activeCardIdx) }}
-                />
-                <div>
-                  <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted mb-3">
-                    {isCardFlipped ? 'Answer' : 'Question'}
-                  </span>
-
-                  {!isCardFlipped ? (
-                    <>
-                      <p dir="auto" className="font-serif text-2xl sm:text-[1.7rem] text-ink leading-snug">
-                        {currentCard.front}
-                      </p>
-                      {currentCard.front_translation && (
-                        <p
-                          dir={isArabic ? 'rtl' : 'auto'}
-                          className="mt-3 pt-3 border-t border-rule text-base text-ink/80"
-                        >
-                          {currentCard.front_translation}
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <p dir="auto" className="text-lg sm:text-xl text-ink leading-relaxed">
-                        {currentCard.back}
-                      </p>
-                      {currentCard.back_translation && (
-                        <p
-                          dir={isArabic ? 'rtl' : 'auto'}
-                          className="mt-3 pt-3 border-t border-rule text-base text-ink/80"
-                        >
-                          {currentCard.back_translation}
-                        </p>
-                      )}
-                      <p dir="auto" className="mt-4 text-sm text-ink/75"><span className="quote-mark">“{currentCard.source.quote}”</span></p>
-                      {renderAiExplanationBox(currentCard.ai_explanation)}
-                    </>
-                  )}
-                </div>
-
-                <div className="mt-6 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-muted">
-                  <span>Click the card or press Space to flip. After flipping, press 1 to 4 to grade.</span>
-                  <span className="font-semibold text-accent">
-                    {isCardFlipped ? 'Show Question' : 'Reveal Answer'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Spaced Repetition Buttons: Again / Hard / Good / Easy */}
-              <div className="mt-4 grid grid-cols-4 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => handleGradeCard('again')}
-                  className="py-2.5 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm transition-colors"
-                >
-                  Again
-                  <span className="block text-[11px] font-normal text-muted">{currentCard ? intervalLabel(currentCard, 'again') : ''}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGradeCard('hard')}
-                  className="py-2.5 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm transition-colors"
-                >
-                  Hard
-                  <span className="block text-[11px] font-normal text-muted">{currentCard ? intervalLabel(currentCard, 'hard') : ''}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGradeCard('good')}
-                  className="py-2.5 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm transition-colors"
-                >
-                  Good
-                  <span className="block text-[11px] font-normal text-muted">{currentCard ? intervalLabel(currentCard, 'good') : ''}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleGradeCard('easy')}
-                  className="py-2.5 px-3 rounded-md border border-rule bg-surface hover:border-ink text-ink font-semibold text-xs sm:text-sm transition-colors"
-                >
-                  Easy
-                  <span className="block text-[11px] font-normal text-muted">{currentCard ? intervalLabel(currentCard, 'easy') : ''}</span>
-                </button>
-              </div>
-            </div>
+            sessionDone ? (
+              <SessionSummary
+                results={reviewedCardIds}
+                onRestart={() => startSession(customDeckCards)}
+                onReviewForgotten={() =>
+                  startSession(activeDeck.filter((c) => reviewedCardIds[c.id] === 'again'))
+                }
+              />
+            ) : (
+              <FlashcardReviewer
+                card={currentCard}
+                position={activeCardIdx + 1}
+                total={activeDeck.length}
+                accent={visualColor(activeCardIdx)}
+                rtl={isArabic}
+                onGrade={handleGradeCard}
+                onSeek={handleSeekToLecture}
+              />
+            )
           ) : (
             <div className="grid sm:grid-cols-2 gap-4">
               {activeDeck.map((card, idx) => (
@@ -700,7 +569,7 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
                         {card.back_translation}
                       </p>
                     )}
-                    {renderAiExplanationBox(card.ai_explanation)}
+                    <AiNote text={card.ai_explanation} className="mt-3" />
                   </div>
                   <p dir="auto" className="mt-3 text-sm text-ink/75"><span className="quote-mark">“{card.source.quote}”</span></p>
                 </div>
@@ -710,155 +579,10 @@ export const RevisionPackView: React.FC<RevisionPackViewProps> = ({
         </div>
       )}
 
-      {/* SECTION 3: 10-QUESTION MULTIPLE CHOICE QUIZ */}
+      {/* SECTION 3: PRACTICE EXAM */}
       {activeSection === 'quiz' && (
-        <div className="p-4 sm:p-6">
-          {!quizFinished && currentQuestion ? (
-            <div className="max-w-2xl mx-auto">
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <span className="text-xs font-mono font-bold uppercase text-accent">
-                  Question {quizIdx + 1} of {pack.quiz.length}
-                </span>
-                {renderSourceBadge(
-                  currentQuestion.source.start_seconds,
-                  currentQuestion.source.quote
-                )}
-              </div>
-
-              <div className="rounded-lg border border-rule bg-surface p-5 sm:p-6">
-                <h4 dir="auto" className="text-base sm:text-lg font-bold text-ink leading-snug">
-                  {currentQuestion.question}
-                </h4>
-
-                <div className="mt-4 space-y-2.5">
-                  {currentQuestion.options.map((opt, oIdx) => {
-                    const chosen = selectedAnswers[currentQuestion.id];
-                    const isAnswered = chosen !== undefined;
-                    const isCorrect = oIdx === currentQuestion.correct_index;
-                    const isSelected = chosen === oIdx;
-
-                    let btnClass =
-                      'border-rule bg-surface hover:border-accent text-ink';
-                    if (isAnswered) {
-                      if (isCorrect) {
-                        btnClass =
-                          'border-emerald-500 bg-emerald-50 text-emerald-950 font-semibold';
-                      } else if (isSelected) {
-                        btnClass = 'border-red-400 bg-red-50 text-red-900';
-                      } else {
-                        btnClass = 'border-rule bg-slate-50/60 text-muted';
-                      }
-                    }
-
-                    return (
-                      <button
-                        key={oIdx}
-                        type="button"
-                        disabled={isAnswered}
-                        onClick={() =>
-                          setSelectedAnswers((prev) => ({
-                            ...prev,
-                            [currentQuestion.id]: oIdx,
-                          }))
-                        }
-                        dir="auto"
-                        className={`w-full text-left p-3.5 rounded-md border text-sm transition-all flex items-start gap-3 ${btnClass}`}
-                      >
-                        <span className="font-mono font-bold text-xs px-2 py-0.5 rounded bg-slate-100 text-ink shrink-0">
-                          {String.fromCharCode(65 + oIdx)}
-                        </span>
-                        <span className="flex-1">{opt}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {selectedAnswers[currentQuestion.id] !== undefined && (
-                  <div className="mt-4 p-4 rounded-md bg-slate-50 border border-slate-200 text-xs sm:text-sm">
-                    <p dir="auto" className="font-bold text-ink">
-                      {selectedAnswers[currentQuestion.id] === currentQuestion.correct_index
-                        ? 'Correct'
-                        : `Incorrect. Correct answer is ${String.fromCharCode(
-                            65 + currentQuestion.correct_index
-                          )}`}
-                    </p>
-                    <p dir="auto" className="mt-1 text-slate-700 leading-relaxed">
-                      {currentQuestion.explanation}
-                    </p>
-                    <p dir="auto" className="mt-2 text-sm text-ink/75"><span className="quote-mark">“{currentQuestion.source.quote}”</span></p>
-                    {renderAiExplanationBox(currentQuestion.ai_explanation)}
-                  </div>
-                )}
-
-                <div className="mt-5 pt-4 border-t border-slate-100 flex items-center justify-between">
-                  <button
-                    type="button"
-                    disabled={quizIdx === 0}
-                    onClick={() => setQuizIdx((i) => Math.max(0, i - 1))}
-                    className="text-xs font-semibold text-muted hover:text-ink disabled:opacity-40"
-                  >
-                    ← Previous
-                  </button>
-
-                  {quizIdx + 1 < pack.quiz.length ? (
-                    <button
-                      type="button"
-                      onClick={() => setQuizIdx((i) => i + 1)}
-                      className="px-4 py-2 rounded-md bg-accent text-white text-xs font-bold hover:bg-accent-dark"
-                    >
-                      Next Question →
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        trackEvent('quiz_finished');
-                        setQuizFinished(true);
-                      }}
-                      className="px-5 py-2 rounded-md bg-accent text-white text-xs font-bold"
-                    >
-                      Finish & See Score →
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="max-w-2xl mx-auto text-center p-6 rounded-lg border border-rule bg-slate-50/70">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-accent">
-                Mock Exam Complete
-              </span>
-              <h4 className="mt-3 text-2xl sm:text-3xl font-semibold text-ink">
-                You scored {quizScore} / {pack.quiz.length}
-              </h4>
-              <p className="mt-1 text-sm text-muted">
-                Every question is linked directly to its source moment in the lecture.
-              </p>
-
-              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
-                {wrongQuestions.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={handleReviewMissedFromQuiz}
-                    className="px-5 py-2.5 rounded-md bg-accent text-white text-xs sm:text-sm font-bold"
-                  >
-                    Review what you missed ({wrongQuestions.length} cards) →
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedAnswers({});
-                    setQuizIdx(0);
-                    setQuizFinished(false);
-                  }}
-                  className="px-4 py-2.5 rounded-md border border-rule bg-surface text-xs sm:text-sm font-bold text-ink hover:bg-slate-100"
-                >
-                  Retake Quiz
-                </button>
-              </div>
-            </div>
-          )}
+        <div className="px-4 py-7 sm:px-6 sm:py-10">
+          <QuizRunner key={quizKey} questions={pack.quiz} onSeek={handleSeekToLecture} onReviewMissed={handleReviewMissedFromQuiz} />
         </div>
       )}
     </div>
