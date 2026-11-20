@@ -26,13 +26,17 @@ for (const [label, opts, ip] of [['desktop', { viewport: { width: 1280, height: 
 
   // Flashcard: flip animation class, number, shortcuts
   await p.getByRole('button', { name: /Flashcards \(/ }).click();
-  check(`[${label}] flashcard shows its number and flips with Space`, await p.locator('.card-flip').first().isVisible());
+  check(`[${label}] flashcard shows the question first, grade buttons hidden until the answer`, (await p.locator('.flip-card').first().isVisible()) && (await p.getByRole('button', { name: /^Good:/ }).count()) === 0);
   await p.keyboard.press('Space');
-  await p.getByText('Answer', { exact: true }).first().waitFor();
+  await p.locator('.flip-card.is-flipped').waitFor();
+  check(`[${label}] answer shows the four ratings with when the card comes back`, (await p.getByRole('button', { name: /^Good: .*Back tomorrow/ }).count()) === 1 && (await p.getByRole('button', { name: /^Forgot:/ }).count()) === 1);
+  await p.locator('.flip-card').first().scrollIntoViewIfNeeded();
+  await p.waitForTimeout(650);
+  await p.screenshot({ path: join(OUT, `${label}-flashcard-answer.png`) });
   await p.keyboard.press('3');
   await p.getByText(/Card 2 of/).waitFor();
   check(`[${label}] keyboard: Space flips, 3 grades Good and moves on`, true);
-  await p.locator('.card-flip').first().scrollIntoViewIfNeeded();
+  await p.locator('.flip-card').first().scrollIntoViewIfNeeded();
   await p.screenshot({ path: join(OUT, `${label}-flashcard.png`) });
 
   // Visuals

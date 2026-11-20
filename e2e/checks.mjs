@@ -94,7 +94,7 @@ let ctx = await newCtx();
   await page.getByRole('button', { name: /Flashcards \(/ }).click();
   const ar = page.locator('[dir="rtl"]', { hasText: 'ترجمة' }).first();
   check('bilingual: Arabic translation rendered RTL under the original', await ar.isVisible());
-  await page.getByRole('button', { name: /Reveal Answer/ }).click();
+  await page.getByRole('button', { name: /^Show answer$/ }).click();
   await page.screenshot({ path: join(OUT, 'arabic-card.png') });
   await page.close();
 }
