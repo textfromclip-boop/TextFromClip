@@ -3,9 +3,10 @@
 // - Lives at https://<site>/<ADMIN_PATH> where ADMIN_PATH is a secret (16-64 chars). Any other path,
 //   or no ADMIN_PATH configured, behaves exactly like an unknown page (the normal website), so the
 //   console cannot be discovered by guessing and is not part of the website's JavaScript bundle.
-// - Sign-in with ADMIN_TOKEN (>= 24 chars). 5 attempts per 15 minutes per IP.
+// - Sign-in with ADMIN_PASSWORD (>= 8 chars), or ADMIN_TOKEN (>= 24 chars) if no password is set.
+//   5 attempts per 15 minutes per IP. The secret address is the main protection.
 // - Session: HttpOnly, SameSite=Strict cookie scoped to the secret path, signed with COOKIE_SECRET
-//   and bound to the current ADMIN_TOKEN (changing the token signs everyone out). 12 hours.
+//   and bound to the current password (changing it signs everyone out). 12 hours.
 // - Strict CSP (nonce scripts, no external resources), no-store, noindex, no referrer.
 import { hmacSha256Hex, randomToken, sha256Hex, timingSafeEqual } from '../utils/crypto';
 import { parseCookies } from '../utils/quotasAndCache';
@@ -41,7 +42,10 @@ export function resolveAdminPath(env: any): string | null {
   return ADMIN_PATH_RE.test(p) ? p : null;
 }
 
-function adminToken(env: any): string | null {
+/** The console sign-in password: ADMIN_PASSWORD (>= 8 chars), else ADMIN_TOKEN (>= 24 chars). */
+export function adminPassword(env: any): string | null {
+  const p = typeof env?.ADMIN_PASSWORD === 'string' ? env.ADMIN_PASSWORD : '';
+  if (p.length >= 8) return p;
   const t = typeof env?.ADMIN_TOKEN === 'string' ? env.ADMIN_TOKEN : '';
   return t.length >= 24 ? t : null;
 }
@@ -97,14 +101,14 @@ export async function handleAdminRequest(c: any, deps: AdminDeps): Promise<Respo
   const base = `/${adminPath}`;
   if (path !== base && path !== `${base}/` && !path.startsWith(`${base}/`)) return null;
 
-  const token = adminToken(c.env);
+  const token = adminPassword(c.env);
   const secret = deps.getCookieSecret(c);
   const sub = path.slice(base.length).replace(/\/+$/, '') || '/';
   const ip = deps.getClientIp(c);
   const method = c.req.method;
   if (!token) {
     securityHeaders(c);
-    return c.text('Admin is not configured: set ADMIN_TOKEN (at least 24 characters).', 503);
+    return c.text('Admin is not configured: set ADMIN_PASSWORD (at least 8 characters).', 503);
   }
   const signedIn = await verifyAdminSession(parseCookies(c.req.header('cookie'))[COOKIE_NAME], secret, token);
   const cookieBase = `Path=${base}; HttpOnly; SameSite=Strict${deps.isSecureRequest(c) ? '; Secure' : ''}`;
