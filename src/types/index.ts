@@ -104,6 +104,8 @@ export interface CloudflareBindings {
   ADMIN_TOKEN?: string;
   /** Secret address of the private admin console (16-64 letters, digits, - or _). */
   ADMIN_PATH?: string;
+  /** Admin console password (>= 8 chars). Falls back to ADMIN_TOKEN. */
+  ADMIN_PASSWORD?: string;
   /** Site-wide daily AI spending cap in USD. Default 0.09 (inside Cloudflare's free daily AI). */
   AI_DAILY_BUDGET_USD?: string;
   /** Google OAuth 2.0 Client ID & Secret for "Continue with Google" sign-in. */

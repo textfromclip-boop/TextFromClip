@@ -356,6 +356,17 @@ describe('private admin console', () => {
     expect(await verifyAdminSession(`${1_000_000 + 99999}.${session.split('.')[1]}`, secret, ADMIN_TOKEN, 1_000_100)).toBe(false);
   });
 
+  it('a short ADMIN_PASSWORD (8+ chars) works for sign-in; anything shorter is refused', async () => {
+    const pwEnv = { ENVIRONMENT: 'test', ADMIN_PATH, ADMIN_TOKEN, ADMIN_PASSWORD: 'simple1234' } as any;
+    const signIn = (password: string, e: any) =>
+      app.request(`/${ADMIN_PATH}/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin, 'x-forwarded-for': ip() }, body: JSON.stringify({ password }) }, e);
+    expect((await signIn('simple1234', pwEnv)).status).toBe(200);
+    expect((await signIn(ADMIN_TOKEN, pwEnv)).status).toBe(401); // the password replaces the token for sign-in
+    const tooShort = { ...pwEnv, ADMIN_PASSWORD: 'abc123' };
+    expect((await signIn('abc123', tooShort)).status).toBe(401); // ignored, falls back to ADMIN_TOKEN
+    expect((await signIn(ADMIN_TOKEN, tooShort)).status).toBe(200);
+  });
+
   it('with ADMIN_PATH set but no ADMIN_TOKEN, the console refuses to run', async () => {
     const res = await app.request(`/${ADMIN_PATH}`, {}, { ENVIRONMENT: 'test', ADMIN_PATH } as any);
     expect(res.status).toBe(503);
